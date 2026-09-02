@@ -195,6 +195,13 @@ class MolStatDatabase:
             return None
         return str(row[0])
 
+    def job_statuses(self) -> tuple[tuple[str, str], ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT kind, status FROM job_run ORDER BY id"
+            ).fetchall()
+        return tuple((str(row[0]), str(row[1])) for row in rows)
+
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
