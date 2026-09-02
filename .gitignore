@@ -1,4 +1,6 @@
 .worktrees/
+.port-lvms/
+tests/lvms/fixtures/
 __pycache__/
 .pytest_cache/
 *.py[cod]
