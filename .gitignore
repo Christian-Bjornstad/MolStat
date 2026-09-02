@@ -1,5 +1,6 @@
 .worktrees/
 .port-lvms/
+.port-pulse/
 tests/lvms/fixtures/
 __pycache__/
 .pytest_cache/
