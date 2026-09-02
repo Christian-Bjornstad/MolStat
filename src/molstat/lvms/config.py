@@ -12,6 +12,21 @@ class ConfigError(ValueError):
     """Local browser configuration is missing or unsafe."""
 
 
+PLACEHOLDER_LVMS_HOSTS = frozenset(
+    {"lvms.example.invalid", "lvms.sykehus.no"}
+)
+
+
+def is_placeholder_landing_url(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        hostname = urlsplit(value.strip()).hostname
+    except ValueError:
+        return False
+    return bool(hostname and hostname.lower() in PLACEHOLDER_LVMS_HOSTS)
+
+
 @dataclass(frozen=True)
 class BrowserConfig:
     landing_url: str
@@ -48,6 +63,10 @@ def validate_config(
 
     if parsed.scheme != "https" or not hostname:
         raise ConfigError("landing_url must be an HTTPS URL")
+    if is_placeholder_landing_url(landing_url):
+        raise ConfigError(
+            "Oppsett: erstatt eksempeladressen med den faktiske LVMS-adressen"
+        )
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ConfigError(
             "landing_url must not contain credentials, query, or fragment"

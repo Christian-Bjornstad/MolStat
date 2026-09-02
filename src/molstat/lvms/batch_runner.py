@@ -6,16 +6,24 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
+from urllib.parse import urlsplit
 
-from molstat.lvms.batch_form import BatchReportForm
+from molstat.lvms.batch_form import BatchFormError, BatchReportForm
 from molstat.lvms.batch_navigation import (
+    BatchNavigationError,
     DefinedReportsNavigator,
     DefinedReportsPage,
     discover_defined_reports_page,
 )
 from molstat.lvms.browser_runtime import BrowserCleanupError, close_owned, open_page
 from molstat.lvms.browser_session import open_owned_browser
-from molstat.lvms.cdp import BrowserPage, CdpConnection
+from molstat.lvms.cdp import (
+    BrowserPage,
+    CdpConnection,
+    CdpNavigationError,
+    CdpProtocolError,
+    CdpTimeout,
+)
 from molstat.lvms.config import AppConfig, load_app_config
 from molstat.lvms.dom_actions import DocumentDomActions
 from molstat.lvms.downloads import (
@@ -78,6 +86,36 @@ def _write_review(stream: TextIO, job: ReportJob) -> None:
     stream.write(f"Report ID: {review.report_id}\n")
     stream.write(f"Analysis count: {review.analysis_count}\n")
     stream.write(f"Interval: {review.created_from} to {review.created_to}\n")
+
+
+def _write_active_config(
+    stream: TextIO, config_path: Path, config: AppConfig
+) -> None:
+    host = urlsplit(config.landing_url).hostname or "ukjent"
+    stream.write(f"Oppsett: {config_path}\n")
+    stream.write(f"LVMS-vert: {host}\n")
+    stream.write(f"Edge-profil: {config.profile_directory}\n")
+
+
+def _safe_failure_reason(error: Exception, stage: str) -> str | None:
+    if isinstance(error, BatchFormError):
+        return f"LVMS-rapportskjemaet kunne ikke fylles ut ({stage})"
+    if isinstance(error, BatchNavigationError):
+        return f"Fant ikke siden «Definerte rapporter» ({stage})"
+    if stage != "lvms_open":
+        return None
+    if isinstance(error, CdpNavigationError):
+        return f"Edge kunne ikke nå LVMS ({error.category})"
+    if isinstance(error, CdpTimeout):
+        if str(error) == "SSO did not return to the expected origin":
+            return (
+                "SSO returnerte ikke til LVMS; kontroller innlogging "
+                "og Edge-profil"
+            )
+        return "Tidsavbrudd mens Edge åpnet LVMS"
+    if isinstance(error, CdpProtocolError):
+        return "Edge avviste navigasjonen til LVMS"
+    return None
 
 
 def _wait_for_page(
@@ -144,6 +182,7 @@ def run_report_batch(
         if not 1 <= timeout_seconds <= 3600:
             raise ValueError("report timeout is invalid")
         config = active.config_load(config_path, root)
+        _write_active_config(stream, config_path, config)
         output_directory = (root / "rådata").resolve()
         output_directory.mkdir(parents=True, exist_ok=True)
         set_stage("job_definitions")
@@ -213,9 +252,12 @@ def run_report_batch(
     except KeyboardInterrupt:
         stream.write("Batch cancelled.\n")
         result = 130
-    except Exception:
+    except Exception as exc:
         if failure is not None:
             failure(current_stage)
+        reason = _safe_failure_reason(exc, current_stage)
+        if reason is not None:
+            stream.write(f"Årsak: {reason}.\n")
         if current_job is None:
             stream.write("Batch failed safely.\n")
         else:

@@ -31,3 +31,4 @@ class ReportRequest:
 
 class LvmsClient(Protocol):
     def fetch(self, request: ReportRequest, download_dir: Path) -> Path: ...
+

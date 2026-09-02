@@ -12,7 +12,7 @@ class ReportJobError(ValueError):
     """A local report job is incomplete or unsafe."""
 
 
-JOB_FIELDS = frozenset(
+REQUIRED_JOB_FIELDS = frozenset(
     {
         "job_key",
         "report_type",
@@ -24,6 +24,7 @@ JOB_FIELDS = frozenset(
         "output_stem",
     }
 )
+OPTIONAL_JOB_FIELDS = frozenset({"report_groups"})
 CODE_PATTERN = re.compile(r"[A-Z0-9-]{1,80}")
 KEY_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
 OUTPUT_STEM_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
@@ -59,9 +60,13 @@ class ReportJob:
     analysis_codes: tuple[str, ...]
     interval: ReportInterval
     output_stem: str
+    report_groups: tuple[str, ...] = ()
 
     def analysis_text(self) -> str:
         return ",".join(self.analysis_codes)
+
+    def report_groups_text(self) -> str:
+        return ",".join(self.report_groups)
 
     def review(self) -> JobReview:
         start, end = self.interval.as_lvms()
@@ -112,7 +117,11 @@ def _date(raw: Mapping[str, object], key: str) -> date:
 
 
 def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
-    if not isinstance(raw, Mapping) or set(raw) != JOB_FIELDS:
+    if not isinstance(raw, Mapping):
+        raise ReportJobError("report job fields are invalid")
+    fields = set(raw)
+    allowed_fields = REQUIRED_JOB_FIELDS | OPTIONAL_JOB_FIELDS
+    if not REQUIRED_JOB_FIELDS <= fields or not fields <= allowed_fields:
         raise ReportJobError("report job fields are invalid")
     job_key = _text(raw, "job_key", maximum=80)
     output_stem = _text(raw, "output_stem", maximum=80)
@@ -133,6 +142,19 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         codes.append(code)
     if len(set(codes)) != len(codes):
         raise ReportJobError("analysis codes contain duplicates")
+    raw_groups = raw.get("report_groups", [])
+    if not isinstance(raw_groups, list) or len(raw_groups) > 50:
+        raise ReportJobError("report groups are invalid")
+    groups: list[str] = []
+    for raw_group in raw_groups:
+        if not isinstance(raw_group, str):
+            raise ReportJobError("report group is invalid")
+        group = raw_group.strip()
+        if not CODE_PATTERN.fullmatch(group):
+            raise ReportJobError("report group is invalid")
+        groups.append(group)
+    if len(set(groups)) != len(groups):
+        raise ReportJobError("report groups contain duplicates")
     created_from = _date(raw, "created_from")
     created_to = _date(raw, "created_to")
     if created_from > created_to:
@@ -145,6 +167,7 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         analysis_codes=tuple(codes),
         interval=ReportInterval(created_from, created_to),
         output_stem=output_stem,
+        report_groups=tuple(groups),
     )
 
 

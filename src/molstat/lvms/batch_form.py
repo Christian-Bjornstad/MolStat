@@ -23,15 +23,35 @@ _ROLE_ALIASES = {
     "report_id": ("report id", "rapport id"),
     "notes": ("notes", "notater"),
     "analysis_codes": ("analyses", "angi analyse(r)"),
-    "created_from": ("created from", "analyse opprettet fom:"),
-    "created_to": ("created to", "analyse opprettet tom:"),
+    "report_groups": (
+        "report groups",
+        "rapportgrupper",
+        "velg en eller flere rapportgrupper",
+    ),
+    "created_from": (
+        "created from",
+        "analyse opprettet fom:",
+        "analysebestilling fra og med dato",
+        "analysebestilling fra og med dato:",
+    ),
+    "created_to": (
+        "created to",
+        "analyse opprettet tom:",
+        "analysebestilling til og med dato",
+        "analysebestilling til og med dato:",
+    ),
 }
-_CLEAR_DYNAMIC_ROLES = ("analysis_codes", "created_from", "created_to")
+_CLEAR_DYNAMIC_ROLES = (
+    "analysis_codes",
+    "created_from",
+    "created_to",
+)
 _ROLE_TAGS = {
     "category": frozenset({"INPUT", "SELECT"}),
     "report_id": frozenset({"INPUT", "SELECT"}),
     "notes": frozenset({"INPUT", "TEXTAREA"}),
     "analysis_codes": frozenset({"INPUT", "TEXTAREA"}),
+    "report_groups": frozenset({"INPUT", "TEXTAREA"}),
     "created_from": frozenset({"INPUT"}),
     "created_to": frozenset({"INPUT"}),
 }
@@ -40,6 +60,7 @@ _ROLE_TYPES = {
     "report_id": frozenset({"", "text", "search"}),
     "notes": frozenset({"", "text", "search"}),
     "analysis_codes": frozenset({"", "text", "search"}),
+    "report_groups": frozenset({"", "text", "search"}),
     "created_from": frozenset({"", "text", "date"}),
     "created_to": frozenset({"", "text", "date"}),
 }
@@ -265,6 +286,11 @@ class BatchReportForm:
         self._sleep(0.5)
         report_id = self._wait_for("report_id")
         self._actions.commit_choice(report_id)
+        if job.report_groups:
+            report_groups = self._wait_for("report_groups")
+            self._actions.replace_text(
+                report_groups, job.report_groups_text()
+            )
         analysis_codes = self._wait_for("analysis_codes")
         created_from = self._wait_for("created_from")
         created_to = self._wait_for("created_to")
