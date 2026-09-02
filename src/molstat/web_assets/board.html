@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="no">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MolStat</title>
+  <link rel="stylesheet" href="/assets/board.css">
+  <script src="/assets/board.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Operativ oversikt</p>
+      <h1>MolStat</h1>
+    </div>
+    <div class="masthead-meta">
+      <span id="unit-label">MolPat</span>
+      <time id="generated-at">Laster data …</time>
+    </div>
+  </header>
+
+  <div id="stale-banner" class="status-banner stale" role="status" hidden>
+    Dataene er eldre enn forventet. Kontroller siste LVMS-kjøring.
+  </div>
+  <div id="offline-status" class="status-banner offline" role="status" aria-live="polite" hidden>
+    Forbindelsen er brutt – viser sist oppdaterte data.
+  </div>
+
+  <main id="dashboard">
+    <section class="focus" aria-labelledby="focus-title">
+      <div class="focus-primary">
+        <p id="focus-title" class="kpi-label">Klare nå</p>
+        <strong id="ready-total" class="focus-number">—</strong>
+        <p class="focus-note">Prøver som har ankommet og kan analyseres</p>
+      </div>
+      <dl class="secondary-kpis">
+        <div><dt>Ikke godkjent</dt><dd id="approval-total">—</dd></div>
+        <div><dt>På vei</dt><dd id="transit-total">—</dd></div>
+        <div class="overdue-kpi"><dt>Over frist</dt><dd id="overdue-total">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="analysis-section" aria-labelledby="analysis-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Analyseområder</p>
+          <h2 id="analysis-heading">Arbeidsflyt akkurat nå</h2>
+        </div>
+        <p id="empty-count" class="empty-count">Laster områder …</p>
+      </div>
+      <div id="analysis-grid" class="analysis-grid" aria-live="polite"></div>
+      <p id="empty-state" class="empty-state" hidden>Ingen aktive analyseområder akkurat nå.</p>
+    </section>
+  </main>
+
+  <footer class="board-footer">
+    <div class="legend" aria-label="Statusforklaring">
+      <span><i class="dot normal"></i>Normal</span>
+      <span><i class="dot warning"></i>Varsel</span>
+      <span><i class="dot overdue"></i>Over frist</span>
+    </div>
+    <p id="page-indicator" aria-live="polite">Side 1 av 1</p>
+  </footer>
+</body>
+</html>
+
