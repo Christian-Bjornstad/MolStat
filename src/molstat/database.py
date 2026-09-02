@@ -202,6 +202,25 @@ class MolStatDatabase:
             ).fetchall()
         return tuple((str(row[0]), str(row[1])) for row in rows)
 
+    def last_successes(self) -> dict[str, datetime | None]:
+        result: dict[str, datetime | None] = {
+            "statistics": None,
+            "backlog": None,
+        }
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT kind, MAX(finished_at)
+                FROM job_run
+                WHERE status = 'succeeded'
+                GROUP BY kind
+                """
+            ).fetchall()
+        for kind, finished_at in rows:
+            if kind in result and finished_at:
+                result[str(kind)] = datetime.fromisoformat(str(finished_at))
+        return result
+
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:

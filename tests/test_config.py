@@ -28,6 +28,11 @@ def test_settings_round_trip_json(tmp_path: Path) -> None:
     expected = MolStatSettings(
         sensitive_root=tmp_path / "sensitive",
         sharepoint_root=tmp_path / "sharepoint",
+        statistics_lookup_paths={
+            "hemato": tmp_path / "lookup-hemato.xlsx",
+            "solide": tmp_path / "lookup-solide.xlsx",
+        },
+        lvms_config_path=tmp_path / "lvms-config.json",
     )
 
     expected.save(settings_path)

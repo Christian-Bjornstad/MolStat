@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "report_id": "PAT-DIT-RESTANSE-OU",
+  "unit": {
+    "key": "hemato",
+    "label": "MolPat hemato"
+  },
+  "thresholds": {
+    "warning_hours": 168,
+    "critical_hours": 336
+  },
+  "analyses": [
+    {
+      "code": "AVVENT-FLOW-BESKJED-TIL-MOLPAT",
+      "label": "Avvent flow + Beskjed til Molpat",
+      "group": "Avvent flow + Beskjed til Molpat",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "AVVENTFLOW-OU",
+        "BESKJED-OU"
+      ],
+      "report_group": "OU-MOTTAKMOLPAT",
+      "warning_hours": 24,
+      "critical_hours": 48
+    },
+    {
+      "code": "AVPIPETTERING-DNA-RNA",
+      "label": "Avpipettering DNA / RNA",
+      "group": "Avpipettering DNA / RNA",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "AVPIP-DNA-OU",
+        "AVPIP-RNA-OU"
+      ],
+      "report_group": "OU-HEM"
+    },
+    {
+      "code": "OPPBEVARING",
+      "label": "Oppbevaring",
+      "group": "Oppbevaring",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "OPPBEVARING-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 24,
+      "critical_hours": 48
+    },
+    {
+      "code": "KML-BCR-ABL1",
+      "label": "KML BCR::ABL1",
+      "group": "KML BCR::ABL1",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "KML-UTREDNING-OU",
+        "KML-BCRABL1-MAJOR-OU",
+        "KML-BCRABL1-MINOR-OU",
+        "KML-BCRABL1-MIKRO-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 336,
+      "critical_hours": 672
+    },
+    {
+      "code": "SCREENING-RNA",
+      "label": "Screening RNA",
+      "group": "Screening RNA",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "HEMAVISION-OU",
+        "REFGEN-GUSB-OU",
+        "AFF1-KMT2A-OU",
+        "CBFB-MYH11-OU",
+        "MLLT3-KMT2A-OU",
+        "RUNX1-RUNX1T1-OU",
+        "BCR-ABL1-OU",
+        "ETV6-RUNX1-OU",
+        "TCF3-PBX1-OU",
+        "DEK-NUP214-OU",
+        "PML-RARA-OU",
+        "KMT2A-PTD-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 48,
+      "critical_hours": 96
+    },
+    {
+      "code": "KVANT-RNA-QPCR-NPM1-TYPE-A",
+      "label": "Kvant RNA (qPCR) + NPM1 Type A",
+      "group": "Kvant RNA (qPCR) + NPM1 Type A",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "REFGEN-GUSB-K-OU",
+        "NPM1A-OU",
+        "AFF1-KMT2A9-Q-OU",
+        "AFF1-KMT2A10-Q-OU",
+        "BCR-ABL1-MAJOR-Q-OU",
+        "BCR-ABL1-MINOR-Q-OU",
+        "CBFB-MYH11A-Q-OU",
+        "CBFB-MYH11D-Q-OU",
+        "CBFB-MYH11E-Q-OU",
+        "MLLT3-KMT2A-E8-Q-OU",
+        "MLLT3-KMT2A-E9-Q-OU",
+        "PML-RARA-BCR1-Q-OU",
+        "PML-RARA-BCR2-Q-OU",
+        "PML-RARA-BCR3-Q-OU",
+        "RUNX1-RUNX1T-Q-OU",
+        "ETV6-RUNX1-Q-OU",
+        "TCF3-PBX1-Q-OU",
+        "AFF1-KMT2A9-O-K-OU",
+        "AFF1-KMT2A10-O-K-OU",
+        "BCR-ABL1-MA-O-K-OU",
+        "BCR-ABL1-MI-O-K-OU",
+        "CBFB-MYH11A-O-K-OU",
+        "CBFB-MYH11D-O-K-OU",
+        "CBFB-MYH11E-O-K-OU",
+        "ETV6-RUNX1-O-K-OU",
+        "MLLT3-KMT-E8-O-K-OU",
+        "MLLT3-KMT-E9-O-K-OU",
+        "PML-RARA-BCR1-O-K-OU",
+        "PML-RARA-BCR2-O-K-OU",
+        "PML-RARA-BCR3-O-K-OU",
+        "RUNX1-RUNX1T-O-K-OU",
+        "TCF3-PBX1-O-K-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 120,
+      "critical_hours": 240
+    },
+    {
+      "code": "KVANT-RNA-DPCR-NPM1-DPCR",
+      "label": "Kvant RNA (dPCR) + NPM1 dPCR",
+      "group": "Kvant RNA (dPCR) + NPM1 dPCR",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "FUSJON-DPCR-OU",
+        "NPM1-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 120,
+      "critical_hours": 240
+    },
+    {
+      "code": "WT1-PRAME",
+      "label": "WT1, PRAME",
+      "group": "WT1, PRAME",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "WT1-OU",
+        "PRAME-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 336,
+      "critical_hours": 672
+    },
+    {
+      "code": "PDGFRA-B-FIP-RNA",
+      "label": "PDGFRA/B + FIP (RNA)",
+      "group": "PDGFRA/B + FIP (RNA)",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "PDGFRA-OU",
+        "PDGFRB-OU",
+        "FIP1L1-PDGFRA-RNA-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 504,
+      "critical_hours": 1008
+    },
+    {
+      "code": "FIP-DNA",
+      "label": "FIP (DNA)",
+      "group": "FIP (DNA)",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "FIP1L1-PDGFRA-DNA-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 336,
+      "critical_hours": 672
+    },
+    {
+      "code": "KIT-D816V",
+      "label": "KIT D816V",
+      "group": "KIT D816V",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "KIT-D816V-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 504,
+      "critical_hours": 1008
+    },
+    {
+      "code": "MYD88",
+      "label": "MYD88",
+      "group": "MYD88",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "MYD88-L265P-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 336,
+      "critical_hours": 672
+    },
+    {
+      "code": "JAK2-V617F",
+      "label": "JAK2 V617F",
+      "group": "JAK2 V617F",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "JAK2-V617F-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 336,
+      "critical_hours": 672
+    },
+    {
+      "code": "JAK2-EKSON-12",
+      "label": "JAK2 ekson 12",
+      "group": "JAK2 ekson 12",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "JAK2-EX12-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 504,
+      "critical_hours": 1008
+    },
+    {
+      "code": "CALR-MPL",
+      "label": "CALR + MPL",
+      "group": "CALR + MPL",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "CALR-OU",
+        "MPL-W515L-OU",
+        "MPL-W515K-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 336,
+      "critical_hours": 672
+    },
+    {
+      "code": "KLONALITET",
+      "label": "Klonalitet",
+      "group": "Klonalitet",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "IGH-VDJ-OU",
+        "IGH-DJ-OU",
+        "IGK-OU",
+        "TRB-OU",
+        "TRG-OU",
+        "TRD-OU",
+        "TRDA-OU",
+        "IKZF1-OU",
+        "STILTAL-OU",
+        "DNA-LADDER-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 120,
+      "critical_hours": 240
+    },
+    {
+      "code": "ASO-MRD",
+      "label": "ASO-MRD",
+      "group": "ASO-MRD",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "ASO-MRD-OU",
+        "ASO-MRD-29-OU",
+        "ASO-MRD-50-OU",
+        "ASO-MRD-71-OU",
+        "REFGEN-ALB-P-OU",
+        "REFGEN-RNASEH-P-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 120,
+      "critical_hours": 240
+    },
+    {
+      "code": "ETABLERING-AV-MARKØR-HTS-OG-SANGER",
+      "label": "Etablering av markør (HTS og Sanger)",
+      "group": "Etablering av markør (HTS og Sanger)",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "ASO-MRD-B-ETA-OU",
+        "ASO-MRD-T-ETA-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 480,
+      "critical_hours": 960
+    },
+    {
+      "code": "FLT3-NPM1",
+      "label": "FLT3 + NPM1",
+      "group": "FLT3 + NPM1",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "FLT3-ITD-OU",
+        "FLT3-TKD-OU",
+        "NPM1-FRAG-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 120,
+      "critical_hours": 240
+    },
+    {
+      "code": "HTS-FUSIONPLEX-PAN-HEME",
+      "label": "HTS FusionPlex Pan-Heme",
+      "group": "HTS FusionPlex Pan-Heme",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "HTS-PAN-HEM-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 504,
+      "critical_hours": 1008
+    },
+    {
+      "code": "HTS-MYELOID-PANEL",
+      "label": "HTS Myeloid Panel",
+      "group": "HTS Myeloid Panel",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "HTS-MYELOID-OU",
+        "HTS-MYELOID-TP53-OU",
+        "HTS-KIMKTR-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 504,
+      "critical_hours": 1008
+    },
+    {
+      "code": "HTS-IGHV",
+      "label": "HTS IGHV",
+      "group": "HTS IGHV",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "HTS-IGH-OU"
+      ],
+      "report_group": "OU-HEM",
+      "warning_hours": 720,
+      "critical_hours": 1440
+    },
+    {
+      "code": "KRAS-NRAS-TG01-STUDIE",
+      "label": "KRAS-NRAS TG01-studie",
+      "group": "KRAS-NRAS TG01-studie",
+      "priority": "standard",
+      "enabled": true,
+      "source_codes": [
+        "KRAS-TG01-OU",
+        "NRAS-TG01-OU",
+        "BRAF-TG01-OU"
+      ],
+      "report_group": "OU-HEM"
+    }
+  ]
+}

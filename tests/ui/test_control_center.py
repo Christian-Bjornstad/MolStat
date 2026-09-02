@@ -24,6 +24,23 @@ class FakeBoardController:
         self.opened = True
 
 
+class FakeSettingsStore:
+    def __init__(self) -> None:
+        self.saved: dict[str, str] | None = None
+
+    def load_settings_fields(self) -> dict[str, str]:
+        return {
+            "sensitive_root": "K:/sensitiv",
+            "sharepoint_root": "C:/SharePoint/MolStat",
+            "lvms_url": "https://lvms.example.invalid/app",
+            "lookup_hemato": "K:/sensitiv/lookup-hemato.xlsx",
+            "lookup_solide": "K:/sensitiv/lookup-solide.xlsx",
+        }
+
+    def save_settings_fields(self, values: dict[str, str]) -> None:
+        self.saved = values
+
+
 def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
     window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
     qtbot.addWidget(window)
@@ -87,3 +104,20 @@ def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
         field = window.findChild(object, name)
         assert field is not None
         assert field.accessibleName()
+
+
+def test_settings_are_loaded_and_saved_through_controller(qtbot) -> None:
+    store = FakeSettingsStore()
+    window = MainWindow(FakeOrchestrator(), store, FakeBoardController())
+    qtbot.addWidget(window)
+    window.show()
+
+    assert window.settings_page.sensitive_root.text() == "K:/sensitiv"
+    window.settings_page.sharepoint_root.setText("C:/SharePoint/Ny")
+    qtbot.mouseClick(
+        window.settings_page.save_button, Qt.MouseButton.LeftButton
+    )
+
+    assert store.saved is not None
+    assert store.saved["sharepoint_root"] == "C:/SharePoint/Ny"
+    assert "lagret" in window.statusBar().currentMessage().casefold()

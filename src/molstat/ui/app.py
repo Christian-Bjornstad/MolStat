@@ -82,6 +82,8 @@ class MainWindow(QMainWindow):
         )
         self.overview.run_backlog.clicked.connect(lambda: self._start_job("backlog"))
         self.overview.open_board.clicked.connect(self._open_board)
+        self.settings_page.save_button.clicked.connect(self._save_settings)
+        self._load_settings()
         self._navigate(0)
         self.statusBar().showMessage("MolStat er klar.")
 
@@ -155,6 +157,38 @@ class MainWindow(QMainWindow):
             return
         self.board_controller.open()
         self.statusBar().showMessage("Restansetavlen er åpnet.", 5000)
+
+    def _load_settings(self) -> None:
+        if self.settings_store is None or not hasattr(
+            self.settings_store, "load_settings_fields"
+        ):
+            return
+        values = self.settings_store.load_settings_fields()
+        self.settings_page.sensitive_root.setText(values.get("sensitive_root", ""))
+        self.settings_page.sharepoint_root.setText(values.get("sharepoint_root", ""))
+        self.settings_page.lvms_url.setText(values.get("lvms_url", ""))
+        self.settings_page.lookup_hemato.setText(values.get("lookup_hemato", ""))
+        self.settings_page.lookup_solide.setText(values.get("lookup_solide", ""))
+
+    def _save_settings(self) -> None:
+        if self.settings_store is None or not hasattr(
+            self.settings_store, "save_settings_fields"
+        ):
+            self.statusBar().showMessage("Innstillingslagring er ikke tilgjengelig.")
+            return
+        values = {
+            "sensitive_root": self.settings_page.sensitive_root.text().strip(),
+            "sharepoint_root": self.settings_page.sharepoint_root.text().strip(),
+            "lvms_url": self.settings_page.lvms_url.text().strip(),
+            "lookup_hemato": self.settings_page.lookup_hemato.text().strip(),
+            "lookup_solide": self.settings_page.lookup_solide.text().strip(),
+        }
+        try:
+            self.settings_store.save_settings_fields(values)
+        except ValueError as exc:
+            self.statusBar().showMessage(str(exc), 8000)
+            return
+        self.statusBar().showMessage("Innstillingene er validert og lagret.", 5000)
 
 
 def _nav_button(text: str, name: str) -> QPushButton:

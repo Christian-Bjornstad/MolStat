@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
@@ -13,6 +13,9 @@ class MolStatSettings:
     statistics_hour: int = 5
     backlog_first_hour: int = 6
     backlog_last_hour: int = 18
+    statistics_lookup_paths: dict[str, Path] = field(default_factory=dict)
+    lvms_config_path: Path | None = None
+    lvms_url: str = ""
 
     def validate(self) -> tuple[str, ...]:
         if self.sharepoint_root is not None and _same_path(
@@ -28,6 +31,13 @@ class MolStatSettings:
         payload["sharepoint_root"] = (
             str(self.sharepoint_root) if self.sharepoint_root is not None else None
         )
+        payload["statistics_lookup_paths"] = {
+            unit: str(value)
+            for unit, value in self.statistics_lookup_paths.items()
+        }
+        payload["lvms_config_path"] = (
+            str(self.lvms_config_path) if self.lvms_config_path is not None else None
+        )
         temporary = path.with_name(f".{path.name}.tmp")
         temporary.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
@@ -41,6 +51,12 @@ class MolStatSettings:
         payload["sensitive_root"] = Path(payload["sensitive_root"])
         if payload.get("sharepoint_root") is not None:
             payload["sharepoint_root"] = Path(payload["sharepoint_root"])
+        payload["statistics_lookup_paths"] = {
+            str(unit): Path(value)
+            for unit, value in payload.get("statistics_lookup_paths", {}).items()
+        }
+        if payload.get("lvms_config_path") is not None:
+            payload["lvms_config_path"] = Path(payload["lvms_config_path"])
         return cls(**payload)
 
 
