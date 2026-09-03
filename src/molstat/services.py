@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import socket
 from threading import Event
+import traceback
+from urllib.parse import urlparse
 import webbrowser
 
 from .archive import RawArchive
@@ -53,18 +55,27 @@ class DefaultServices:
         from .ui.app import MainWindow, create_application
 
         application = create_application(self.settings_path)
+        orchestrator, board, error = self.refresh_gui_runtime()
+        window = MainWindow(
+            orchestrator,
+            self,
+            board,
+            configuration_error=error,
+        )
+        window.show()
+        return int(application.exec())
+
+    def refresh_gui_runtime(self) -> tuple[object | None, object | None, str | None]:
         try:
             system = self._build_system(require_statistics=True)
             orchestrator = self._orchestrator(system)
             board = BoardController(
                 lambda: system.public_snapshot(datetime.now()), port=8765
             )
-        except Exception:
-            orchestrator = None
-            board = None
-        window = MainWindow(orchestrator, self, board)
-        window.show()
-        return int(application.exec())
+        except Exception as exc:
+            self._record_failure("gui_configuration_failed", exc)
+            return None, None, f"{type(exc).__name__}: {exc}"
+        return orchestrator, board, None
 
     def run(self, kind: str) -> int:
         try:
@@ -268,6 +279,7 @@ class DefaultServices:
         errors = updated.validate()
         if errors:
             raise ValueError(errors[0])
+        _validate_production_paths(updated)
         updated.save(self.settings_path)
         self.settings = updated
         self._settings_exist = True
@@ -292,3 +304,26 @@ class DefaultServices:
             encoding="utf-8",
         )
         return path
+
+    def _record_failure(self, stage: str, error: BaseException) -> None:
+        local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
+        local_root = Path(local_text) if local_text else Path.home() / "AppData" / "Local"
+        log = local_root / "MolStat" / "logs" / "bootstrap.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as stream:
+            stream.write(f"\n[{stage}] {type(error).__name__}: {error}\n")
+            traceback.print_exception(type(error), error, error.__traceback__, file=stream)
+
+
+def _validate_production_paths(settings: MolStatSettings) -> None:
+    if not settings.sensitive_root.is_dir():
+        raise ValueError("K-sensitiv mappe finnes ikke eller er ikke tilgjengelig.")
+    if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
+        raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
+    for unit in ("hemato", "solide"):
+        lookup = settings.statistics_lookup_paths.get(unit)
+        if lookup is None or not lookup.is_file():
+            raise ValueError(f"Lookup-fil for {unit.capitalize()} finnes ikke.")
+    parsed = urlparse(settings.lvms_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("LVMS-adressen må være en fullstendig http- eller https-adresse.")

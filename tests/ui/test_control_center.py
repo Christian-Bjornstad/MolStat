@@ -41,6 +41,15 @@ class FakeSettingsStore:
         self.saved = values
 
 
+class RefreshingSettingsStore(FakeSettingsStore):
+    def __init__(self, orchestrator, board, error: str | None = None) -> None:
+        super().__init__()
+        self.runtime = (orchestrator, board, error)
+
+    def refresh_gui_runtime(self):
+        return self.runtime
+
+
 def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
     window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
     qtbot.addWidget(window)
@@ -167,3 +176,29 @@ def test_settings_are_loaded_and_saved_through_controller(qtbot) -> None:
     assert store.saved is not None
     assert store.saved["sharepoint_root"] == "C:/SharePoint/Ny"
     assert "lagret" in window.statusBar().currentMessage().casefold()
+
+
+def test_saving_settings_reconfigures_jobs_without_restart(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    board = FakeBoardController()
+    store = RefreshingSettingsStore(orchestrator, board)
+    window = MainWindow(None, store, None)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.settings_page.save_button, Qt.MouseButton.LeftButton)
+
+    assert window.orchestrator is orchestrator
+    assert window.board_controller is board
+    assert "klar" in window.statusBar().currentMessage().casefold()
+
+
+def test_configuration_error_is_visible_in_diagnostics(qtbot) -> None:
+    window = MainWindow(
+        None,
+        None,
+        None,
+        configuration_error="ValueError: Lookup-fil mangler.",
+    )
+    qtbot.addWidget(window)
+
+    assert "Lookup-fil mangler" in window.diagnostics.log.toPlainText()
