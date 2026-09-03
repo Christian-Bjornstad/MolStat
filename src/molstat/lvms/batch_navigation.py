@@ -304,8 +304,12 @@ class DefinedReportsNavigator:
             except BatchNavigationError as exc:
                 error = str(exc)
                 if error == "Edge reached an unexpected origin":
-                    stage("defined_reports_contract_origin")
-                    raise
+                    # LVMS can redirect between the outer origin probe and
+                    # the contract probe while a new page is still settling.
+                    # Treat that race like the transient origin state above.
+                    stage("defined_reports_wait_origin")
+                    self._sleep(0.1)
+                    continue
                 elif error.startswith("Defined Reports ") and error.endswith(
                     " is missing"
                 ):

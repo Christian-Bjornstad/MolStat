@@ -15,8 +15,9 @@ from PyQt6.QtWidgets import (
 class StatusCard(QFrame):
     def __init__(self, title: str, state: str, detail: str) -> None:
         super().__init__()
+        self.title = title
         self.setObjectName("status-card")
-        self.setAccessibleName(f"{title}: {state}. {detail}")
+        self._set_accessible_status(state, detail)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 18)
         layout.setSpacing(7)
@@ -34,6 +35,10 @@ class StatusCard(QFrame):
     def set_status(self, state: str, detail: str) -> None:
         self.state_label.setText(state)
         self.detail_label.setText(detail)
+        self._set_accessible_status(state, detail)
+
+    def _set_accessible_status(self, state: str, detail: str) -> None:
+        self.setAccessibleName(f"{self.title}: {state}. {detail}")
 
 
 class OverviewPage(QWidget):

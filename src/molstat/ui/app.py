@@ -87,6 +87,7 @@ class MainWindow(QMainWindow):
         self.overview.open_board.clicked.connect(self._open_board)
         self.settings_page.save_button.clicked.connect(self._save_settings)
         self._load_settings()
+        self._refresh_overview_status()
         self._navigate(0)
         self.statusBar().showMessage("MolStat er klar.")
 
@@ -144,6 +145,12 @@ class MainWindow(QMainWindow):
         self._workers.discard(worker)
         self._set_run_buttons_enabled(True)
         if result.status == "succeeded":
+            if result.kind == "statistics":
+                units = int(result.summary.get("units", 0))
+                self.overview.cards["sharepoint"].set_status(
+                    "Publisert",
+                    f"Siste kjøring publiserte {units} enheter til SharePoint",
+                )
             self.statusBar().showMessage("Kjøringen er fullført.", 5000)
         elif result.status == "busy":
             self.statusBar().showMessage("En annen kjøring er allerede aktiv.", 5000)
@@ -157,6 +164,22 @@ class MainWindow(QMainWindow):
         ):
             return
         self.diagnostics.set_messages(self.settings_store.diagnostic_messages())
+
+    def _refresh_overview_status(self) -> None:
+        runtime_status = (
+            ("Klar", "Manuell kjøring er tilgjengelig")
+            if self.orchestrator is not None
+            else ("Ikke klar", "Kontroller Innstillinger og Diagnostikk")
+        )
+        self.overview.cards["statistics"].set_status(*runtime_status)
+        self.overview.cards["backlog"].set_status(*runtime_status)
+        if self.settings_store is None or not hasattr(
+            self.settings_store, "overview_status_fields"
+        ):
+            return
+        for key, status in self.settings_store.overview_status_fields().items():
+            if key in self.overview.cards:
+                self.overview.cards[key].set_status(*status)
 
     def _set_run_buttons_enabled(self, enabled: bool) -> None:
         self.overview.run_statistics.setEnabled(enabled)
@@ -204,6 +227,7 @@ class MainWindow(QMainWindow):
             self.orchestrator = orchestrator
             self.board_controller = board
             self.diagnostics.set_configuration_error(error)
+            self._refresh_overview_status()
             if error:
                 self.statusBar().showMessage(
                     "Innstillingene er lagret, men kjøring er ikke klar. Se Diagnostikk.",

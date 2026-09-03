@@ -259,6 +259,33 @@ class DefaultServices:
             "lookup_solide": str(lookups.get("solide", "")),
         }
 
+    def overview_status_fields(self) -> dict[str, tuple[str, str]]:
+        if not self._settings_exist:
+            return {
+                "database": ("Ikke satt opp", "Velg K-sensitiv mappe i Innstillinger"),
+                "sharepoint": ("Ikke satt opp", "Velg mappe i Innstillinger"),
+            }
+
+        database_status = (
+            ("Klar", "K-sensitiv mappe er tilgjengelig")
+            if self.settings.sensitive_root.is_dir()
+            else ("Ikke tilgjengelig", "Kontroller K-sensitiv mappe")
+        )
+        sharepoint = self.settings.sharepoint_root
+        if sharepoint is None:
+            sharepoint_status = ("Ikke satt opp", "Velg mappe i Innstillinger")
+        elif sharepoint.is_dir():
+            sharepoint_status = ("Klar", "Konfigurert mappe er tilgjengelig")
+        else:
+            sharepoint_status = (
+                "Ikke tilgjengelig",
+                "Kontroller SharePoint-synkronisering og mappe",
+            )
+        return {
+            "database": database_status,
+            "sharepoint": sharepoint_status,
+        }
+
     def save_settings_fields(self, values: dict[str, str]) -> None:
         sensitive_text = values.get("sensitive_root", "").strip()
         if not sensitive_text:
