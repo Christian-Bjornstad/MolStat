@@ -21,3 +21,14 @@ class DiagnosticsPage(QWidget):
         layout.addWidget(title)
         layout.addWidget(intro)
         layout.addWidget(self.log, 1)
+
+    def set_configuration_error(self, error: str | None) -> None:
+        if error:
+            self.log.setPlainText(f"Oppsettet kunne ikke lastes:\n{error}")
+        else:
+            self.log.setPlainText("Ingen hendelser registrert.")
+
+    def set_messages(self, messages: tuple[str, ...]) -> None:
+        self.log.setPlainText(
+            "\n".join(messages) if messages else "Ingen hendelser registrert."
+        )

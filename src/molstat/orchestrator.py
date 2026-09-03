@@ -30,12 +30,14 @@ class MolStatOrchestrator:
         owner: str,
         lease_ttl: timedelta = timedelta(minutes=30),
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+        failure_reporter: Callable[[str, BaseException], None] | None = None,
     ) -> None:
         self.database = database
         self.runners = runners
         self.owner = owner
         self.lease_ttl = lease_ttl
         self._now = now
+        self._failure_reporter = failure_reporter
 
     def run(self, kind: JobKind, trigger: str) -> JobResult:
         if kind not in self.runners:
@@ -49,6 +51,7 @@ class MolStatOrchestrator:
                     self._finish_run(run_id, "succeeded", summary)
                     return JobResult(kind, "succeeded", summary)
                 except Exception as exc:
+                    self._report_failure(f"{kind}_run_failed", exc)
                     self._finish_run(
                         run_id,
                         "failed",
@@ -67,6 +70,15 @@ class MolStatOrchestrator:
                 {},
                 "En annen MolStat-kjøring er allerede aktiv.",
             )
+
+    def _report_failure(self, stage: str, error: BaseException) -> None:
+        if self._failure_reporter is None:
+            return
+        try:
+            self._failure_reporter(stage, error)
+        except Exception:
+            # Diagnostics must never hide or replace the original job result.
+            pass
 
     def _start_run(self, kind: JobKind, trigger: str) -> int:
         started_at = self._now().astimezone(timezone.utc).isoformat()

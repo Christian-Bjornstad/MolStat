@@ -11,16 +11,16 @@ MolStat samler dagens LVMS-STAT og MolPat Puls i ett system:
 
 ## Kom i gang på jobb-PC
 
-1. Kjør `MOLSTAT_INSTALLER.cmd`.
+1. Kjør `MOLSTAT_INSTALL.cmd` og lim den kopierte kommandoen inn i Python FELLES.
 2. Legg inn stiene og LVMS-adressen i Innstillinger.
-3. Lagre, lukk og start MolStat på nytt.
-4. Kjør installerfilen igjen for å opprette Windows-oppgavene.
+3. Bruk «Bla gjennom …» for å kontrollere mappene og lookup-filene.
+4. Velg «Valider og lagre». Kjøreoppsettet lastes inn uten omstart.
 
 Se [JOBBS-PC.md](JOBBS-PC.md) for kontrollpunkter og drift.
 
 ## Utvikling
 
 ```powershell
-py -3 -m pip install -e ".[dev]"
-py -3 -m pytest
+python -m pip install -e ".[dev]"
+python -m pytest
 ```

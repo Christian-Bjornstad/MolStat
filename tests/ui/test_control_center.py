@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QPushButton, QStackedWidget
+from PyQt6.QtWidgets import QFileDialog, QPushButton, QStackedWidget
 
 from molstat.orchestrator import JobResult
 from molstat.ui.app import MainWindow
@@ -39,6 +39,25 @@ class FakeSettingsStore:
 
     def save_settings_fields(self, values: dict[str, str]) -> None:
         self.saved = values
+
+
+class RefreshingSettingsStore(FakeSettingsStore):
+    def __init__(self, orchestrator, board, error: str | None = None) -> None:
+        super().__init__()
+        self.runtime = (orchestrator, board, error)
+
+    def refresh_gui_runtime(self):
+        return self.runtime
+
+
+class DiagnosticSettingsStore(FakeSettingsStore):
+    def diagnostic_messages(self) -> tuple[str, ...]:
+        return ("statistics_run_failed: RuntimeError",)
+
+
+class FailingOrchestrator:
+    def run(self, kind: str, trigger: str) -> JobResult:
+        return JobResult(kind, "failed", {})
 
 
 def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
@@ -106,6 +125,52 @@ def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
         assert field.accessibleName()
 
 
+def test_settings_browse_buttons_fill_directory_and_lookup_paths(
+    qtbot, monkeypatch
+) -> None:
+    window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *args, **kwargs: "K:/sensitiv/valgt",
+    )
+    sensitive_browse = window.findChild(QPushButton, "browse-sensitive-root")
+    assert sensitive_browse is not None
+    qtbot.mouseClick(sensitive_browse, Qt.MouseButton.LeftButton)
+    assert window.settings_page.sensitive_root.text() == "K:/sensitiv/valgt"
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: ("K:/sensitiv/Analyse_lookup.xlsx", "Excel (*.xlsx)"),
+    )
+    hemato_browse = window.findChild(QPushButton, "browse-lookup-hemato")
+    assert hemato_browse is not None
+    qtbot.mouseClick(hemato_browse, Qt.MouseButton.LeftButton)
+    assert (
+        window.settings_page.lookup_hemato.text()
+        == "K:/sensitiv/Analyse_lookup.xlsx"
+    )
+
+
+def test_settings_browse_buttons_are_accessible(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
+    qtbot.addWidget(window)
+
+    for name in (
+        "browse-sensitive-root",
+        "browse-sharepoint-root",
+        "browse-lookup-hemato",
+        "browse-lookup-solide",
+    ):
+        button = window.findChild(QPushButton, name)
+        assert button is not None
+        assert button.accessibleName()
+        assert button.minimumHeight() >= 44
+
+
 def test_settings_are_loaded_and_saved_through_controller(qtbot) -> None:
     store = FakeSettingsStore()
     window = MainWindow(FakeOrchestrator(), store, FakeBoardController())
@@ -121,3 +186,46 @@ def test_settings_are_loaded_and_saved_through_controller(qtbot) -> None:
     assert store.saved is not None
     assert store.saved["sharepoint_root"] == "C:/SharePoint/Ny"
     assert "lagret" in window.statusBar().currentMessage().casefold()
+
+
+def test_saving_settings_reconfigures_jobs_without_restart(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    board = FakeBoardController()
+    store = RefreshingSettingsStore(orchestrator, board)
+    window = MainWindow(None, store, None)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.settings_page.save_button, Qt.MouseButton.LeftButton)
+
+    assert window.orchestrator is orchestrator
+    assert window.board_controller is board
+    assert "klar" in window.statusBar().currentMessage().casefold()
+
+
+def test_configuration_error_is_visible_in_diagnostics(qtbot) -> None:
+    window = MainWindow(
+        None,
+        None,
+        None,
+        configuration_error="ValueError: Lookup-fil mangler.",
+    )
+    qtbot.addWidget(window)
+
+    assert "Lookup-fil mangler" in window.diagnostics.log.toPlainText()
+
+
+def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:
+    window = MainWindow(
+        FailingOrchestrator(),
+        DiagnosticSettingsStore(),
+        FakeBoardController(),
+    )
+    qtbot.addWidget(window)
+    button = window.findChild(QPushButton, "run-statistics")
+
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(lambda: button.isEnabled(), timeout=3000)
+    assert "statistics_run_failed: RuntimeError" in (
+        window.diagnostics.log.toPlainText()
+    )

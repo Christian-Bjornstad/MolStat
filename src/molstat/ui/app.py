@@ -44,6 +44,8 @@ class MainWindow(QMainWindow):
         orchestrator: Any,
         settings_store: Any,
         board_controller: Any,
+        *,
+        configuration_error: str | None = None,
     ) -> None:
         super().__init__()
         self.orchestrator = orchestrator
@@ -68,6 +70,7 @@ class MainWindow(QMainWindow):
         self.overview = OverviewPage()
         self.settings_page = SettingsPage()
         self.diagnostics = DiagnosticsPage()
+        self.diagnostics.set_configuration_error(configuration_error)
         self.stack.addWidget(self.overview)
         self.stack.addWidget(self.settings_page)
         self.stack.addWidget(self.diagnostics)
@@ -145,7 +148,15 @@ class MainWindow(QMainWindow):
         elif result.status == "busy":
             self.statusBar().showMessage("En annen kjøring er allerede aktiv.", 5000)
         else:
+            self._refresh_diagnostics()
             self.statusBar().showMessage("Kjøringen feilet. Se Diagnostikk.", 7000)
+
+    def _refresh_diagnostics(self) -> None:
+        if self.settings_store is None or not hasattr(
+            self.settings_store, "diagnostic_messages"
+        ):
+            return
+        self.diagnostics.set_messages(self.settings_store.diagnostic_messages())
 
     def _set_run_buttons_enabled(self, enabled: bool) -> None:
         self.overview.run_statistics.setEnabled(enabled)
@@ -188,7 +199,20 @@ class MainWindow(QMainWindow):
         except ValueError as exc:
             self.statusBar().showMessage(str(exc), 8000)
             return
-        self.statusBar().showMessage("Innstillingene er validert og lagret.", 5000)
+        if hasattr(self.settings_store, "refresh_gui_runtime"):
+            orchestrator, board, error = self.settings_store.refresh_gui_runtime()
+            self.orchestrator = orchestrator
+            self.board_controller = board
+            self.diagnostics.set_configuration_error(error)
+            if error:
+                self.statusBar().showMessage(
+                    "Innstillingene er lagret, men kjøring er ikke klar. Se Diagnostikk.",
+                    8000,
+                )
+                return
+        self.statusBar().showMessage(
+            "Innstillingene er validert og lagret. MolStat er klar.", 5000
+        )
 
 
 def _nav_button(text: str, name: str) -> QPushButton:
