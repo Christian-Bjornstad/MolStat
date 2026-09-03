@@ -49,6 +49,31 @@ def test_failed_job_does_not_block_next_job_or_leak_exception(
     )
 
 
+def test_failed_job_reports_exception_to_private_diagnostic_boundary(
+    tmp_path: Path,
+) -> None:
+    database = MolStatDatabase(tmp_path / "molstat.sqlite3")
+    database.migrate()
+    reported: list[tuple[str, BaseException]] = []
+    failure = RuntimeError("SECRET-SAMPLE-42")
+
+    def fail() -> dict[str, int]:
+        raise failure
+
+    orchestrator = MolStatOrchestrator(
+        database,
+        {"statistics": fail},
+        owner="pc-a",
+        failure_reporter=lambda stage, error: reported.append((stage, error)),
+    )
+
+    result = orchestrator.run("statistics", "manual")
+
+    assert result.status == "failed"
+    assert reported == [("statistics_run_failed", failure)]
+    assert "SECRET" not in (result.message or "")
+
+
 def test_active_writer_returns_busy_without_running_job(tmp_path: Path) -> None:
     now = datetime(2026, 9, 2, 8, 0, tzinfo=timezone.utc)
     database = MolStatDatabase(tmp_path / "molstat.sqlite3", now=lambda: now)

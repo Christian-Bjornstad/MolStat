@@ -50,6 +50,16 @@ class RefreshingSettingsStore(FakeSettingsStore):
         return self.runtime
 
 
+class DiagnosticSettingsStore(FakeSettingsStore):
+    def diagnostic_messages(self) -> tuple[str, ...]:
+        return ("statistics_run_failed: RuntimeError",)
+
+
+class FailingOrchestrator:
+    def run(self, kind: str, trigger: str) -> JobResult:
+        return JobResult(kind, "failed", {})
+
+
 def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
     window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
     qtbot.addWidget(window)
@@ -202,3 +212,20 @@ def test_configuration_error_is_visible_in_diagnostics(qtbot) -> None:
     qtbot.addWidget(window)
 
     assert "Lookup-fil mangler" in window.diagnostics.log.toPlainText()
+
+
+def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:
+    window = MainWindow(
+        FailingOrchestrator(),
+        DiagnosticSettingsStore(),
+        FakeBoardController(),
+    )
+    qtbot.addWidget(window)
+    button = window.findChild(QPushButton, "run-statistics")
+
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(lambda: button.isEnabled(), timeout=3000)
+    assert "statistics_run_failed: RuntimeError" in (
+        window.diagnostics.log.toPlainText()
+    )

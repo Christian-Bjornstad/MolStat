@@ -148,7 +148,15 @@ class MainWindow(QMainWindow):
         elif result.status == "busy":
             self.statusBar().showMessage("En annen kjøring er allerede aktiv.", 5000)
         else:
+            self._refresh_diagnostics()
             self.statusBar().showMessage("Kjøringen feilet. Se Diagnostikk.", 7000)
+
+    def _refresh_diagnostics(self) -> None:
+        if self.settings_store is None or not hasattr(
+            self.settings_store, "diagnostic_messages"
+        ):
+            return
+        self.diagnostics.set_messages(self.settings_store.diagnostic_messages())
 
     def _set_run_buttons_enabled(self, enabled: bool) -> None:
         self.overview.run_statistics.setEnabled(enabled)

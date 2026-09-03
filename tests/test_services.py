@@ -78,3 +78,23 @@ def test_save_settings_accepts_existing_production_paths(tmp_path: Path) -> None
     assert services.load_settings_fields()["lvms_url"] == (
         "https://lvms.example.invalid/clims/"
     )
+
+
+def test_job_failure_diagnostic_omits_exception_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    local_app_data = tmp_path / "local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    services = DefaultServices(tmp_path / "settings.json")
+
+    services._record_job_failure(
+        "statistics_run_failed", RuntimeError("SECRET-SAMPLE-42")
+    )
+
+    assert services.diagnostic_messages() == (
+        "statistics_run_failed: RuntimeError",
+    )
+    log = local_app_data / "MolStat" / "logs" / "runtime.log"
+    contents = log.read_text(encoding="utf-8")
+    assert "statistics_run_failed: RuntimeError" in contents
+    assert "SECRET-SAMPLE-42" not in contents

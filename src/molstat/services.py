@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from datetime import datetime, timezone
 from dataclasses import replace
 import json
@@ -44,6 +45,7 @@ class BoardController:
 class DefaultServices:
     def __init__(self, settings_path: Path) -> None:
         self.settings_path = settings_path
+        self._diagnostics: deque[str] = deque(maxlen=100)
         self._settings_exist = settings_path.is_file()
         self.settings = (
             MolStatSettings.load(settings_path)
@@ -232,6 +234,7 @@ class DefaultServices:
                 "backlog": system.run_backlog,
             },
             owner=socket.gethostname() or "molstat-pc",
+            failure_reporter=self._record_job_failure,
         )
 
     def load_settings_fields(self) -> dict[str, str]:
@@ -307,12 +310,29 @@ class DefaultServices:
 
     def _record_failure(self, stage: str, error: BaseException) -> None:
         local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
-        local_root = Path(local_text) if local_text else Path.home() / "AppData" / "Local"
+        local_root = (
+            Path(local_text) if local_text else Path.home() / "AppData" / "Local"
+        )
         log = local_root / "MolStat" / "logs" / "bootstrap.log"
         log.parent.mkdir(parents=True, exist_ok=True)
         with log.open("a", encoding="utf-8") as stream:
             stream.write(f"\n[{stage}] {type(error).__name__}: {error}\n")
             traceback.print_exception(type(error), error, error.__traceback__, file=stream)
+
+    def _record_job_failure(self, stage: str, error: BaseException) -> None:
+        message = f"{stage}: {type(error).__name__}"
+        self._diagnostics.append(message)
+        local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
+        local_root = Path(local_text) if local_text else Path.home() / "AppData" / "Local"
+        log = local_root / "MolStat" / "logs" / "runtime.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a", encoding="utf-8") as stream:
+            stream.write(f"\n{message}\n")
+            if error.__traceback__ is not None:
+                stream.writelines(traceback.format_tb(error.__traceback__))
+
+    def diagnostic_messages(self) -> tuple[str, ...]:
+        return tuple(self._diagnostics)
 
 
 def _validate_production_paths(settings: MolStatSettings) -> None:

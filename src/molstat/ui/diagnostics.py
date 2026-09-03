@@ -27,3 +27,8 @@ class DiagnosticsPage(QWidget):
             self.log.setPlainText(f"Oppsettet kunne ikke lastes:\n{error}")
         else:
             self.log.setPlainText("Ingen hendelser registrert.")
+
+    def set_messages(self, messages: tuple[str, ...]) -> None:
+        self.log.setPlainText(
+            "\n".join(messages) if messages else "Ingen hendelser registrert."
+        )
