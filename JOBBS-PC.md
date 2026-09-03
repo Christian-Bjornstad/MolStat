@@ -4,8 +4,8 @@
 
 - Bruk en fast mappe på K-sensitiv som MolStat alene skriver til.
 - Velg en synkronisert SharePoint-mappe for ferdige, identifikatorfrie filer.
-- Angi LVMS-adressen og lookup-filene i Innstillinger.
-- Start appen på nytt etter lagring, og kjør installerfilen igjen.
+- Angi LVMS-adressen, og velg mapper og lookup-filer med «Bla gjennom …».
+- Velg «Valider og lagre». Eventuelle oppstartsfeil vises i Diagnostikk.
 
 ## Planlagte oppgaver
 
@@ -24,5 +24,7 @@ Ved avvik stoppes publisering uten delvis Power BI-oppdatering.
 
 ## Drift
 
-Åpne `MOLSTAT_START.cmd` for kontrollsenteret. Automatikklogger ligger under
-`%LOCALAPPDATA%\MolStat`.
+Kjør `MOLSTAT_INSTALL.cmd` første gang. Åpne deretter `MOLSTAT_START.cmd` for
+kontrollsenteret. Begge åpner Python FELLES gjennom Ivanti PowerGate og legger
+en kommando på utklippstavlen som limes inn med Ctrl+V. Automatikk- og
+bootstraplogger ligger under `%LOCALAPPDATA%\MolStat`.
