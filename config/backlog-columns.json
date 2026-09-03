@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "classifier_version": 2,
+  "delimiter": ";",
+  "encoding": "windows-1252",
+  "columns": {
+    "sample_id": "SampleID",
+    "analysis_code": "Analyse",
+    "created_at": "Tidspunkt analysebestilling",
+    "status": "Status analyse",
+    "preliminary_status": "Status prelgruppe",
+    "result": "Analyseresultat",
+    "external_comment": "Ekstern analysekommentar"
+  },
+  "completed_values": [
+    "completed"
+  ]
+}
