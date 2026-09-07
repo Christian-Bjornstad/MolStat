@@ -11,6 +11,8 @@ from molstat.statistics import (
     RESULTATER_COLUMNS,
     SOLIDE_ANTALL_COLUMNS,
     SOLIDE_RESULTATER_COLUMNS,
+    StatisticsProcessor,
+    _report_archives,
     build_antall,
     build_resultater,
     build_resultater_solide,
@@ -89,6 +91,70 @@ def make_lookup(tmp_path: Path) -> Path:
         z.writestr("xl/sharedStrings.xml", shared)
         z.writestr("xl/worksheets/sheet1.xml", sheet)
     return path
+
+
+def test_report_archives_include_old_and_new_intervals(tmp_path: Path) -> None:
+    archive = tmp_path / "raw" / "statistics" / "hemato"
+    archive.mkdir(parents=True)
+    old = archive / "PAT-DIT-ANTALL-OU__2024-01-01__2026-09-04.csv"
+    new = archive / "PAT-DIT-ANTALL-OU__2026-09-05__2026-09-07.csv"
+    other = archive / "PAT-DIT-RESULTATER-OU__2026-09-05__2026-09-07.csv"
+    for path in (old, new, other):
+        path.write_text("A;B\n1;2\n", encoding="cp1252")
+
+    assert _report_archives(new) == (old, new)
+
+
+def test_statistics_processor_merges_complete_archive_before_processing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = tmp_path / "raw" / "statistics" / "hemato"
+    captured: dict[str, list[str]] = {}
+    current: list[Path] = []
+    for marker in ("ANTALL", "RESULTATER", "EKSTRAKSJON"):
+        old = archive / f"PAT-DIT-{marker}-OU__2024-01-01__2026-09-04.csv"
+        new = archive / f"PAT-DIT-{marker}-OU__2026-09-05__2026-09-07.csv"
+        write_raw(old, [["Sample ID", "Analyse"], ["old", marker], ["overlap", marker]])
+        write_raw(new, [["Sample ID", "Analyse"], ["overlap", marker], ["new", marker]])
+        current.append(new)
+
+    def record_inputs(
+        ordered: Path,
+        answered: Path,
+        extraction: Path,
+        lookup_path: Path,
+        output_dir: Path,
+        *,
+        profile: str,
+    ) -> dict[str, int]:
+        del lookup_path, profile
+        for marker, path in zip(
+            ("ANTALL", "RESULTATER", "EKSTRAKSJON"),
+            (ordered, answered, extraction),
+            strict=True,
+        ):
+            captured[marker] = [row["Sample ID"] for row in csv.DictReader(
+                path.open(encoding="cp1252"), delimiter=";"
+            )]
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "antall.csv").write_text("Analyse\n", encoding="utf-8")
+        (output_dir / "resultater.csv").write_text("Analyse\n", encoding="utf-8")
+        return {"antall": 3, "resultater": 3}
+
+    monkeypatch.setattr("molstat.statistics.process_reports", record_inputs)
+    output_dir = tmp_path / "processed"
+
+    result = StatisticsProcessor(tmp_path / "lookup.xlsx").process(
+        "hemato", current, output_dir
+    )
+
+    assert captured == {
+        "ANTALL": ["old", "overlap", "new"],
+        "RESULTATER": ["old", "overlap", "new"],
+        "EKSTRAKSJON": ["old", "overlap", "new"],
+    }
+    assert result.antall == output_dir / "antall.csv"
+    assert result.resultater == output_dir / "resultater.csv"
 
 
 def test_clean_text_strips_t_wrapper_and_quotes() -> None:

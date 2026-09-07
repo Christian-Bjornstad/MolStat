@@ -15,7 +15,7 @@ from molstat.backlog import (
 from molstat.database import MolStatDatabase
 from molstat.lvms.report import ReportRequest
 from molstat.publisher import PublicationPolicy, SharePointPublisher
-from molstat.statistics import StatisticsResult
+from molstat.statistics import StatisticsProcessor, StatisticsResult
 from molstat.system import MolStatSystem
 
 
@@ -150,3 +150,99 @@ def test_complete_flow_keeps_identifiers_out_of_public_outputs(tmp_path: Path) -
     )
     assert "SECRET" not in public_text
     assert "SampleID" not in public_text
+
+
+def test_second_statistics_run_publishes_complete_deduplicated_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    sensitive = tmp_path / "k-sensitive"
+    sharepoint = tmp_path / "sharepoint"
+    database = MolStatDatabase(sensitive / "data" / "molstat.sqlite3")
+    calls = 0
+
+    def make_report(
+        marker: str, interval: int, values: list[str]
+    ) -> tuple[ReportRequest, Path]:
+        source = tmp_path / f"download-{interval}-{marker}.csv"
+        with source.open("w", encoding="cp1252", newline="") as stream:
+            writer = csv.writer(stream, delimiter=";")
+            writer.writerow(["Value", "Analyse"])
+            writer.writerows((value, marker) for value in values)
+        request = ReportRequest(
+            "statistics",
+            "hemato",
+            f"PAT-DIT-{marker}-OU",
+            date(2024, 1, 1) if interval == 1 else date(2026, 9, 5),
+            date(2026, 9, 4) if interval == 1 else date(2026, 9, 7),
+        )
+        return request, source
+
+    def fetch_statistics():
+        nonlocal calls
+        calls += 1
+        values = ["historical", "overlap"] if calls == 1 else ["overlap", "latest"]
+        return {
+            "hemato": tuple(
+                make_report(marker, calls, values)
+                for marker in ("ANTALL", "RESULTATER", "EKSTRAKSJON")
+            )
+        }
+
+    def process_merged(
+        ordered: Path,
+        answered: Path,
+        extraction: Path,
+        lookup_path: Path,
+        output_dir: Path,
+        *,
+        profile: str,
+    ) -> dict[str, int]:
+        del extraction, lookup_path, profile
+        output_dir.mkdir(parents=True, exist_ok=True)
+        row_counts: dict[str, int] = {}
+        for name, source in (("antall", ordered), ("resultater", answered)):
+            rows = list(csv.DictReader(source.open(encoding="cp1252"), delimiter=";"))
+            _write(
+                output_dir / f"{name}.csv",
+                ["Value", "Analyse"],
+                [[row["Value"], row["Analyse"]] for row in rows],
+            )
+            row_counts[name] = len(rows)
+        return row_counts
+
+    monkeypatch.setattr("molstat.statistics.process_reports", process_merged)
+    publisher = SharePointPublisher(
+        PublicationPolicy(
+            allowed_columns={
+                "antall.csv": frozenset({"Value", "Analyse"}),
+                "resultater.csv": frozenset({"Value", "Analyse"}),
+            },
+            forbidden_patterns=(),
+        )
+    )
+    system = MolStatSystem(
+        database=database,
+        archive=RawArchive(sensitive),
+        statistics_processors={
+            "hemato": StatisticsProcessor(tmp_path / "unused-lookup.xlsx")
+        },
+        backlog_processor=object(),
+        publisher=publisher,
+        sharepoint_root=sharepoint,
+        work_root=sensitive / "work",
+        statistics_fetch=fetch_statistics,
+        backlog_fetch=lambda: (_ for _ in ()).throw(AssertionError("unused")),
+    )
+
+    assert system.run_statistics()["rows"] == 4
+    assert system.run_statistics()["rows"] == 6
+
+    with (sharepoint / "hemato" / "antall.csv").open(
+        encoding="utf-8-sig", newline=""
+    ) as stream:
+        published = list(csv.DictReader(stream, delimiter=";"))
+    assert [row["Value"] for row in published] == [
+        "historical",
+        "overlap",
+        "latest",
+    ]
