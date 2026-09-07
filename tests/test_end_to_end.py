@@ -13,6 +13,7 @@ from molstat.backlog import (
     UnitConfig,
 )
 from molstat.database import MolStatDatabase
+from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from molstat.lvms.report import ReportRequest
 from molstat.publisher import PublicationPolicy, SharePointPublisher
 from molstat.statistics import StatisticsProcessor, StatisticsResult
@@ -246,3 +247,119 @@ def test_second_statistics_run_publishes_complete_deduplicated_history(
         "overlap",
         "latest",
     ]
+
+
+def test_two_backlog_hours_publish_complete_identifier_free_history(
+    tmp_path: Path,
+) -> None:
+    sensitive = tmp_path / "k-sensitive"
+    sharepoint = tmp_path / "sharepoint"
+    database = MolStatDatabase(sensitive / "data" / "molstat.sqlite3")
+    database.migrate()
+    clock = [datetime(2026, 9, 7, 10, 15)]
+    config = AppConfig(
+        report_id="PAT-DIT-RESTANSE-OU",
+        unit=UnitConfig("hemato", "MolPat hemato"),
+        thresholds=ThresholdsConfig(24, 48),
+        analyses=(
+            AnalysisConfig(
+                "KLONALITET",
+                "Klonalitet",
+                "Molekylær",
+                "standard",
+                source_codes=("IGH-OU",),
+            ),
+            AnalysisConfig("EMPTY", "Tom analyse", "Molekylær", "standard"),
+        ),
+    )
+    processor = BacklogProcessor(config, _backlog_contract(), now=lambda: clock[0])
+    fetch_count = 0
+
+    def fetch_backlog():
+        nonlocal fetch_count
+        fetch_count += 1
+        source = tmp_path / f"backlog-download-{fetch_count}.csv"
+        sample_id = f"PRIVATE-SYNTHETIC-{fetch_count}"
+        source.write_text(
+            "SampleID;Analyse;Tidspunkt analysebestilling;Tidspunkt ankomst;"
+            "Status analyse;Analyseresultat\n"
+            f"{sample_id};IGH-OU;06.09.2026 07:00;06.09.2026 08:00;Initial;\n",
+            encoding="cp1252",
+        )
+        return (
+            ReportRequest(
+                "backlog",
+                "hemato",
+                "PAT-DIT-RESTANSE-OU",
+                date(2026, 9, 6),
+                date(2026, 9, 7),
+            ),
+            source,
+        )
+
+    backlog_publisher = SharePointPublisher(
+        PublicationPolicy(
+            allowed_columns={
+                "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
+            },
+            forbidden_patterns=(
+                re.compile(r"sample[ ._-]*id", re.I),
+                re.compile(r"work[ ._-]*item", re.I),
+                re.compile(r"fingerprint", re.I),
+            ),
+        )
+    )
+    system = MolStatSystem(
+        database=database,
+        archive=RawArchive(sensitive),
+        statistics_processors={},
+        backlog_processor=processor,
+        publisher={},
+        backlog_publisher=backlog_publisher,
+        sharepoint_root=sharepoint,
+        work_root=sensitive / "work" / "processing",
+        statistics_fetch=lambda: {},
+        backlog_fetch=fetch_backlog,
+    )
+
+    assert system.run_backlog()["published_rows"] == 2
+    clock[0] = datetime(2026, 9, 7, 11, 15)
+    assert system.run_backlog()["published_rows"] == 4
+
+    public_file = sharepoint / "Prøveflyt" / "restansehistorikk.csv"
+    with public_file.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream, delimiter=";"))
+    assert len(rows) == 4
+    assert {
+        (row["Observert_tidspunkt"], row["Analysegruppe_kode"])
+        for row in rows
+    } == {
+        ("2026-09-07T10:00:00", "KLONALITET"),
+        ("2026-09-07T10:00:00", "EMPTY"),
+        ("2026-09-07T11:00:00", "KLONALITET"),
+        ("2026-09-07T11:00:00", "EMPTY"),
+    }
+    with database._connect() as connection:
+        current = connection.execute(
+            "SELECT sample_key FROM backlog_sample"
+        ).fetchall()
+    assert current == [("PRIVATE-SYNTHETIC-2",)]
+    public_text = public_file.read_text(encoding="utf-8")
+    assert "PRIVATE-SYNTHETIC" not in public_text
+    assert "fingerprint" not in public_text.casefold()
+
+
+def _backlog_contract() -> CsvContract:
+    return CsvContract(
+        delimiter=";",
+        encoding="cp1252",
+        columns={
+            "sample_id": "SampleID",
+            "analysis_code": "Analyse",
+            "created_at": "Tidspunkt analysebestilling",
+            "arrival_at": "Tidspunkt ankomst",
+            "status": "Status analyse",
+            "result": "Analyseresultat",
+        },
+        completed_values=("Completed",),
+    )

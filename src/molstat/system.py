@@ -7,6 +7,7 @@ from typing import Any
 from uuid import uuid4
 
 from .archive import RawArchive
+from ._backlog.export import export_backlog_history
 from .backlog import BacklogProcessor
 from .database import MolStatDatabase
 from .lvms.report import ReportRequest
@@ -29,6 +30,7 @@ class MolStatSystem:
         work_root: Path,
         statistics_fetch: Callable[[], Mapping[str, Sequence[FetchedReport]]],
         backlog_fetch: Callable[[], FetchedReport],
+        backlog_publisher: SharePointPublisher | None = None,
     ) -> None:
         self.database = database
         self.archive = archive
@@ -39,6 +41,7 @@ class MolStatSystem:
         self.work_root = work_root
         self.statistics_fetch = statistics_fetch
         self.backlog_fetch = backlog_fetch
+        self.backlog_publisher = backlog_publisher
 
     def run_statistics(self) -> dict[str, int]:
         fetched = self.statistics_fetch()
@@ -69,10 +72,27 @@ class MolStatSystem:
         report = self.backlog_fetch()
         archived = self._archive_and_remove(report)
         imported = self.backlog_processor.import_snapshot(archived, self.database)
+        published_rows = 0
+        if self.backlog_publisher is not None:
+            output_dir = self.work_root / f"backlog-{uuid4().hex}"
+            candidate = output_dir / "restansehistorikk.csv"
+            published_rows = export_backlog_history(self.database, candidate)
+            self.backlog_publisher.publish(
+                {"restansehistorikk.csv": candidate},
+                self.sharepoint_root / "Prøveflyt",
+            )
+        with self.database._connect() as connection:
+            snapshots = int(
+                connection.execute(
+                    "SELECT COUNT(DISTINCT observed_at) FROM backlog_snapshot"
+                ).fetchone()[0]
+            )
         return {
             "rows": imported.rows_read,
             "invalid": imported.invalid_rows,
             "excluded": imported.excluded_rows,
+            "snapshots": snapshots,
+            "published_rows": published_rows,
         }
 
     def public_snapshot(self, now: datetime) -> dict[str, object]:

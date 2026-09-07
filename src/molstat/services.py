@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import webbrowser
 
 from .archive import RawArchive
+from ._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restanse_columns
 from .config import MolStatSettings
 from .database import MolStatDatabase
@@ -147,6 +148,8 @@ class DefaultServices:
     def _build_system(self, *, require_statistics: bool) -> MolStatSystem:
         if not self._settings_exist:
             raise ValueError("MolStat må konfigureres i Innstillinger.")
+        if self.settings.sharepoint_root is None:
+            raise ValueError("SharePoint-mappe mangler.")
         root = Path(__file__).resolve().parents[2]
         config_root = root / "config"
         local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
@@ -175,8 +178,6 @@ class DefaultServices:
         statistics_processors: dict[str, StatisticsProcessor] = {}
         publishers: dict[str, SharePointPublisher] = {}
         if require_statistics:
-            if self.settings.sharepoint_root is None:
-                raise ValueError("SharePoint-mappe mangler.")
             for unit in load_units(units_path):
                 lookup = self.settings.statistics_lookup_paths.get(unit.key)
                 if lookup is None:
@@ -211,16 +212,22 @@ class DefaultServices:
                     forbidden_patterns=default_forbidden_patterns(),
                 )
             )
+        backlog_publisher = SharePointPublisher(
+            PublicationPolicy(
+                allowed_columns={
+                    "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
+                },
+                forbidden_patterns=default_forbidden_patterns(),
+            )
+        )
         return MolStatSystem(
             database=database,
             archive=RawArchive(self.settings.sensitive_root),
             statistics_processors=statistics_processors,
             backlog_processor=BacklogProcessor(backlog_config, contract),
             publisher=publishers,
-            sharepoint_root=(
-                self.settings.sharepoint_root
-                or self.settings.sensitive_root / "publication-disabled"
-            ),
+            backlog_publisher=backlog_publisher,
+            sharepoint_root=self.settings.sharepoint_root,
             work_root=self.settings.sensitive_root / "work" / "processing",
             statistics_fetch=fetcher.fetch_statistics,
             backlog_fetch=fetcher.fetch_backlog,

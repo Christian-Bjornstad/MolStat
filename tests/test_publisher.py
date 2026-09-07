@@ -4,6 +4,7 @@ import re
 
 import pytest
 
+from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from molstat.publisher import (
     PrivacyViolation,
     PublicationPolicy,
@@ -86,3 +87,31 @@ def test_publisher_requires_exact_allowlisted_file_set(tmp_path: Path) -> None:
 
     with pytest.raises(PrivacyViolation, match="filsett"):
         _publisher().publish({"unexpected.csv": source}, tmp_path / "sharepoint")
+
+
+def test_invalid_backlog_export_preserves_previous_public_file(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "sharepoint" / "Prøveflyt"
+    destination.mkdir(parents=True)
+    target = destination / "restansehistorikk.csv"
+    previous = b"previous-valid-publication"
+    target.write_bytes(previous)
+    bad_source = _write_csv(
+        tmp_path / "bad-backlog.csv",
+        [*BACKLOG_PUBLIC_COLUMNS, "SampleID"],
+        [[*("" for _ in BACKLOG_PUBLIC_COLUMNS), "PRIVATE-SYNTHETIC"]],
+    )
+    publisher = SharePointPublisher(
+        PublicationPolicy(
+            allowed_columns={
+                "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
+            },
+            forbidden_patterns=(re.compile(r"sample[ ._-]*id", re.I),),
+        )
+    )
+
+    with pytest.raises(PrivacyViolation):
+        publisher.publish({"restansehistorikk.csv": bad_source}, destination)
+
+    assert target.read_bytes() == previous
