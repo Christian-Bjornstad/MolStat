@@ -130,7 +130,6 @@ class DefaultServices:
                     "tasks": [
                         result.statistics_task,
                         result.backlog_task,
-                        result.board_task,
                     ],
                 },
                 ensure_ascii=False,
