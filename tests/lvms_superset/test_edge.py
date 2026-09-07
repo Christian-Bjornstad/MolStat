@@ -51,32 +51,22 @@ class EdgeTests(unittest.TestCase):
 
     def test_builds_visible_loopback_only_dedicated_profile_launch(self) -> None:
         arguments = build_edge_arguments(
-            Path("C:/Edge/msedge.exe"), Path("C:/Profiles/lvms"), 49152
+            Path("C:/Edge/msedge.exe"), Path("C:/Profiles/lvms")
         )
 
         self.assertIn("--remote-debugging-address=127.0.0.1", arguments)
-        self.assertIn("--remote-debugging-port=49152", arguments)
-        self.assertIn("--remote-allow-origins=http://127.0.0.1:49152", arguments)
+        self.assertIn("--remote-debugging-port=0", arguments)
+        self.assertFalse(
+            any(value.startswith("--remote-allow-origins=") for value in arguments)
+        )
         self.assertIn("--user-data-dir=C:\\Profiles\\lvms", arguments)
         self.assertIn("--disable-session-crashed-bubble", arguments)
         self.assertNotIn("--headless", arguments)
         self.assertEqual(arguments[-1], "about:blank")
 
-    def test_accepts_os_selected_non_privileged_loopback_port(self) -> None:
-        arguments = build_edge_arguments(
-            Path("C:/Edge/msedge.exe"), Path("C:/Profiles/lvms"), 15142
-        )
-
-        self.assertIn("--remote-debugging-port=15142", arguments)
-        self.assertIn("--remote-debugging-address=127.0.0.1", arguments)
-
-    def test_rejects_non_ephemeral_port(self) -> None:
-        for port in (0, 80, 1023, 65536):
-            with self.subTest(port=port):
-                with self.assertRaises(EdgeLaunchError):
-                    build_edge_arguments(
-                        Path("C:/Edge/msedge.exe"), Path("C:/Profiles/lvms"), port
-                    )
+    def test_rejects_relative_profile_path(self) -> None:
+        with self.assertRaises(EdgeLaunchError):
+            build_edge_arguments(Path("C:/Edge/msedge.exe"), Path("relative"))
 
     def test_close_terminates_only_the_tracked_child(self) -> None:
         process = FakeProcess()
