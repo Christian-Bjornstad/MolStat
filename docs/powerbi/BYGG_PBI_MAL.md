@@ -1,240 +1,104 @@
-# MolStat Prøveflyt — Power BI-mal (guide)
+# MolStat Prøveflyt — Power BI-mal
 
-> Denne mappen (`docs/powerbi/`) inneholder guiden, en syntetisk
-> test-CSV og en visuell mockup. Den ferdige `.pbit`-filen bygges i
-> PBI Desktop etter denne guiden og lagres lokalt (ikke i repoet).
+Malen leser `restansehistorikk.csv`, som MolStat bygger fra permanent
+SQLite-historikk og erstatter atomisk i den konfigurerte SharePoint-roten under
+`Prøveflyt`.
 
-> **Mål:** En PBI Desktop-fil som leser `restanseoversikt.csv` fra
-> `C:\Users\molpa\Documents\MolStat\out\Prøveflyt\` (eller
-> SharePoint-mappen "Prøveflyt") og viser en tavle med **én boks per
-> analysegruppe**. Klikk på en boks → tabell med prøver for den gruppa.
+## Filer i startsettet
 
-## 1. Datakilde
+- `sample_restansehistorikk.csv`: syntetisk timesett med eksakt offentlig kontrakt.
+- `power-query.m`: parameterstyrt import og typer for `FactRestanse`.
+- `measures.dax`: datodimensjon, analysedimensjon og snapshot-sikre mål.
+- `molstat-proveflyt-theme.json`: samme pastellgule tema som MolStat-appen.
 
-MolStat skriver filen `restanseoversikt.csv` med dette skjemaet:
+Ingen filer inneholder prøvenummer, pasientdata, WorkItem, resultattekst,
+kommentarer, kildefilstier eller interne fingeravtrykk.
 
-| Kolonne | Type | Beskrivelse |
-|---|---|---|
-| `Analysegruppe` | Tekst | f.eks. `KLONALITET`, `MYELOID`, `CYTOMETRI` |
-| `Dato` | Dato (YYYY-MM-DD) | Bestillingsdato for prøvene i raden |
-| `Bestilt` | Heltall | Antall bestilte prøver den dagen |
-| `Kommet` | Heltall | Antall prøver med ankommet materiale |
-| `Restanse` | Heltall | `Bestilt − Kommet` (de som ikke er kommet) |
-| `Eldste_dager` | Heltall (kan være tom) | Alder i dager på eldste ventende prøve i gruppa/datoen |
+## 1. Opprett filparameteren
 
-**Ingen pasient-ID, ingen PID, ingen WorkItem, ingen rå-tekst, ingen
-filstier.** Dette er personvern-kontrakten — du kan trygt peke PBI
-Desktop direkte på filen i SharePoint.
+I Power Query velger du **Administrer parametere → Ny parameter**:
 
-Test-CSV: `docs/powerbi/sample_restanseoversikt.csv` i dette repoet
-(228 rader, 6 grupper, 38 dager) — bruk denne når du bygger. Filen er
-fullstendig syntetisk (ingen reelle prøver), men følger samme
-kolonnekontrakt og personvernregler som produksjons-CSV-en.
+- Navn: `PrøveflytFil`
+- Type: Tekst
+- Verdi under bygging:
+  `C:\Users\molpa\Documents\MolStat\docs\powerbi\sample_restansehistorikk.csv`
+- Produksjonsverdi senere:
+  `<konfigurert SharePoint-rot>\Prøveflyt\restansehistorikk.csv`
 
-## 2. Åpne PBI Desktop → Get Data → Text/CSV
+Gateway-/SharePoint-tilkoblingen kan dermed bytte verdi uten å endre modellen.
 
-1. **Home → Get Data → Text/CSV**
-2. Velg `<repo>\docs\powerbi\sample_restanseoversikt.csv`
-   (f.eks. `C:\Users\molpa\Documents\MolStat\docs\powerbi\sample_restanseoversikt.csv`)
-3. I forhåndsvisningen:
-   - Delimiter: `Semicolon`
-   - Encoding: `65001 (UTF-8)`
-   - Trykk **Transform Data** (ikke Load)
+## 2. Opprett `FactRestanse`
 
-## 3. Power Query-transform
+Velg **Ny kilde → Tom spørring → Avansert redigering**, lim inn
+`power-query.m`, og kall spørringen `FactRestanse`. Kontroller at den gir 16
+modellkolonner: de 15 offentlige feltene pluss den avledede `Dato`.
 
-I Power Query Editor:
+`Observert_tidspunkt` er snapshot-tidspunktet. Det skal ikke erstattes med
+`TODAY()`, og verdier fra flere snapshots skal ikke summeres i «nå»-kort.
 
-1. **Endre typer** (Transform → Detect Data Type virker ikke med norske
-   overskrifter, så gjør manuelt):
-   - `Analysegruppe` → Text
-   - `Dato` → Date (`YYYY-MM-DD`-formatet parse'er automatisk)
-   - `Bestilt`, `Kommet`, `Restanse`, `Eldste_dager` → Whole Number
-2. **Marker Dato som dato-tabell** (Table → Mark as date table → velg
-   `Dato`).
-3. Lukk og bruk (**Close & Apply**).
+## 3. Modell
 
-## 4. DAX-measures
+Opprett de to beregnede tabellene fra `measures.dax` og relasjonene:
 
-I Model-view (venstre ikon), tabell `Restanseoversikt`, New Measure:
-
-```dax
-Bestilt total = SUM ( Restanseoversikt[Bestilt] )
+```text
+DimDato[Date]                         1 ─── * FactRestanse[Dato]
+DimAnalysegruppe[Analysegruppe_kode] 1 ─── * FactRestanse[Analysegruppe_kode]
 ```
 
-```dax
-Kommet total = SUM ( Restanseoversikt[Kommet] )
-```
+Begge relasjoner filtrerer én vei fra dimensjon til fakta. Marker bare
+`DimDato` som datotabell og velg `DimDato[Date]`. Faktatabellen har gjentatte
+datoer og skal aldri markeres som datotabell.
 
-```dax
-Restanse total = SUM ( Restanseoversikt[Restanse] )
-```
+Legg de resterende uttrykkene fra `measures.dax` som mål i `FactRestanse`.
+`Siste observerte tidspunkt` hentes fra data, og «nå»-målene filtrerer til
+dette tidspunktet. Fordi MolStat skriver alle aktiverte analysegrupper også når
+de har null, blir gruppelista stabil og nye grupper vises automatisk.
 
-```dax
-Restanse i dag =
-CALCULATE (
-    [Restanse total],
-    Restanseoversikt[Dato] = TODAY ()
-)
-```
+## 4. Side «Prøveflyt – nå»
 
-```dax
-Restanse % =
-DIVIDE ( [Restanse total], [Bestilt total] )
-```
+- Sideformat: 16:9.
+- Topp: kort for `Siste observerte tidspunkt`, `Total restanse nå`, `Klar nå`,
+  `Mangler godkjenning nå`, `På vei nå` og `Over frist nå`.
+- Hovedfelt: Matrix med `DimAnalysegruppe[Analysegruppe]` på rader og målene
+  `Klar nå`, `Mangler godkjenning nå`, `På vei nå`, `Over frist nå` og
+  `Eldste klare timer nå` som verdier.
+- Betinget formatering: grønn `#1B7D3A`, advarsel `#9A6A00`, kritisk
+  `#A4262C`; bruk tekst eller ikon i tillegg til farge.
+- Slicere: Enhet og Analysegruppe.
 
-```dax
-Eldste ventende dager =
-CALCULATE (
-    MAX ( Restanseoversikt[Eldste_dager] ),
-    FILTER (
-        ALL ( Restanseoversikt ),
-        Restanseoversikt[Restanse] > 0
-    )
-)
-```
+Matrixen erstatter hardkodede enkeltkort. En ny analysegruppe krever derfor
+ingen rapportendring.
 
-```dax
-Aktive analysegrupper i dag =
-CALCULATE (
-    DISTINCTCOUNT ( Restanseoversikt[Analysegruppe] ),
-    Restanseoversikt[Dato] = TODAY (),
-    Restanseoversikt[Restanse] > 0
-)
-```
+## 5. Side «Utvikling»
 
-## 5. Tavle-side (Report view)
+- Linjediagram med `FactRestanse[Observert_tidspunkt]` på x-aksen.
+- Verdier: de fire målene `… ved tidspunkt`.
+- Small multiples eller legend: `DimAnalysegruppe[Analysegruppe]`.
+- Datointervall fra `DimDato[Date]`.
 
-Ny side, kall den **Prøveflyt – oversikt**. Sett sidestørrelse til
-**16:9 (1366×768)** i Page-view (Format → Page size → Custom:
-1280×720 for kompakt visning, eller 1920×1080 for full HD).
+På denne siden gir tidspunktet filterkonteksten; målene summerer grupper innen
+ett snapshot, aldri timer over hverandre.
 
-### 5.1 Header-boks (topp, 1280 px bred)
+## 6. Drill-through-side «Analysegruppe»
 
-Visual: **Multi-row card** eller **Card** med tre målinger side om side:
+Legg `DimAnalysegruppe[Analysegruppe]` i drill-through-filteret og bruk samme
+felt i matrixen på oversiktssiden. Vis kun aggregater:
 
-- `[Restanse total]` (stor font, 36-48pt, rød hvis > 0)
-- `[Bestilt total]`
-- `[Kommet total]`
+- nå-kortene for valgt gruppe;
+- tidsserie for de fire statusene;
+- tabell med tidspunkt, statusantall, over frist, median/eldste timer og
+  alvorlighetsgrad.
 
-Under: tekst "Sist oppdatert: " + `MAX(Restanseoversikt[Dato])`.
+Det finnes ingen prøve-/pasientdetaljer å drille til, med vilje.
 
-Se `tavle_mockup.png` i samme mappe for hvordan tavlen skal se ut.
+## 7. Tema, refresh og lagring
 
-### 5.2 Analysegruppe-bokser (hovedinnhold)
+Importer `molstat-proveflyt-theme.json` fra **Vis → Tema → Bla gjennom temaer**.
+Etter at `PrøveflytFil` peker på synket SharePoint-fil, publiser rapporten og
+konfigurer gateway/refresh etter lokale IT-regler. MolStat oppdaterer fila hver
+time 06:00–18:00; Power BI-refresh bør legges etter disse tidspunktene.
 
-For hver analysegruppe lager du en **Card**-visual (eller **Multi-row
-card** for flere målinger i samme boks):
-
-**Oppsett (3 kolonner × 2 rader, 6 analysegrupper):**
-
-```
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ CYTOMETRI    │  │ KLONALITET   │  │ SEKV         │
-│   12  (3%)   │  │   21  (9%)   │  │   46  (16%)  │
-│  3 d eldste  │  │  7 d eldste  │  │  7 d eldste  │
-└──────────────┘  └──────────────┘  └──────────────┘
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ MYELOID      │  │ FISH         │  │ PATOLOGI     │
-│   55  (18%)  │  │   77  (31%)  │  │  107  (43%)  │
-│ 14 d eldste  │  │ 29 d eldste  │  │ 35 d eldste  │
-└──────────────┘  └──────────────┘  └──────────────┘
-```
-(Tall fra test-CSV-en — fargen følger `[Restanse %]`.)
-
-**Per boks (CYTOMETRI som eksempel):**
-
-1. Visual: **Card** (eller Multi-row card med `[Restanse total]`
-   og `[Eldste ventende dager]`)
-2. Filter (Filters-pane → Visual level filters): `Analysegruppe = CYTOMETRI`
-3. Fields: `[Restanse total]`
-4. Format → Conditional formatting → **Background color** på callout:
-   farger etter `[Restanse %]`-regelen under
-5. Under tittel: `"Eldste: " & [Eldste ventende dager] & " dager"`
-
-**Farge­regler (samme som mockup):**
-
-| Restanse % | Farge | Merke |
-|---|---|---|
-| < 10 % | Grønn `#1B7D3A` | OK flyt |
-| 10–25 % | Gul `#B8821A` | Merk restanse |
-| > 25 % | Rød `#A4262C` | Kritisk restanse |
-
-I PBI Desktop: Conditional formatting → Background color → farger etter
-felt, regler: hvis `[Restanse %]` er større enn 0,25 → `#A4262C`;
-ellers større enn 0,10 → `#B8821A`; ellers `#1B7D3A`.
-
-**Gjenta for hver gruppe** (eller bruk en **Decomposition tree**-visual
-for automatisk oppdeling — raskere, men mindre visuell kontroll).
-
-### 5.3 Klikk-for-tabell (drill-through)
-
-Høyreklikk på en analysegruppe-boks → **Drill through** → opprett en
-detaljside:
-
-**Side 2: "Detaljer – <gruppe>"**
-
-- Visual: **Table**
-- Fields: `Dato`, `Bestilt`, `Kommet`, `Restanse`, `Eldste_dager`
-- Filter: `Analysegruppe` = samme som boksen (via drill-through-filter)
-- Sorter: `Dato DESC`
-
-I boksen på side 1: **Drill through → Enable** for denne siden. Nå
-dobbelklikker brukeren på en boks → hopp til detaljtabell.
-
-### 5.4 Fargepalett (CY26SU05-basert)
-
-| Bruk | Farge | Hex |
-|---|---|---|
-| Bakgrunn | Lys grå | `#F2F2F2` |
-| Primærtekst | Mørk grå | `#252423` |
-| Restanse % < 10 (grønn — OK flyt) | – | `#1B7D3A` |
-| Restanse % 10–25 (gul — merk restanse) | – | `#B8821A` |
-| Restanse % > 25 (rød — kritisk restanse) | – | `#A4262C` |
-| Kort bakgrunn | Hvit | `#FFFFFF` |
-
-(Dette matcher CY26SU05-base-temaet i din nåværende PBI-mal.)
-
-## 6. Lagre som .pbit
-
-Når tavla ser riktig ut:
-
-1. **File → Save As**
-2. Filnavn: `MolStat_Proeveflyt.pbit`
-3. Filtype: **Power BI template (*.pbit)**
-4. Lagre lokalt, f.eks. `C:\Users\molpa\Downloads\MolStat_PBIX\`
-
-Fremtidige brukere dobbelklikker .pbit → PBI Desktop ber om
-datakildestien → velg CSV-en fra SharePoint.
-
-## 7. Publiser til SharePoint (valgfritt)
-
-Hvis du vil at tavla skal oppdateres automatisk:
-
-1. **File → Publish → Publish to Power BI Service**
-2. Logg på din organisasjons Power BI-tenant
-3. Velg workspace, f.eks. "Molekylærpatologi"
-4. Sett opp **Scheduled refresh** (daglig kl. 06:30 — etter MolStat
-   backlog-jobb som kjører 06:00–18:00).
-
-## 8. Vedlikehold
-
-- Når MolStat legger til nye analysegrupper: oppdater Card-filtrene
-  (eller bytt til Decomposition tree).
-- Når kolonnekontrakten endres: oppdater Power Query-stegene og
-  oppdater measures.
-
----
-
-**Filstier å notere seg:**
-
-| Hva | Hvor |
-|---|---|
-| Test-CSV (syntetisk) | `docs/powerbi/sample_restanseoversikt.csv` (i repoet) |
-| Mockup (HTML/PNG) | `docs/powerbi/tavle_mockup.html` / `tavle_mockup.png` (i repoet) |
-| Ferdig .pbit (din output) | Lokal fil — lagres utenfor repoet, f.eks. `C:\Users\molpa\Downloads\MolStat_PBIX\MolStat_Proeveflyt.pbit` |
-
-Referansefiler som ikke ligger i repoet (lokalt på jobb-PC):
-
-- Rå LVMS-restanse (input): `C:\Users\molpa\Downloads\LVMS-STAT_restanse\Statistikk\[TEST]\PAT-DIT RESTANSE-OU.csv`
-- Eksisterende PBI-mal (statistikk): `C:\Users\molpa\Downloads\LVMS-STAT_restanse\Statistikk\[TEST]\Power BI\Statistikk_Hemato.pbit`
+Lagre først som PBIX. Når modellen og tilkoblingen er godkjent, velg
+**Fil → Eksporter → Power BI-mal** og lagre `MolStat_Proeveflyt.pbit` utenfor
+Git-repoet. Legg deretter rapportens HTTPS-lenke fra `app.powerbi.com` i MolStat
+under **Innstillinger → Power BI-rapport**.

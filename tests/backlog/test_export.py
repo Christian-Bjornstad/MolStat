@@ -99,3 +99,30 @@ def test_export_is_deterministic_and_contains_only_public_columns(
     assert rows[1]["Median_klare_timer"] == ""
     assert rows[1]["Eldste_klare_timer"] == ""
     assert rows[1]["Kilde_fersk"] == "Nei"
+
+
+def test_power_bi_sample_matches_public_contract_and_hourly_grid() -> None:
+    root = Path(__file__).parents[2]
+    sample = root / "docs" / "powerbi" / "sample_restansehistorikk.csv"
+
+    with sample.open(encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream, delimiter=";")
+        rows = list(reader)
+
+    assert tuple(reader.fieldnames or ()) == BACKLOG_PUBLIC_COLUMNS
+    assert rows
+    groups_by_time: dict[str, set[str]] = {}
+    for row in rows:
+        groups_by_time.setdefault(row["Observert_tidspunkt"], set()).add(
+            row["Analysegruppe_kode"]
+        )
+    assert len({frozenset(groups) for groups in groups_by_time.values()}) == 1
+    assert any(
+        row["Klar"] == "0"
+        and row["Mangler_godkjenning"] == "0"
+        and row["På_vei"] == "0"
+        for row in rows
+    )
+    serialized = repr(rows).casefold()
+    for forbidden in ("sampleid", "workitem", "fingerprint", "pasient"):
+        assert forbidden not in serialized
