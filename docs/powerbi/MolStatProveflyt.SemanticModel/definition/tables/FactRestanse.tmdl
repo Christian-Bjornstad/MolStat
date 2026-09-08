@@ -1,0 +1,163 @@
+/// Identifikatorfri timeshistorikk fra MolStat
+table FactRestanse
+
+	measure Siste_observerte_tidspunkt = CALCULATE ( MAX ( FactRestanse[Observert_tidspunkt] ), REMOVEFILTERS ( DimDato ), REMOVEFILTERS ( FactRestanse[Dato] ), REMOVEFILTERS ( FactRestanse[Observert_tidspunkt] ) )
+		dataType: dateTime
+		formatString: yyyy-MM-dd HH:mm
+		displayFolder: Naa
+
+	measure Klar_naa = VAR SisteTid = [Siste_observerte_tidspunkt] RETURN CALCULATE ( SUM ( FactRestanse[Klar] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Naa
+
+	measure Mangler_godkjenning_naa = VAR SisteTid = [Siste_observerte_tidspunkt] RETURN CALCULATE ( SUM ( FactRestanse[Mangler_godkjenning] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Naa
+
+	measure Paa_vei_naa = VAR SisteTid = [Siste_observerte_tidspunkt] RETURN CALCULATE ( SUM ( FactRestanse[Paa_vei] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Naa
+
+	measure Total_restanse_naa = [Klar_naa] + [Mangler_godkjenning_naa] + [Paa_vei_naa]
+		dataType: int64
+		formatString: #,0
+		displayFolder: Naa
+
+	measure Over_frist_naa = VAR SisteTid = [Siste_observerte_tidspunkt] RETURN CALCULATE ( SUM ( FactRestanse[Over_frist] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Naa
+
+	measure Eldste_klare_timer_naa = VAR SisteTid = [Siste_observerte_tidspunkt] RETURN CALCULATE ( MAX ( FactRestanse[Eldste_klare_timer] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+		dataType: double
+		formatString: 0.0
+		displayFolder: Naa
+
+	measure Klar_ved_tidspunkt = SUM ( FactRestanse[Klar] )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Historikk
+
+	measure Mangler_godkjenning_ved_tidspunkt = SUM ( FactRestanse[Mangler_godkjenning] )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Historikk
+
+	measure Paa_vei_ved_tidspunkt = SUM ( FactRestanse[Paa_vei] )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Historikk
+
+	measure Over_frist_ved_tidspunkt = SUM ( FactRestanse[Over_frist] )
+		dataType: int64
+		formatString: #,0
+		displayFolder: Historikk
+
+	column Observert_tidspunkt
+		dataType: dateTime
+		sourceColumn: Observert_tidspunkt
+
+	column Enhet
+		dataType: string
+		sourceColumn: Enhet
+
+	column Analysegruppe_kode
+		dataType: string
+		sourceColumn: Analysegruppe_kode
+
+	column Analysegruppe
+		dataType: string
+		sourceColumn: Analysegruppe
+
+	column Klar
+		dataType: int64
+		sourceColumn: Klar
+
+	column Mangler_godkjenning
+		dataType: int64
+		sourceColumn: Mangler_godkjenning
+
+	column Paa_vei
+		dataType: int64
+		sourceColumn: Paa_vei
+
+	column Over_frist
+		dataType: int64
+		sourceColumn: Over_frist
+
+	column Median_klare_timer
+		dataType: double
+		sourceColumn: Median_klare_timer
+
+	column Eldste_klare_timer
+		dataType: double
+		sourceColumn: Eldste_klare_timer
+
+	column Alvorlighetsgrad
+		dataType: string
+		sourceColumn: Alvorlighetsgrad
+
+	column Ugyldige_rader
+		dataType: int64
+		sourceColumn: Ugyldige_rader
+
+	column Ekskluderte_rader
+		dataType: int64
+		sourceColumn: Ekskluderte_rader
+
+	column Kilde_fersk
+		dataType: string
+		sourceColumn: Kilde_fersk
+
+	column Klassifikatorversjon
+		dataType: int64
+		sourceColumn: Klassifikatorversjon
+
+	column Dato
+		dataType: dateTime
+		formatString: yyyy-MM-dd
+		sourceColumn: Dato
+
+	partition FactRestanse_enUS = m
+		mode: import
+		source = ```
+				let
+				    Kilde = Csv.Document(
+				        File.Contents(ProveflytFil),
+				        [Delimiter = ";", Columns = 15, Encoding = 65001, QuoteStyle = QuoteStyle.Csv]
+				    ),
+				    Overskrifter = Table.PromoteHeaders(Kilde, [PromoteAllScalars = true]),
+				    Modellnavn = Table.RenameColumns(
+				        Overskrifter,
+				        {{Table.ColumnNames(Overskrifter){6}, "Paa_vei"}}
+				    ),
+				    Typer = Table.TransformColumnTypes(
+				        Modellnavn,
+				        {
+				            {"Observert_tidspunkt", type datetime},
+				            {"Enhet", type text},
+				            {"Analysegruppe_kode", type text},
+				            {"Analysegruppe", type text},
+				            {"Klar", Int64.Type},
+				            {"Mangler_godkjenning", Int64.Type},
+				            {"Paa_vei", Int64.Type},
+				            {"Over_frist", Int64.Type},
+				            {"Median_klare_timer", type number},
+				            {"Eldste_klare_timer", type number},
+				            {"Alvorlighetsgrad", type text},
+				            {"Ugyldige_rader", Int64.Type},
+				            {"Ekskluderte_rader", Int64.Type},
+				            {"Kilde_fersk", type text},
+				            {"Klassifikatorversjon", Int64.Type}
+				        },
+				        "en-US"
+				    ),
+				    MedDato = Table.AddColumn(Typer, "Dato", each Date.From([Observert_tidspunkt]), type date)
+				in
+				    MedDato
+				
+				```
+

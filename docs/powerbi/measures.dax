@@ -4,9 +4,9 @@ VAR MaksDato = MAXX ( FactRestanse, FactRestanse[Dato] )
 RETURN
     ADDCOLUMNS (
         CALENDAR ( MinDato, MaksDato ),
-        "År", YEAR ( [Date] ),
-        "MånedNr", MONTH ( [Date] ),
-        "Måned", FORMAT ( [Date], "YYYY-MM" ),
+        "Aar", YEAR ( [Date] ),
+        "MaanedNr", MONTH ( [Date] ),
+        "Maaned", FORMAT ( [Date], "YYYY-MM" ),
         "Uke", WEEKNUM ( [Date], 2 )
     )
 
@@ -17,7 +17,7 @@ SUMMARIZE (
     FactRestanse[Analysegruppe]
 )
 
-Siste observerte tidspunkt =
+Siste_observerte_tidspunkt =
 CALCULATE (
     MAX ( FactRestanse[Observert_tidspunkt] ),
     REMOVEFILTERS ( DimDato ),
@@ -25,29 +25,29 @@ CALCULATE (
     REMOVEFILTERS ( FactRestanse[Observert_tidspunkt] )
 )
 
-Klar nå =
-VAR SisteTid = [Siste observerte tidspunkt]
+Klar_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
 RETURN CALCULATE ( SUM ( FactRestanse[Klar] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
 
-Mangler godkjenning nå =
-VAR SisteTid = [Siste observerte tidspunkt]
+Mangler_godkjenning_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
 RETURN CALCULATE ( SUM ( FactRestanse[Mangler_godkjenning] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
 
-På vei nå =
-VAR SisteTid = [Siste observerte tidspunkt]
-RETURN CALCULATE ( SUM ( FactRestanse[På_vei] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+Paa_vei_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
+RETURN CALCULATE ( SUM ( FactRestanse[Paa_vei] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
 
-Total restanse nå = [Klar nå] + [Mangler godkjenning nå] + [På vei nå]
+Total_restanse_naa = [Klar_naa] + [Mangler_godkjenning_naa] + [Paa_vei_naa]
 
-Over frist nå =
-VAR SisteTid = [Siste observerte tidspunkt]
+Over_frist_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
 RETURN CALCULATE ( SUM ( FactRestanse[Over_frist] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
 
-Eldste klare timer nå =
-VAR SisteTid = [Siste observerte tidspunkt]
+Eldste_klare_timer_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
 RETURN CALCULATE ( MAX ( FactRestanse[Eldste_klare_timer] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
 
-Klar ved tidspunkt = SUM ( FactRestanse[Klar] )
-Mangler godkjenning ved tidspunkt = SUM ( FactRestanse[Mangler_godkjenning] )
-På vei ved tidspunkt = SUM ( FactRestanse[På_vei] )
-Over frist ved tidspunkt = SUM ( FactRestanse[Over_frist] )
+Klar_ved_tidspunkt = SUM ( FactRestanse[Klar] )
+Mangler_godkjenning_ved_tidspunkt = SUM ( FactRestanse[Mangler_godkjenning] )
+Paa_vei_ved_tidspunkt = SUM ( FactRestanse[Paa_vei] )
+Over_frist_ved_tidspunkt = SUM ( FactRestanse[Over_frist] )

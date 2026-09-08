@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "card-total",
+  "position": {
+    "x": 24,
+    "y": 24,
+    "z": 0,
+    "height": 112,
+    "width": 188,
+    "tabOrder": 0
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Total_restanse_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Total_restanse_naa",
+              "nativeQueryRef": "Total_restanse_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Total restanse'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

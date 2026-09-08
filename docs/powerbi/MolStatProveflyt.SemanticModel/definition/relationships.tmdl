@@ -1,0 +1,8 @@
+relationship FactRestanse_DimDato
+	fromColumn: FactRestanse.Dato
+	toColumn: DimDato.Date
+
+relationship FactRestanse_DimAnalysegruppe
+	fromColumn: FactRestanse.Analysegruppe_kode
+	toColumn: DimAnalysegruppe.Analysegruppe_kode
+

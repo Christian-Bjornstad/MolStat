@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "card-paavei",
+  "position": {
+    "x": 624,
+    "y": 24,
+    "z": 3,
+    "height": 112,
+    "width": 188,
+    "tabOrder": 3
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Paa_vei_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Paa_vei_naa",
+              "nativeQueryRef": "Paa_vei_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'På vei'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

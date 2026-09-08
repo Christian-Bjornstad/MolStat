@@ -1,4 +1,5 @@
 import csv
+import json
 from pathlib import Path
 
 from molstat._backlog.export import (
@@ -126,3 +127,38 @@ def test_power_bi_sample_matches_public_contract_and_hourly_grid() -> None:
     serialized = repr(rows).casefold()
     for forbidden in ("sampleid", "workitem", "fingerprint", "pasient"):
         assert forbidden not in serialized
+
+
+def test_power_bi_tmdl_uses_portable_ascii_ids_and_export_number_culture() -> None:
+    root = Path(__file__).parents[2]
+    definition = root / "docs" / "powerbi" / "MolStatProveflyt.SemanticModel" / "definition"
+    fact = (definition / "tables" / "FactRestanse.tmdl").read_text(
+        encoding="utf-8"
+    )
+    expressions = (definition / "expressions.tmdl").read_text(encoding="utf-8")
+
+    assert "expression ProveflytFil" in expressions
+    assert "column Paa_vei" in fact
+    assert '"en-US"' in fact
+    assert "FactRestanse[På_vei]" not in fact
+    assert "PrøveflytFil" not in expressions
+
+
+def test_power_bi_report_starter_has_expected_pages_and_model_reference() -> None:
+    root = Path(__file__).parents[2]
+    project = root / "docs" / "powerbi" / "MolStatProveflyt.Report"
+    report = project / "MolStatProveflyt.Report"
+    pages = json.loads(
+        (report / "definition" / "pages" / "pages.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    reference = json.loads((report / "definition.pbir").read_text(encoding="utf-8"))
+
+    assert (project / "MolStatProveflyt.pbip").is_file()
+    assert pages["pageOrder"] == ["proveflyt-naa", "utvikling", "analysegruppe"]
+    assert pages["activePageName"] == "proveflyt-naa"
+    assert reference["datasetReference"]["byPath"]["path"] == (
+        "../../MolStatProveflyt.SemanticModel"
+    )
+    assert (report / reference["datasetReference"]["byPath"]["path"]).resolve().is_dir()

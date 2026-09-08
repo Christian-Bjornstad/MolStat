@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "gruppe-total",
+  "position": {
+    "x": 348,
+    "y": 24,
+    "z": 1,
+    "height": 112,
+    "width": 208,
+    "tabOrder": 1
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Total_restanse_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Total_restanse_naa",
+              "nativeQueryRef": "Total_restanse_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Total restanse'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

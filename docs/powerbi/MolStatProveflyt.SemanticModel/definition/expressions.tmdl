@@ -1,0 +1,3 @@
+/// Sti til SharePoint-synket Prøveflyt/restansehistorikk.csv
+expression ProveflytFil = "C:\Users\molpa\Documents\MolStat\docs\powerbi\sample_restansehistorikk.csv" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+

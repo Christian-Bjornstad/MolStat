@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "card-siste",
+  "position": {
+    "x": 1024,
+    "y": 24,
+    "z": 5,
+    "height": 112,
+    "width": 232,
+    "tabOrder": 5
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Siste_observerte_tidspunkt"
+                }
+              },
+              "queryRef": "FactRestanse.Siste_observerte_tidspunkt",
+              "nativeQueryRef": "Siste_observerte_tidspunkt"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Sist observert'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

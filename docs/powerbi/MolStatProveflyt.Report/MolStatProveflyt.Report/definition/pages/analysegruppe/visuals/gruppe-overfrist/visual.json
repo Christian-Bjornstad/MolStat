@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "gruppe-overfrist",
+  "position": {
+    "x": 580,
+    "y": 24,
+    "z": 2,
+    "height": 112,
+    "width": 208,
+    "tabOrder": 2
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Over_frist_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Over_frist_naa",
+              "nativeQueryRef": "Over_frist_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Over frist'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
