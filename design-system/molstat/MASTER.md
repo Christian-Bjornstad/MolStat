@@ -19,18 +19,23 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#0284C7` | `--color-primary` |
-| On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#0891B2` | `--color-secondary` |
-| Accent/CTA | `#16A34A` | `--color-accent` |
-| Background | `#F0F9FF` | `--color-background` |
-| Foreground | `#0C4A6E` | `--color-foreground` |
-| Muted | `#E8F2F8` | `--color-muted` |
-| Border | `#BAE6FD` | `--color-border` |
-| Destructive | `#DC2626` | `--color-destructive` |
-| Ring | `#0284C7` | `--color-ring` |
+| Primary | `#F2C811` | `--color-primary` |
+| On Primary | `#2B2618` | `--color-on-primary` |
+| Background | `#FFF9E6` | `--color-background` |
+| Surface | `#FFFFFF` | `--color-surface` |
+| Foreground | `#2B2618` | `--color-foreground` |
+| Muted | `#FFF3C4` | `--color-muted` |
+| Muted text | `#5C553D` | `--color-muted-text` |
+| Border | `#E6D17A` | `--color-border` |
+| Focus | `#8A6A00` | `--color-ring` |
+| Success | `#1B7D3A` | `--color-success` |
+| Warning | `#9A6A00` | `--color-warning` |
+| Destructive | `#A4262C` | `--color-destructive` |
+| Sidebar | `#3A321B` | `--color-sidebar` |
 
-**Color Notes:** Clinical blue + health green + alert red
+**Color Notes:** Warm pastel yellow inspired by Power BI, with a dark brown
+navigation anchor and semantic green/amber/red status colors. Normal text and
+focus combinations meet WCAG AA contrast.
 
 ### Typography
 
@@ -76,8 +81,8 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #16A34A;
-  color: white;
+  background: #F2C811;
+  color: #2B2618;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -93,8 +98,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #0284C7;
-  border: 2px solid #0284C7;
+  color: #2B2618;
+  border: 2px solid #8A6A00;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -107,7 +112,7 @@
 
 ```css
 .card {
-  background: #F0F9FF;
+  background: #FFFFFF;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -133,9 +138,9 @@
 }
 
 .input:focus {
-  border-color: #0284C7;
+  border-color: #8A6A00;
   outline: none;
-  box-shadow: 0 0 0 3px #0284C720;
+  box-shadow: 0 0 0 3px #8A6A0033;
 }
 ```
 

@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QFileDialog, QPushButton, QStackedWidget
 
 from molstat.orchestrator import JobResult
 from molstat.ui.app import MainWindow
+from molstat.ui.theme import COLORS, build_stylesheet
 
 
 class FakeOrchestrator:
@@ -58,6 +59,43 @@ class DiagnosticSettingsStore(FakeSettingsStore):
 class FailingOrchestrator:
     def run(self, kind: str, trigger: str) -> JobResult:
         return JobResult(kind, "failed", {})
+
+
+def _contrast(first: str, second: str) -> float:
+    def luminance(color: str) -> float:
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [
+            value / 12.92
+            if value <= 0.04045
+            else ((value + 0.055) / 1.055) ** 2.4
+            for value in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    light, dark = sorted((luminance(first), luminance(second)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def test_theme_uses_accessible_power_bi_pastel_palette() -> None:
+    assert COLORS == {
+        "primary": "#F2C811",
+        "background": "#FFF9E6",
+        "muted": "#FFF3C4",
+        "surface": "#FFFFFF",
+        "foreground": "#2B2618",
+        "muted_text": "#5C553D",
+        "border": "#E6D17A",
+        "focus": "#8A6A00",
+        "success": "#1B7D3A",
+        "warning": "#9A6A00",
+        "danger": "#A4262C",
+        "sidebar": "#3A321B",
+    }
+    assert _contrast(COLORS["foreground"], COLORS["background"]) >= 4.5
+    assert _contrast(COLORS["muted_text"], COLORS["background"]) >= 4.5
+    assert _contrast("#FFFFFF", COLORS["sidebar"]) >= 4.5
+    assert _contrast(COLORS["focus"], COLORS["surface"]) >= 4.5
+    assert f"border: 3px solid {COLORS['focus']}" in build_stylesheet()
 
 
 def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
