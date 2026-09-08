@@ -11,11 +11,12 @@ from threading import Event
 import traceback
 from urllib.parse import urlparse
 import webbrowser
+from collections.abc import Callable
 
 from .archive import RawArchive
 from ._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restanse_columns
-from .config import MolStatSettings
+from .config import MolStatSettings, _valid_power_bi_url
 from .database import MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
 from .orchestrator import MolStatOrchestrator
@@ -32,15 +33,20 @@ from .statistics import (
 from .system import MolStatSystem
 
 
-class BoardController:
-    def __init__(self, snapshot_provider, *, port: int = 8765) -> None:
-        from .web import BoardServer
-
-        self.server = BoardServer(snapshot_provider, port=port)
+class PowerBiController:
+    def __init__(
+        self,
+        report_url: str,
+        *,
+        opener: Callable[[str], object] = webbrowser.open,
+    ) -> None:
+        if not _valid_power_bi_url(report_url):
+            raise ValueError("Power BI-rapportlenken er ugyldig.")
+        self.report_url = report_url.strip()
+        self._opener = opener
 
     def open(self) -> None:
-        self.server.start()
-        webbrowser.open(f"http://127.0.0.1:{self.server.port}/board")
+        self._opener(self.report_url)
 
 
 class DefaultServices:
@@ -58,11 +64,11 @@ class DefaultServices:
         from .ui.app import MainWindow, create_application
 
         application = create_application(self.settings_path)
-        orchestrator, board, error = self.refresh_gui_runtime()
+        orchestrator, power_bi, error = self.refresh_gui_runtime()
         window = MainWindow(
             orchestrator,
             self,
-            board,
+            power_bi,
             configuration_error=error,
         )
         window.show()
@@ -72,13 +78,15 @@ class DefaultServices:
         try:
             system = self._build_system(require_statistics=True)
             orchestrator = self._orchestrator(system)
-            board = BoardController(
-                lambda: system.public_snapshot(datetime.now()), port=8765
+            power_bi = (
+                PowerBiController(self.settings.power_bi_report_url)
+                if self.settings.power_bi_report_url
+                else None
             )
         except Exception as exc:
             self._record_failure("gui_configuration_failed", exc)
             return None, None, f"{type(exc).__name__}: {exc}"
-        return orchestrator, board, None
+        return orchestrator, power_bi, None
 
     def run(self, kind: str) -> int:
         try:
@@ -251,6 +259,7 @@ class DefaultServices:
                 "lvms_url": "",
                 "lookup_hemato": "",
                 "lookup_solide": "",
+                "power_bi_report_url": "",
             }
         lookups = self.settings.statistics_lookup_paths
         return {
@@ -263,6 +272,7 @@ class DefaultServices:
             "lvms_url": self.settings.lvms_url,
             "lookup_hemato": str(lookups.get("hemato", "")),
             "lookup_solide": str(lookups.get("solide", "")),
+            "power_bi_report_url": self.settings.power_bi_report_url,
         }
 
     def overview_status_fields(self) -> dict[str, tuple[str, str]]:
@@ -311,6 +321,7 @@ class DefaultServices:
             sharepoint_root=Path(sharepoint_text) if sharepoint_text else None,
             statistics_lookup_paths=lookups,
             lvms_url=values.get("lvms_url", "").strip(),
+            power_bi_report_url=values.get("power_bi_report_url", "").strip(),
         )
         errors = updated.validate()
         if errors:

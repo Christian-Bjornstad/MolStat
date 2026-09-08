@@ -36,6 +36,9 @@ class FakeSettingsStore:
             "lvms_url": "https://lvms.example.invalid/app",
             "lookup_hemato": "K:/sensitiv/lookup-hemato.xlsx",
             "lookup_solide": "K:/sensitiv/lookup-solide.xlsx",
+            "power_bi_report_url": (
+                "https://app.powerbi.com/groups/me/reports/report-id"
+            ),
         }
 
     def save_settings_fields(self, values: dict[str, str]) -> None:
@@ -111,7 +114,7 @@ def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
         "nav-diagnostics",
         "run-statistics",
         "run-backlog",
-        "open-board",
+        "open-power-bi",
     ):
         button = window.findChild(QPushButton, object_name)
         assert button is not None
@@ -123,7 +126,7 @@ def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
     )
 
 
-def test_navigation_and_board_action_work_without_icons(qtbot) -> None:
+def test_navigation_and_power_bi_action_work_without_icons(qtbot) -> None:
     board = FakeBoardController()
     window = MainWindow(FakeOrchestrator(), None, board)
     qtbot.addWidget(window)
@@ -135,7 +138,9 @@ def test_navigation_and_board_action_work_without_icons(qtbot) -> None:
     )
 
     qtbot.mouseClick(window.findChild(QPushButton, "nav-overview"), Qt.MouseButton.LeftButton)
-    qtbot.mouseClick(window.findChild(QPushButton, "open-board"), Qt.MouseButton.LeftButton)
+    power_bi = window.findChild(QPushButton, "open-power-bi")
+    assert power_bi.text() == "Åpne Prøveflyt i Power BI"
+    qtbot.mouseClick(power_bi, Qt.MouseButton.LeftButton)
     assert board.opened is True
 
 
@@ -157,7 +162,12 @@ def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
     window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
     qtbot.addWidget(window)
 
-    for name in ("sensitive-root", "sharepoint-root", "lvms-url"):
+    for name in (
+        "sensitive-root",
+        "sharepoint-root",
+        "lvms-url",
+        "power-bi-report-url",
+    ):
         field = window.findChild(object, name)
         assert field is not None
         assert field.accessibleName()
@@ -217,12 +227,16 @@ def test_settings_are_loaded_and_saved_through_controller(qtbot) -> None:
 
     assert window.settings_page.sensitive_root.text() == "K:/sensitiv"
     window.settings_page.sharepoint_root.setText("C:/SharePoint/Ny")
+    window.settings_page.power_bi_report_url.setText(
+        "https://app.powerbi.com/groups/me/reports/new-id"
+    )
     qtbot.mouseClick(
         window.settings_page.save_button, Qt.MouseButton.LeftButton
     )
 
     assert store.saved is not None
     assert store.saved["sharepoint_root"] == "C:/SharePoint/Ny"
+    assert store.saved["power_bi_report_url"].endswith("/new-id")
     assert "lagret" in window.statusBar().currentMessage().casefold()
 
 
@@ -236,7 +250,7 @@ def test_saving_settings_reconfigures_jobs_without_restart(qtbot) -> None:
     qtbot.mouseClick(window.settings_page.save_button, Qt.MouseButton.LeftButton)
 
     assert window.orchestrator is orchestrator
-    assert window.board_controller is board
+    assert window.power_bi_controller is board
     assert "klar" in window.statusBar().currentMessage().casefold()
 
 

@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,13 +17,21 @@ class MolStatSettings:
     statistics_lookup_paths: dict[str, Path] = field(default_factory=dict)
     lvms_config_path: Path | None = None
     lvms_url: str = ""
+    power_bi_report_url: str = ""
 
     def validate(self) -> tuple[str, ...]:
+        errors: list[str] = []
         if self.sharepoint_root is not None and _same_path(
             self.sensitive_root, self.sharepoint_root
         ):
-            return ("K-sensitiv og SharePoint må være ulike mapper.",)
-        return ()
+            errors.append("K-sensitiv og SharePoint må være ulike mapper.")
+        if self.power_bi_report_url and not _valid_power_bi_url(
+            self.power_bi_report_url
+        ):
+            errors.append(
+                "Power BI-lenken må være en HTTPS-lenke på app.powerbi.com."
+            )
+        return tuple(errors)
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,4 +72,19 @@ class MolStatSettings:
 def _same_path(first: Path, second: Path) -> bool:
     return os.path.normcase(str(first.resolve())) == os.path.normcase(
         str(second.resolve())
+    )
+
+
+def _valid_power_bi_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value.strip())
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname == "app.powerbi.com"
+        and parsed.username is None
+        and parsed.password is None
+        and port in (None, 443)
     )

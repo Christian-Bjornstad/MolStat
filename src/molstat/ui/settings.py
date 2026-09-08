@@ -36,6 +36,9 @@ class SettingsPage(QWidget):
         self.sensitive_root = _field("sensitive-root", "K-sensitiv mappe")
         self.sharepoint_root = _field("sharepoint-root", "SharePoint-mappe")
         self.lvms_url = _field("lvms-url", "LVMS-adresse")
+        self.power_bi_report_url = _field(
+            "power-bi-report-url", "Power BI-rapportlenke"
+        )
         self.lookup_hemato = _field("lookup-hemato", "Lookup-fil for Hemato")
         self.lookup_solide = _field("lookup-solide", "Lookup-fil for Solide")
         form.addRow(
@@ -55,6 +58,7 @@ class SettingsPage(QWidget):
             ),
         )
         form.addRow("LVMS-adresse", self.lvms_url)
+        form.addRow("Power BI-rapport", self.power_bi_report_url)
         form.addRow(
             "Lookup Hemato",
             self._file_row(
