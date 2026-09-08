@@ -156,6 +156,12 @@ def test_power_bi_report_starter_has_expected_pages_and_model_reference() -> Non
     reference = json.loads((report / "definition.pbir").read_text(encoding="utf-8"))
 
     assert (project / "MolStatProveflyt.pbip").is_file()
+    semantic_model = project.parent / "MolStatProveflyt.SemanticModel"
+    model_manifest = json.loads(
+        (semantic_model / "definition.pbism").read_text(encoding="utf-8")
+    )
+    assert model_manifest["version"] == "4.0"
+    assert (semantic_model / ".platform").is_file()
     assert pages["pageOrder"] == ["proveflyt-naa", "utvikling", "analysegruppe"]
     assert pages["activePageName"] == "proveflyt-naa"
     assert reference["datasetReference"]["byPath"]["path"] == (

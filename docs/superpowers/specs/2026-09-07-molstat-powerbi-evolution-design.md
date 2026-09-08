@@ -1,6 +1,6 @@
 # MolStat – historikk, Prøveflyt i Power BI og videreutvikling
 
-**Dato:** 07.09.2026  
+**Dato:** 07.09.2026
 **Status:** Godkjent design, avventer gjennomgang av skrevet spesifikasjon
 
 ## Mål
