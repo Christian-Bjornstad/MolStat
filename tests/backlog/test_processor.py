@@ -117,7 +117,65 @@ def test_processor_retains_one_aggregate_row_per_group_and_hour(
         rows = connection.execute(
             "SELECT observed_at, analysis_code FROM backlog_snapshot"
         ).fetchall()
+        detail_rows = connection.execute(
+            "SELECT observed_at, analysis_code FROM backlog_detail_snapshot"
+        ).fetchall()
     assert rows == [("2026-09-07T11:00:00", "KLONALITET")]
+    assert detail_rows == [("2026-09-07T11:00:00", "IGH-OU")]
+
+
+def test_processor_persists_identifier_free_detail_with_statistics_metadata(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "restanse.csv"
+    csv_path.write_text(
+        "SampleID;Analyse;Tidspunkt analysebestilling;Tidspunkt ankomst;"
+        "Status analyse;Analyseresultat\n"
+        "SECRET-42;IGH-OU;30.08.2026 07:00;30.08.2026 08:00;Initial;\n",
+        encoding="cp1252",
+    )
+    database = MolStatDatabase(tmp_path / "molstat.sqlite3")
+    database.migrate()
+    processor = BacklogProcessor(
+        _config(),
+        _contract(),
+        now=lambda: datetime(2026, 9, 7, 11, 42),
+        analysis_lookup={
+            "IGH-OU": {
+                "Nukleinsyre": "DNA",
+                "Rapportgruppe": "lymfom",
+                "Svarfrist": "14",
+            }
+        },
+    )
+
+    processor.import_snapshot(csv_path, database)
+
+    with database._connect() as connection:
+        row = connection.execute(
+            """
+            SELECT analysis_code, nucleic_acid, report_group,
+                   analysis_group_code, analysis_group_label, response_deadline
+            FROM backlog_detail_snapshot
+            """
+        ).fetchone()
+        columns = {
+            str(item[1])
+            for item in connection.execute(
+                "PRAGMA table_info(backlog_detail_snapshot)"
+            ).fetchall()
+        }
+    assert row == (
+        "IGH-OU",
+        "DNA",
+        "lymfom",
+        "KLONALITET",
+        "Klonalitet",
+        "14",
+    )
+    assert "sample_id" not in columns
+    assert "pid" not in columns
+    assert "workitem" not in columns
 
 
 def test_history_failure_rolls_back_current_sensitive_snapshot(

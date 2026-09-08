@@ -1,10 +1,5 @@
-Observert_tidspunkt;Enhet;Analysegruppe_kode;Analysegruppe;Klar;Mangler_godkjenning;På_vei;Over_frist;Median_klare_timer;Eldste_klare_timer;Alvorlighetsgrad;Ugyldige_rader;Ekskluderte_rader;Kilde_fersk;Klassifikatorversjon
-2026-09-07T10:00:00;hemato;CALR-MPL;CALR + MPL;4;1;0;0;48.0;90.0;NORMAL;0;2;Ja;2
-2026-09-07T10:00:00;hemato;HTS-MYELOID-PANEL;HTS Myeloid Panel;0;0;0;0;;;EMPTY;0;2;Ja;2
-2026-09-07T10:00:00;hemato;KLONALITET;Klonalitet;8;3;1;2;72.0;180.0;OVERDUE;0;2;Ja;2
-2026-09-07T11:00:00;hemato;CALR-MPL;CALR + MPL;5;1;0;0;47.0;91.0;NORMAL;0;1;Ja;2
-2026-09-07T11:00:00;hemato;HTS-MYELOID-PANEL;HTS Myeloid Panel;1;0;2;0;12.0;12.0;NORMAL;0;1;Ja;2
-2026-09-07T11:00:00;hemato;KLONALITET;Klonalitet;7;4;1;2;70.0;181.0;OVERDUE;0;1;Ja;2
-2026-09-07T12:00:00;hemato;CALR-MPL;CALR + MPL;3;2;0;0;46.0;92.0;NORMAL;0;0;Ja;2
-2026-09-07T12:00:00;hemato;HTS-MYELOID-PANEL;HTS Myeloid Panel;2;0;1;0;13.0;13.0;NORMAL;0;0;Ja;2
-2026-09-07T12:00:00;hemato;KLONALITET;Klonalitet;6;4;0;1;68.0;182.0;OVERDUE;0;0;Ja;2
+Observert_tidspunkt;Enhet;Materiale;Analyse;Nukleinsyre;Rapportgruppe;Analysegruppe_kode;Analysegruppe;Tidspunkt.prøvetaking;Tidspunkt.ankomst;Tidspunkt.analysebestilling;Prioritet.analyse;Prioritet.rekvisisjon;Status.analyse;Status.prelgruppe;Restansestatus;Svarfrist;Klassifikatorversjon
+2026-09-07T10:00:00;hemato;Blod;IGH-VDJ-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;5;2
+2026-09-07T10:00:00;hemato;Blod;TRG-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;14;2
+2026-09-07T11:00:00;hemato;Blod;IGH-VDJ-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;5;2
+2026-09-07T11:00:00;hemato;Blod;TRG-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;14;2

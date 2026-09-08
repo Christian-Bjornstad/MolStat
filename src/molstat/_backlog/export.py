@@ -1,4 +1,4 @@
-"""Deterministic, identifier-free Power BI export of backlog history."""
+"""Deterministisk, identifikatorfri detaljeksport av restansehistorikk."""
 
 from __future__ import annotations
 
@@ -13,18 +13,21 @@ from ..database import MolStatDatabase
 BACKLOG_PUBLIC_COLUMNS = (
     "Observert_tidspunkt",
     "Enhet",
+    "Materiale",
+    "Analyse",
+    "Nukleinsyre",
+    "Rapportgruppe",
     "Analysegruppe_kode",
     "Analysegruppe",
-    "Klar",
-    "Mangler_godkjenning",
-    "På_vei",
-    "Over_frist",
-    "Median_klare_timer",
-    "Eldste_klare_timer",
-    "Alvorlighetsgrad",
-    "Ugyldige_rader",
-    "Ekskluderte_rader",
-    "Kilde_fersk",
+    "Tidspunkt.prøvetaking",
+    "Tidspunkt.ankomst",
+    "Tidspunkt.analysebestilling",
+    "Prioritet.analyse",
+    "Prioritet.rekvisisjon",
+    "Status.analyse",
+    "Status.prelgruppe",
+    "Restansestatus",
+    "Svarfrist",
     "Klassifikatorversjon",
 )
 
@@ -38,21 +41,24 @@ def export_backlog_history(
             """
             SELECT observed_at,
                    unit_key,
+                   material,
                    analysis_code,
-                   analysis_label,
-                   ready_count,
-                   awaiting_approval_count,
-                   in_transit_count,
-                   overdue_count,
-                   median_ready_hours,
-                   oldest_ready_hours,
-                   severity,
-                   invalid_rows,
-                   excluded_rows,
-                   source_is_fresh,
+                   nucleic_acid,
+                   report_group,
+                   analysis_group_code,
+                   analysis_group_label,
+                   collected_at,
+                   arrived_at,
+                   ordered_at,
+                   analysis_priority,
+                   request_priority,
+                   analysis_status,
+                   preliminary_status,
+                   workflow_stage,
+                   response_deadline,
                    classifier_version
-            FROM backlog_snapshot
-            ORDER BY observed_at, unit_key, analysis_code
+            FROM backlog_detail_snapshot
+            ORDER BY observed_at, unit_key, row_number
             """
         ).fetchall()
 
@@ -61,7 +67,7 @@ def export_backlog_history(
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
-            encoding="utf-8",
+            encoding="utf-8-sig",
             newline="",
             dir=destination.parent,
             prefix=f".{destination.name}.",
@@ -72,9 +78,7 @@ def export_backlog_history(
             writer = csv.writer(stream, delimiter=";")
             writer.writerow(BACKLOG_PUBLIC_COLUMNS)
             for row in rows:
-                public_row = [*row]
-                public_row[13] = "Ja" if bool(public_row[13]) else "Nei"
-                writer.writerow(public_row)
+                writer.writerow(row)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, destination)

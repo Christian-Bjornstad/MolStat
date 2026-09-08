@@ -21,9 +21,10 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
     database.migrate()
     database.migrate()
 
-    assert database.schema_version() == 2
+    assert database.schema_version() == 3
     assert database.table_names() == {
         "backlog_snapshot",
+        "backlog_detail_snapshot",
         "backlog_sample",
         "job_run",
         "raw_file",
@@ -64,8 +65,9 @@ def test_v1_migration_adds_history_without_rewriting_current_samples(
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 2
+    assert database.schema_version() == 3
     assert "backlog_snapshot" in database.table_names()
+    assert "backlog_detail_snapshot" in database.table_names()
     with database._connect() as connection:
         row = connection.execute(
             "SELECT sample_key, analysis_group FROM backlog_sample"

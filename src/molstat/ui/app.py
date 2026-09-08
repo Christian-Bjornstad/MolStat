@@ -43,14 +43,12 @@ class MainWindow(QMainWindow):
         self,
         orchestrator: Any,
         settings_store: Any,
-        power_bi_controller: Any,
         *,
         configuration_error: str | None = None,
     ) -> None:
         super().__init__()
         self.orchestrator = orchestrator
         self.settings_store = settings_store
-        self.power_bi_controller = power_bi_controller
         self._workers: set[_JobWorker] = set()
         self.setWindowTitle("MolStat")
         self.setMinimumSize(1100, 720)
@@ -84,7 +82,6 @@ class MainWindow(QMainWindow):
             lambda: self._start_job("statistics")
         )
         self.overview.run_backlog.clicked.connect(lambda: self._start_job("backlog"))
-        self.overview.open_power_bi.clicked.connect(self._open_power_bi)
         self.settings_page.save_button.clicked.connect(self._save_settings)
         self._load_settings()
         self._refresh_overview_status()
@@ -156,7 +153,7 @@ class MainWindow(QMainWindow):
                 snapshots = int(result.summary.get("snapshots", 0))
                 self.overview.cards["backlog"].set_status(
                     "Publisert",
-                    f"{rows} aggregater i {snapshots} timesnapshots",
+                    f"{rows} analyserader i {snapshots} timesnapshots",
                 )
             self.statusBar().showMessage("Kjøringen er fullført.", 5000)
         elif result.status == "busy":
@@ -192,15 +189,6 @@ class MainWindow(QMainWindow):
         self.overview.run_statistics.setEnabled(enabled)
         self.overview.run_backlog.setEnabled(enabled)
 
-    def _open_power_bi(self) -> None:
-        if self.power_bi_controller is None:
-            self.statusBar().showMessage(
-                "Legg inn Power BI-rapportlenken i Innstillinger."
-            )
-            return
-        self.power_bi_controller.open()
-        self.statusBar().showMessage("Prøveflyt er åpnet i Power BI.", 5000)
-
     def _load_settings(self) -> None:
         if self.settings_store is None or not hasattr(
             self.settings_store, "load_settings_fields"
@@ -210,9 +198,6 @@ class MainWindow(QMainWindow):
         self.settings_page.sensitive_root.setText(values.get("sensitive_root", ""))
         self.settings_page.sharepoint_root.setText(values.get("sharepoint_root", ""))
         self.settings_page.lvms_url.setText(values.get("lvms_url", ""))
-        self.settings_page.power_bi_report_url.setText(
-            values.get("power_bi_report_url", "")
-        )
         for key, field in self.settings_page.lookup_fields.items():
             field.setText(values.get(f"lookup_{key}", ""))
 
@@ -226,9 +211,6 @@ class MainWindow(QMainWindow):
             "sensitive_root": self.settings_page.sensitive_root.text().strip(),
             "sharepoint_root": self.settings_page.sharepoint_root.text().strip(),
             "lvms_url": self.settings_page.lvms_url.text().strip(),
-            "power_bi_report_url": (
-                self.settings_page.power_bi_report_url.text().strip()
-            ),
         }
         values.update(
             {
@@ -242,11 +224,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(str(exc), 8000)
             return
         if hasattr(self.settings_store, "refresh_gui_runtime"):
-            orchestrator, power_bi, error = (
-                self.settings_store.refresh_gui_runtime()
-            )
+            orchestrator, error = self.settings_store.refresh_gui_runtime()
             self.orchestrator = orchestrator
-            self.power_bi_controller = power_bi
             self.diagnostics.set_configuration_error(error)
             self._refresh_overview_status()
             if error:

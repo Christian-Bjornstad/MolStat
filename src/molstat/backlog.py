@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -28,7 +28,11 @@ from ._backlog.ingestion import (
     file_fingerprint,
     read_restanse_csv,
 )
-from ._backlog.history import build_history_rows
+from ._backlog.history import (
+    build_detail_history_rows,
+    build_history_rows,
+    hour_slot,
+)
 from .database import MolStatDatabase
 
 ImportResult = CsvImportResult
@@ -42,11 +46,13 @@ class BacklogProcessor:
         *,
         now: Callable[[], datetime] = datetime.now,
         stale_after: timedelta = timedelta(hours=2),
+        analysis_lookup: Mapping[str, Mapping[str, str]] | None = None,
     ) -> None:
         self.config = config
         self.contract = contract
         self._now = now
         self.stale_after = stale_after
+        self.analysis_lookup = analysis_lookup or {}
 
     def import_snapshot(
         self,
@@ -67,10 +73,33 @@ class BacklogProcessor:
             excluded_rows=imported.excluded_rows,
             classifier_version=self.contract.classifier_version,
         )
+        detail_rows = build_detail_history_rows(
+            self.config,
+            imported.details,
+            observed_at,
+            analysis_lookup=self.analysis_lookup,
+            classifier_version=self.contract.classifier_version,
+        )
         observed_at_text = observed_at.isoformat()
         with database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                detail_slot_exists = connection.execute(
+                    """
+                    SELECT 1
+                    FROM backlog_snapshot
+                    WHERE observed_at = ? AND unit_key = ?
+                      AND classifier_version = ?
+                    LIMIT 1
+                    """,
+                    (
+                        detail_rows[0].observed_at.isoformat()
+                        if detail_rows
+                        else hour_slot(observed_at).isoformat(),
+                        self.config.unit.key,
+                        self.contract.classifier_version,
+                    ),
+                ).fetchone() is not None
                 connection.execute("DELETE FROM backlog_sample")
                 connection.executemany(
                     """
@@ -143,6 +172,45 @@ class BacklogProcessor:
                         for row in history_rows
                     ),
                 )
+                if not detail_slot_exists:
+                    connection.executemany(
+                        """
+                        INSERT INTO backlog_detail_snapshot(
+                            observed_at, unit_key, row_number, material,
+                            analysis_code, nucleic_acid, report_group,
+                            analysis_group_code, analysis_group_label,
+                            collected_at, arrived_at, ordered_at,
+                            analysis_priority, request_priority, analysis_status,
+                            preliminary_status, workflow_stage, response_deadline,
+                            classifier_version, source_fingerprint
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            (
+                                row.observed_at.isoformat(),
+                                row.unit_key,
+                                row_number,
+                                row.material,
+                                row.analysis_code,
+                                row.nucleic_acid,
+                                row.report_group,
+                                row.analysis_group_code,
+                                row.analysis_group_label,
+                                row.collected_at.isoformat() if row.collected_at else None,
+                                row.arrived_at.isoformat() if row.arrived_at else None,
+                                row.ordered_at.isoformat(),
+                                row.analysis_priority,
+                                row.request_priority,
+                                row.analysis_status,
+                                row.preliminary_status,
+                                row.workflow_stage,
+                                row.response_deadline,
+                                row.classifier_version,
+                                imported.fingerprint,
+                            )
+                            for row_number, row in enumerate(detail_rows, start=1)
+                        ),
+                    )
                 connection.execute("COMMIT")
             except BaseException:
                 connection.execute("ROLLBACK")

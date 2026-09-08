@@ -272,6 +272,56 @@ def test_collapses_subanalyses_to_one_sample_in_group(tmp_path):
         ("S2", "Klonalitet"),
     ]
     assert result.duplicate_rows == 1
+    assert [detail.analysis_code for detail in result.details] == [
+        "IGH-VDJ-OU",
+        "TRG-OU",
+        "TRG-OU",
+    ]
+    assert {detail.analysis_group for detail in result.details} == {"Klonalitet"}
+
+
+def test_detail_rows_keep_safe_source_fields_without_identifiers(tmp_path):
+    path = tmp_path / "restanse.csv"
+    path.write_text(
+        "SampleID;Analyse;Materiale;Tidspunkt prøvetaking;Tidspunkt ankomst;"
+        "Tidspunkt analysebestilling;Prioritet analyse;Prioritet Rekvisisjon;"
+        "Status analyse;Status prelgruppe;Analyseresultat;PID;Workitemgruppe\n"
+        "SENSITIVE-1;TRG-OU;Blod;20.08.2026 07:30;20.08.2026 08:00;"
+        "20.08.2026 08:15;Høy;Vanlig;Initial;Initial;IKKE-EKSPORTER;"
+        "PID-1;WORK-1\n",
+        encoding="utf-8",
+    )
+    detailed_contract = CsvContract(
+        delimiter=";",
+        encoding="utf-8",
+        columns={
+            **real_contract().columns,
+            "material": "Materiale",
+            "collected_at": "Tidspunkt prøvetaking",
+            "arrival_at": "Tidspunkt ankomst",
+            "analysis_priority": "Prioritet analyse",
+            "request_priority": "Prioritet Rekvisisjon",
+        },
+        completed_values=("completed",),
+    )
+
+    result = read_restanse_csv(
+        path,
+        detailed_contract,
+        analysis_groups={"Klonalitet": ("TRG-OU",)},
+    )
+
+    assert len(result.details) == 1
+    detail = result.details[0]
+    assert detail.analysis_code == "TRG-OU"
+    assert detail.analysis_group == "Klonalitet"
+    assert detail.material == "Blod"
+    assert detail.analysis_priority == "Høy"
+    assert detail.request_priority == "Vanlig"
+    serialized = repr(detail)
+    assert "PID-1" not in serialized
+    assert "WORK-1" not in serialized
+    assert "IKKE-EKSPORTER" not in serialized
 
 
 def test_excludes_rows_without_order_time(tmp_path):

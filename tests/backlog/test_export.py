@@ -12,47 +12,44 @@ from molstat.database import MolStatDatabase
 EXPECTED_COLUMNS = (
     "Observert_tidspunkt",
     "Enhet",
+    "Materiale",
+    "Analyse",
+    "Nukleinsyre",
+    "Rapportgruppe",
     "Analysegruppe_kode",
     "Analysegruppe",
-    "Klar",
-    "Mangler_godkjenning",
-    "På_vei",
-    "Over_frist",
-    "Median_klare_timer",
-    "Eldste_klare_timer",
-    "Alvorlighetsgrad",
-    "Ugyldige_rader",
-    "Ekskluderte_rader",
-    "Kilde_fersk",
+    "Tidspunkt.prøvetaking",
+    "Tidspunkt.ankomst",
+    "Tidspunkt.analysebestilling",
+    "Prioritet.analyse",
+    "Prioritet.rekvisisjon",
+    "Status.analyse",
+    "Status.prelgruppe",
+    "Restansestatus",
+    "Svarfrist",
     "Klassifikatorversjon",
 )
 
 
-def _insert_snapshot(
+def _insert_detail(
     database: MolStatDatabase,
     observed_at: str,
     unit: str,
     code: str,
-    *,
-    median_hours: float | None,
-    oldest_hours: float | None,
-    source_is_fresh: int,
 ) -> None:
     with database._connect() as connection:
         connection.execute(
             """
-            INSERT INTO backlog_snapshot VALUES
-            (?, ?, ?, ?, 2, 1, 3, 1, ?, ?, 'WARNING', 4, 5, ?, 2,
-             'internal-secret-fingerprint')
+            INSERT INTO backlog_detail_snapshot VALUES
+            (?, ?, 1, 'Blod', ?, 'DNA', 'lymfom', 'KLONALITET',
+             'Klonalitet', '2026-09-06T07:30:00', '2026-09-06T08:00:00',
+             '2026-09-06T08:15:00', 'Høy', 'Vanlig', 'Initial', 'Initial',
+             'ready', '14', 2, 'internal-secret-fingerprint')
             """,
             (
                 observed_at,
                 unit,
                 code,
-                f"Analyse {code}",
-                median_hours,
-                oldest_hours,
-                source_is_fresh,
             ),
         )
 
@@ -62,23 +59,17 @@ def test_export_is_deterministic_and_contains_only_public_columns(
 ) -> None:
     database = MolStatDatabase(tmp_path / "molstat.sqlite3")
     database.migrate()
-    _insert_snapshot(
+    _insert_detail(
         database,
         "2026-09-07T11:00:00",
         "hemato",
         "B",
-        median_hours=None,
-        oldest_hours=None,
-        source_is_fresh=0,
     )
-    _insert_snapshot(
+    _insert_detail(
         database,
         "2026-09-07T10:00:00",
         "hemato",
         "A",
-        median_hours=7.5,
-        oldest_hours=12.0,
-        source_is_fresh=1,
     )
     destination = tmp_path / "export" / "restansehistorikk.csv"
 
@@ -87,22 +78,22 @@ def test_export_is_deterministic_and_contains_only_public_columns(
     assert exported == 2
     assert BACKLOG_PUBLIC_COLUMNS == EXPECTED_COLUMNS
     raw = destination.read_bytes()
-    assert not raw.startswith(b"\xef\xbb\xbf")
-    text = raw.decode("utf-8")
+    assert raw.startswith(b"\xef\xbb\xbf")
+    text = raw.decode("utf-8-sig")
     assert text.splitlines()[0] == ";".join(EXPECTED_COLUMNS)
     assert "internal-secret-fingerprint" not in text
     with destination.open(encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream, delimiter=";"))
-    assert [row["Analysegruppe_kode"] for row in rows] == ["A", "B"]
-    assert rows[0]["Median_klare_timer"] == "7.5"
-    assert rows[0]["Eldste_klare_timer"] == "12.0"
-    assert rows[0]["Kilde_fersk"] == "Ja"
-    assert rows[1]["Median_klare_timer"] == ""
-    assert rows[1]["Eldste_klare_timer"] == ""
-    assert rows[1]["Kilde_fersk"] == "Nei"
+    assert [row["Analyse"] for row in rows] == ["A", "B"]
+    assert rows[0]["Rapportgruppe"] == "lymfom"
+    assert rows[0]["Analysegruppe"] == "Klonalitet"
+    assert rows[0]["Svarfrist"] == "14"
+    serialized = repr(rows)
+    for forbidden in ("SampleID", "PID", "WorkItem", "Analyseresultat"):
+        assert forbidden not in serialized
 
 
-def test_power_bi_sample_matches_public_contract_and_hourly_grid() -> None:
+def test_detail_sample_matches_public_contract_and_hourly_history() -> None:
     root = Path(__file__).parents[2]
     sample = root / "docs" / "powerbi" / "sample_restansehistorikk.csv"
 
@@ -118,14 +109,18 @@ def test_power_bi_sample_matches_public_contract_and_hourly_grid() -> None:
             row["Analysegruppe_kode"]
         )
     assert len({frozenset(groups) for groups in groups_by_time.values()}) == 1
-    assert any(
-        row["Klar"] == "0"
-        and row["Mangler_godkjenning"] == "0"
-        and row["På_vei"] == "0"
-        for row in rows
-    )
+    assert all(groups == {"KLONALITET"} for groups in groups_by_time.values())
+    assert {row["Analyse"] for row in rows} == {"IGH-VDJ-OU", "TRG-OU"}
     serialized = repr(rows).casefold()
-    for forbidden in ("sampleid", "workitem", "fingerprint", "pasient"):
+    for forbidden in (
+        "sampleid",
+        "pid",
+        "workitem",
+        "fingerprint",
+        "pasient",
+        "analyseresultat",
+        "kommentar",
+    ):
         assert forbidden not in serialized
 
 

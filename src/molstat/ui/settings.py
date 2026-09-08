@@ -38,9 +38,6 @@ class SettingsPage(QWidget):
         self.sensitive_root = _field("sensitive-root", "K-sensitiv mappe")
         self.sharepoint_root = _field("sharepoint-root", "SharePoint-mappe")
         self.lvms_url = _field("lvms-url", "LVMS-adresse")
-        self.power_bi_report_url = _field(
-            "power-bi-report-url", "Power BI-rapportlenke"
-        )
         self.lookup_fields: dict[str, QLineEdit] = {}
         form.addRow(
             "K-sensitiv mappe",
@@ -59,7 +56,6 @@ class SettingsPage(QWidget):
             ),
         )
         form.addRow("LVMS-adresse", self.lvms_url)
-        form.addRow("Power BI-rapport", self.power_bi_report_url)
         for module in DEFAULT_MODULES.for_job("statistics"):
             accessible_name = f"Lookup-fil for {module.display_name}"
             field = _field(f"lookup-{module.key}", accessible_name)

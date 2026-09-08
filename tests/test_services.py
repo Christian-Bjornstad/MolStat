@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
-from molstat.services import DefaultServices, PowerBiController
+from molstat.services import DefaultServices
 
 
 def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
@@ -15,7 +15,6 @@ def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
         "lvms_url": "",
         "lookup_hemato": "",
         "lookup_solide": "",
-        "power_bi_report_url": "",
     }
 
 
@@ -31,10 +30,9 @@ def test_refresh_gui_runtime_reports_and_logs_configuration_failure(
         lambda **kwargs: (_ for _ in ()).throw(ValueError("Lookup-fil mangler.")),
     )
 
-    orchestrator, board, error = services.refresh_gui_runtime()
+    orchestrator, error = services.refresh_gui_runtime()
 
     assert orchestrator is None
-    assert board is None
     assert error == "ValueError: Lookup-fil mangler."
     log = local_app_data / "MolStat" / "logs" / "bootstrap.log"
     assert "gui_configuration_failed" in log.read_text(encoding="utf-8")
@@ -135,6 +133,7 @@ def test_system_build_wires_exact_backlog_publication_policy(
             raise AssertionError("unused")
 
     monkeypatch.setattr("molstat.services.UnifiedLvmsFetcher", FakeFetcher)
+    monkeypatch.setattr("molstat.services.load_lookup", lambda _path: {})
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
 
     system = services._build_system(require_statistics=False)
@@ -144,13 +143,3 @@ def test_system_build_wires_exact_backlog_publication_policy(
         "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
     }
     assert system.sharepoint_root == sharepoint
-
-
-def test_power_bi_controller_opens_validated_report_url() -> None:
-    opened: list[str] = []
-    url = "https://app.powerbi.com/groups/me/reports/report-id"
-    controller = PowerBiController(url, opener=opened.append)
-
-    controller.open()
-
-    assert opened == [url]

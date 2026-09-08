@@ -6,7 +6,12 @@
   "columns": {
     "sample_id": "SampleID",
     "analysis_code": "Analyse",
+    "material": "Materiale",
+    "collected_at": "Tidspunkt prøvetaking",
+    "arrival_at": "Tidspunkt ankomst",
     "created_at": "Tidspunkt analysebestilling",
+    "analysis_priority": "Prioritet analyse",
+    "request_priority": "Prioritet Rekvisisjon",
     "status": "Status analyse",
     "preliminary_status": "Status prelgruppe",
     "result": "Analyseresultat",

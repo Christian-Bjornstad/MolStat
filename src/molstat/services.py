@@ -10,36 +10,18 @@ import socket
 from threading import Event
 import traceback
 from urllib.parse import urlparse
-import webbrowser
-from collections.abc import Callable
 
 from .archive import RawArchive
 from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restanse_columns
-from .config import MolStatSettings, _valid_power_bi_url
+from .config import MolStatSettings
 from .database import MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
 from .modules import DEFAULT_MODULES
 from .orchestrator import MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
-from .statistics import StatisticsProcessor, load_units
+from .statistics import StatisticsProcessor, load_lookup, load_units
 from .system import MolStatSystem
-
-
-class PowerBiController:
-    def __init__(
-        self,
-        report_url: str,
-        *,
-        opener: Callable[[str], object] = webbrowser.open,
-    ) -> None:
-        if not _valid_power_bi_url(report_url):
-            raise ValueError("Power BI-rapportlenken er ugyldig.")
-        self.report_url = report_url.strip()
-        self._opener = opener
-
-    def open(self) -> None:
-        self._opener(self.report_url)
 
 
 class DefaultServices:
@@ -57,29 +39,23 @@ class DefaultServices:
         from .ui.app import MainWindow, create_application
 
         application = create_application(self.settings_path)
-        orchestrator, power_bi, error = self.refresh_gui_runtime()
+        orchestrator, error = self.refresh_gui_runtime()
         window = MainWindow(
             orchestrator,
             self,
-            power_bi,
             configuration_error=error,
         )
         window.show()
         return int(application.exec())
 
-    def refresh_gui_runtime(self) -> tuple[object | None, object | None, str | None]:
+    def refresh_gui_runtime(self) -> tuple[object | None, str | None]:
         try:
             system = self._build_system(require_statistics=True)
             orchestrator = self._orchestrator(system)
-            power_bi = (
-                PowerBiController(self.settings.power_bi_report_url)
-                if self.settings.power_bi_report_url
-                else None
-            )
         except Exception as exc:
             self._record_failure("gui_configuration_failed", exc)
-            return None, None, f"{type(exc).__name__}: {exc}"
-        return orchestrator, power_bi, None
+            return None, f"{type(exc).__name__}: {exc}"
+        return orchestrator, None
 
     def run(self, kind: str) -> int:
         try:
@@ -210,7 +186,13 @@ class DefaultServices:
             database=database,
             archive=RawArchive(self.settings.sensitive_root),
             statistics_processors=statistics_processors,
-            backlog_processor=BacklogProcessor(backlog_config, contract),
+            backlog_processor=BacklogProcessor(
+                backlog_config,
+                contract,
+                analysis_lookup=load_lookup(
+                    self.settings.statistics_lookup_paths["hemato"]
+                ),
+            ),
             publisher=publishers,
             backlog_publisher=backlog_publisher,
             sharepoint_root=self.settings.sharepoint_root,
@@ -237,7 +219,6 @@ class DefaultServices:
                 "sensitive_root": "",
                 "sharepoint_root": "",
                 "lvms_url": "",
-                "power_bi_report_url": "",
             }
             fields.update(
                 {
@@ -255,7 +236,6 @@ class DefaultServices:
                 else ""
             ),
             "lvms_url": self.settings.lvms_url,
-            "power_bi_report_url": self.settings.power_bi_report_url,
         }
         fields.update(
             {
@@ -308,7 +288,6 @@ class DefaultServices:
             sharepoint_root=Path(sharepoint_text) if sharepoint_text else None,
             statistics_lookup_paths=lookups,
             lvms_url=values.get("lvms_url", "").strip(),
-            power_bi_report_url=values.get("power_bi_report_url", "").strip(),
         )
         errors = updated.validate()
         if errors:

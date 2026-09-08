@@ -6,7 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from .domain import Sample, WorkflowStage, parse_lvms_datetime
+from .domain import BacklogDetail, Sample, WorkflowStage, parse_lvms_datetime
 
 
 class CsvImportError(ValueError):
@@ -76,6 +76,7 @@ class CsvContract:
 @dataclass(frozen=True)
 class CsvImportResult:
     samples: tuple[Sample, ...]
+    details: tuple[BacklogDetail, ...]
     rows_read: int
     duplicate_rows: int
     invalid_rows: int
@@ -129,6 +130,7 @@ def read_restanse_csv(
         for code in codes
     }
     samples_by_key: dict[tuple[str, str], Sample] = {}
+    details_by_key: dict[tuple[str, str], BacklogDetail] = {}
     rows_read = duplicate_rows = invalid_rows = excluded_rows = 0
     with stream:
         reader = csv.DictReader(stream, delimiter=contract.delimiter)
@@ -149,14 +151,19 @@ def read_restanse_csv(
             rows_read += 1
             try:
                 sample_id = _unwrap_lvms_text(row[contract.columns["sample_id"]])
-                analysis_code = _unwrap_lvms_text(row[contract.columns["analysis_code"]])
-                analysis_code = group_by_code.get(analysis_code, analysis_code)
+                source_analysis_code = _unwrap_lvms_text(
+                    row[contract.columns["analysis_code"]]
+                )
+                analysis_code = group_by_code.get(
+                    source_analysis_code, source_analysis_code
+                )
                 created_text = _unwrap_lvms_text(row[contract.columns["created_at"]])
                 status_text = _unwrap_lvms_text(row[contract.columns["status"]])
                 preliminary_text = _optional_value(row, contract, "preliminary_status")
                 result_text = _optional_value(row, contract, "result")
                 external_comment = _optional_value(row, contract, "external_comment")
                 arrival_text = _optional_value(row, contract, "arrival_at")
+                collected_text = _optional_value(row, contract, "collected_at")
                 workflow_arrival = arrival_text or created_text
                 stage = classify_workflow(
                     status_text,
@@ -171,7 +178,7 @@ def read_restanse_csv(
                 if created_text.casefold() in {"", "na", "n/a"}:
                     excluded_rows += 1
                     continue
-                if not sample_id or not analysis_code:
+                if not sample_id or not source_analysis_code or not analysis_code:
                     raise ValueError("obligatorisk felt er tomt")
                 status_completed = status_text.strip().casefold() in {
                     value.casefold() for value in contract.completed_values
@@ -199,6 +206,28 @@ def read_restanse_csv(
                     ),
                     stage=stage,
                 )
+                detail = BacklogDetail(
+                    sample_id=sample_id,
+                    analysis_code=source_analysis_code,
+                    analysis_group=analysis_code,
+                    material=_optional_value(row, contract, "material"),
+                    collected_at=(
+                        parse_lvms_datetime(collected_text)
+                        if collected_text.casefold() not in {"", "na", "n/a"}
+                        else None
+                    ),
+                    arrived_at=sample.arrived_at,
+                    ordered_at=sample.ordered_at,
+                    analysis_priority=_optional_value(
+                        row, contract, "analysis_priority"
+                    ),
+                    request_priority=_optional_value(
+                        row, contract, "request_priority"
+                    ),
+                    analysis_status=status_text,
+                    preliminary_status=preliminary_text,
+                    stage=stage,
+                )
             except (KeyError, ValueError, TypeError):
                 invalid_rows += 1
                 continue
@@ -206,9 +235,11 @@ def read_restanse_csv(
             if key in samples_by_key:
                 duplicate_rows += 1
             samples_by_key[key] = sample
+            details_by_key[(sample_id, source_analysis_code)] = detail
 
     return CsvImportResult(
-        samples=tuple(samples_by_key.values()), rows_read=rows_read,
+        samples=tuple(samples_by_key.values()),
+        details=tuple(details_by_key.values()), rows_read=rows_read,
         duplicate_rows=duplicate_rows, invalid_rows=invalid_rows,
         excluded_rows=excluded_rows,
         fingerprint=file_fingerprint(path),

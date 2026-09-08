@@ -322,22 +322,20 @@ def test_two_backlog_hours_publish_complete_identifier_free_history(
         backlog_fetch=fetch_backlog,
     )
 
-    assert system.run_backlog()["published_rows"] == 2
+    assert system.run_backlog()["published_rows"] == 1
     clock[0] = datetime(2026, 9, 7, 11, 15)
-    assert system.run_backlog()["published_rows"] == 4
+    assert system.run_backlog()["published_rows"] == 2
 
     public_file = sharepoint / "Prøveflyt" / "restansehistorikk.csv"
-    with public_file.open(encoding="utf-8", newline="") as stream:
+    with public_file.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream, delimiter=";"))
-    assert len(rows) == 4
+    assert len(rows) == 2
     assert {
-        (row["Observert_tidspunkt"], row["Analysegruppe_kode"])
+        (row["Observert_tidspunkt"], row["Analyse"])
         for row in rows
     } == {
-        ("2026-09-07T10:00:00", "KLONALITET"),
-        ("2026-09-07T10:00:00", "EMPTY"),
-        ("2026-09-07T11:00:00", "KLONALITET"),
-        ("2026-09-07T11:00:00", "EMPTY"),
+        ("2026-09-07T10:00:00", "IGH-OU"),
+        ("2026-09-07T11:00:00", "IGH-OU"),
     }
     with database._connect() as connection:
         current = connection.execute(

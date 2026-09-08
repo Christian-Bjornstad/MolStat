@@ -41,7 +41,7 @@ def test_statistics_modules_define_runtime_and_publication_contracts() -> None:
     }
 
 
-def test_proveflyt_module_defines_aggregate_privacy_boundary() -> None:
+def test_proveflyt_module_defines_detail_privacy_boundary() -> None:
     module = DEFAULT_MODULES.require("proveflyt")
 
     assert module.display_name == "Prøveflyt"

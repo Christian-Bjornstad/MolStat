@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
@@ -28,6 +28,28 @@ class Sample:
     @property
     def age_anchor(self) -> datetime | None:
         return self.arrived_at if self.stage is WorkflowStage.READY else None
+
+
+@dataclass(frozen=True)
+class BacklogDetail:
+    """Én restanseanalyse med bare feltene som trengs i offentlig eksport.
+
+    ``sample_id`` brukes kun til intern deduplisering og skjules fra repr/logg.
+    Det lagres aldri i den identifikatorfrie detaljhistorikken.
+    """
+
+    sample_id: str = field(repr=False)
+    analysis_code: str
+    analysis_group: str
+    material: str
+    collected_at: datetime | None
+    arrived_at: datetime | None
+    ordered_at: datetime
+    analysis_priority: str
+    request_priority: str
+    analysis_status: str
+    preliminary_status: str
+    stage: WorkflowStage
 
 
 def parse_lvms_datetime(text: str) -> datetime:

@@ -52,7 +52,7 @@ class OverviewPage(QWidget):
         title = QLabel("Driftsoversikt")
         title.setObjectName("page-title")
         intro = QLabel(
-            "Én trygg dataflyt fra LVMS til K-sensitiv, SharePoint og Power BI."
+            "Én trygg dataflyt fra LVMS til K-sensitiv og SharePoint."
         )
         intro.setObjectName("page-intro")
         intro.setWordWrap(True)
@@ -78,12 +78,8 @@ class OverviewPage(QWidget):
             "Kjør statistikk nå", "run-statistics", primary=True
         )
         self.run_backlog = _button("Hent restanse nå", "run-backlog")
-        self.open_power_bi = _button(
-            "Åpne Prøveflyt i Power BI", "open-power-bi"
-        )
         action_row.addWidget(self.run_statistics)
         action_row.addWidget(self.run_backlog)
-        action_row.addWidget(self.open_power_bi)
         action_row.addStretch(1)
         layout.addLayout(action_row)
         layout.addStretch(1)

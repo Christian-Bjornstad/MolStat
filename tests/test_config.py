@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pytest
-
 from molstat.config import MolStatSettings
 
 
@@ -35,7 +33,6 @@ def test_settings_round_trip_json(tmp_path: Path) -> None:
             "solide": tmp_path / "lookup-solide.xlsx",
         },
         lvms_config_path=tmp_path / "lvms-config.json",
-        power_bi_report_url="https://app.powerbi.com/groups/me/reports/report-id",
     )
 
     expected.save(settings_path)
@@ -43,23 +40,15 @@ def test_settings_round_trip_json(tmp_path: Path) -> None:
     assert MolStatSettings.load(settings_path) == expected
 
 
-@pytest.mark.parametrize(
-    "url",
-    (
-        "http://app.powerbi.com/groups/me/reports/id",
-        "https://example.invalid/groups/me/reports/id",
-        "https://user@app.powerbi.com/groups/me/reports/id",
-        "https://app.powerbi.com:8443/groups/me/reports/id",
-    ),
-)
-def test_settings_reject_unsafe_power_bi_report_url(
-    tmp_path: Path, url: str
-) -> None:
-    settings = MolStatSettings(
-        sensitive_root=tmp_path / "sensitive",
-        power_bi_report_url=url,
+def test_settings_load_ignores_removed_power_bi_report_url(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        '{"sensitive_root":"K:/sensitiv","power_bi_report_url":'
+        '"https://app.powerbi.com/legacy"}',
+        encoding="utf-8",
     )
 
-    assert settings.validate() == (
-        "Power BI-lenken må være en HTTPS-lenke på app.powerbi.com.",
-    )
+    settings = MolStatSettings.load(settings_path)
+
+    assert settings.sensitive_root == Path("K:/sensitiv")
+    assert not hasattr(settings, "power_bi_report_url")
