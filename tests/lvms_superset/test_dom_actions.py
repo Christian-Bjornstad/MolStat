@@ -87,11 +87,12 @@ class DocumentDomActionsTests(unittest.TestCase):
             [
                 ("activate", "a" * 32),
                 ("focus", "a" * 32),
+                ("focus", "a" * 32),
                 ("replace", "REPORT-A"),
             ],
         )
 
-    def test_grid_value_is_replaced_without_refocusing_after_activation(self) -> None:
+    def test_grid_value_is_replaced_only_after_live_control_is_refocused(self) -> None:
         page = RefreshingGridPage()
         actions = DocumentDomActions(page, EXPECTED_ORIGIN)  # type: ignore[arg-type]
 
@@ -104,10 +105,12 @@ class DocumentDomActionsTests(unittest.TestCase):
             page.events,
             [
                 ("activate", f"{1:032x}"),
+                ("focus", f"{2:032x}"),
+                ("focus", f"{3:032x}"),
                 ("replace", "VALUE-A"),
             ],
         )
-        self.assertEqual(page.resolve_count, 1)
+        self.assertEqual(page.resolve_count, 3)
 
     def test_commit_choice_refocuses_report_id_and_sends_enter_once(self) -> None:
         page = ChoicePage()
@@ -121,6 +124,7 @@ class DocumentDomActionsTests(unittest.TestCase):
             page.events,
             [
                 ("activate", "a" * 32),
+                ("focus", "a" * 32),
                 ("focus", "a" * 32),
                 ("key", "ENTER"),
             ],
