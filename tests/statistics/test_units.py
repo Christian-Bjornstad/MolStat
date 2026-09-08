@@ -129,6 +129,31 @@ def test_analysis_codes_are_loaded() -> None:
     assert units[0].analysis_codes == ("JAK2-V617F-OU", "CALR-OU")
 
 
+def test_production_units_match_documented_report_specific_code_lists() -> None:
+    units_path = Path(__file__).parents[2] / "config" / "units.json"
+    units = {unit.key: unit for unit in load_units(units_path)}
+
+    hemato = units["hemato"]
+    assert len(hemato.analysis_codes) == 70
+    assert hemato.report_by_key("ordered").analysis_codes is None
+    assert hemato.report_by_key("answered").analysis_codes is None
+
+    solide = units["solide"]
+    ordered = solide.report_by_key("ordered").analysis_codes
+    answered = solide.report_by_key("answered").analysis_codes
+    assert ordered is not None
+    assert answered is None
+    assert len(ordered) == 69
+    assert ordered[0] == "EKSTRAKSJON-OU"
+    assert "BRCA1-OU" not in ordered
+    assert "BRCA2-OU" not in ordered
+    assert len(solide.analysis_codes) == 70
+    assert solide.analysis_codes[0] == "FORBVIDERE-OU"
+    assert "EKSTRAKSJON-OU" not in solide.analysis_codes
+    assert "BRCA1-OU" in solide.analysis_codes
+    assert "BRCA2-OU" in solide.analysis_codes
+
+
 def test_missing_analysis_codes_is_rejected() -> None:
     import copy
 

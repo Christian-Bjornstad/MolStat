@@ -114,7 +114,7 @@ class DocumentDomActionsTests(unittest.TestCase):
         )
         self.assertEqual(page.resolve_count, 3)
 
-    def test_production_actions_wait_two_seconds_after_activation(self) -> None:
+    def test_production_actions_wait_three_quarters_second_after_activation(self) -> None:
         page = ChoicePage()
         control = DocumentControlIdentity("top", ControlIdentity("BUTTON"))
 
@@ -122,7 +122,7 @@ class DocumentDomActionsTests(unittest.TestCase):
             actions = _default_dependencies().actions_factory(page, EXPECTED_ORIGIN)
             actions.activate(control)
 
-        sleep.assert_called_once_with(2.0)
+        sleep.assert_called_once_with(0.75)
 
     def test_commit_choice_refocuses_report_id_and_sends_enter_once(self) -> None:
         page = ChoicePage()
