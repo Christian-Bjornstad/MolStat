@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "slicer-gruppe",
+  "position": {
+    "x": 968,
+    "y": 304,
+    "z": 8,
+    "height": 180,
+    "width": 288,
+    "tabOrder": 8
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "DimAnalysegruppe"
+                    }
+                  },
+                  "Property": "Analysegruppe"
+                }
+              },
+              "queryRef": "DimAnalysegruppe.Analysegruppe",
+              "nativeQueryRef": "Analysegruppe"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Analysegruppe'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

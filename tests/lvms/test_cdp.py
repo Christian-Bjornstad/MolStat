@@ -14,6 +14,7 @@ from molstat.lvms.cdp import (
     CdpNavigationError,
     CdpTimeout,
     PageIdentity,
+    PageTarget,
     discover_page,
 )
 from molstat.lvms.control_identity import ControlIdentity
@@ -74,6 +75,26 @@ def evaluated(value: object) -> dict[str, object]:
 
 
 class CdpTests(unittest.TestCase):
+    def test_websocket_connection_suppresses_origin_header(self) -> None:
+        captured: dict[str, object] = {}
+
+        def socket_factory(url: str, **kwargs: object) -> FakeSocket:
+            captured["url"] = url
+            captured.update(kwargs)
+            return FakeSocket([])
+
+        target = PageTarget(
+            "page-1",
+            "ws://127.0.0.1:15142/devtools/page/page-1",
+            15142,
+        )
+
+        CdpConnection.open(target, socket_factory=socket_factory)
+
+        self.assertTrue(captured["suppress_origin"])
+        self.assertNotIn("origin", captured)
+        self.assertFalse(captured["enable_multithread"])
+
     def test_matches_response_to_command_id(self) -> None:
         socket = FakeSocket(
             [

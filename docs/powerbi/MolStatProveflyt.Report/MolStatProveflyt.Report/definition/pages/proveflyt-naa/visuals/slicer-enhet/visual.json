@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "slicer-enhet",
+  "position": {
+    "x": 968,
+    "y": 160,
+    "z": 7,
+    "height": 120,
+    "width": 288,
+    "tabOrder": 7
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Enhet"
+                }
+              },
+              "queryRef": "FactRestanse.Enhet",
+              "nativeQueryRef": "Enhet"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Enhet'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 import shutil
-import socket
 import subprocess
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,28 +40,14 @@ def find_edge_executable(
     raise EdgeLaunchError("managed Microsoft Edge was not found")
 
 
-def reserve_loopback_port() -> int:
-    for _ in range(10):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-            listener.bind(("127.0.0.1", 0))
-            port = int(listener.getsockname()[1])
-        if EPHEMERAL_PORT_MIN <= port <= EPHEMERAL_PORT_MAX:
-            return port
-    raise EdgeLaunchError("a non-privileged loopback port could not be reserved")
-
-
-def build_edge_arguments(edge: Path, profile: Path, port: int) -> list[str]:
-    if not EPHEMERAL_PORT_MIN <= port <= EPHEMERAL_PORT_MAX:
-        raise EdgeLaunchError("remote debugging must use a non-privileged port")
+def build_edge_arguments(edge: Path, profile: Path) -> list[str]:
     if not profile.is_absolute():
         raise EdgeLaunchError("Edge profile path must be absolute")
 
-    origin = f"http://127.0.0.1:{port}"
     return [
         str(edge),
-        f"--remote-debugging-port={port}",
+        "--remote-debugging-port=0",
         "--remote-debugging-address=127.0.0.1",
-        f"--remote-allow-origins={origin}",
         f"--user-data-dir={profile}",
         "--new-window",
         "--no-first-run",
@@ -71,6 +57,41 @@ def build_edge_arguments(edge: Path, profile: Path, port: int) -> list[str]:
         "--disable-session-crashed-bubble",
         "about:blank",
     ]
+
+
+def _read_devtools_active_port(port_file: Path) -> int:
+    try:
+        lines = port_file.read_text(encoding="utf-8").splitlines()
+        port = int(lines[0])
+    except (OSError, ValueError, IndexError) as exc:
+        raise EdgeLaunchError("Edge announced an invalid DevTools port") from exc
+    if not EPHEMERAL_PORT_MIN <= port <= EPHEMERAL_PORT_MAX:
+        raise EdgeLaunchError("Edge announced an invalid DevTools port")
+    return port
+
+
+def wait_for_devtools_port(
+    profile: Path,
+    process: Any,
+    *,
+    timeout_seconds: float = 20,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    port_file = profile / "DevToolsActivePort"
+    deadline = clock() + timeout_seconds
+    while clock() < deadline:
+        if process.poll() is not None:
+            raise EdgeLaunchError(
+                "managed Microsoft Edge exited before DevTools was available"
+            )
+        if port_file.is_file():
+            try:
+                return _read_devtools_active_port(port_file)
+            except EdgeLaunchError:
+                pass
+        sleep(0.2)
+    raise EdgeLaunchError("managed Microsoft Edge DevTools timed out")
 
 
 @dataclass
@@ -84,13 +105,15 @@ class EdgeProcess:
         profile: Path,
         *,
         edge_executable: Path | None = None,
-        port_reserver: Callable[[], int] = reserve_loopback_port,
         process_factory: Callable[..., Any] = subprocess.Popen,
+        port_waiter: Callable[[Path, Any], int] = wait_for_devtools_port,
     ) -> "EdgeProcess":
         profile.mkdir(parents=True, exist_ok=True)
+        profile = profile.resolve()
         edge = edge_executable or find_edge_executable()
-        port = port_reserver()
-        arguments: Sequence[str] = build_edge_arguments(edge, profile.resolve(), port)
+        port_file = profile / "DevToolsActivePort"
+        port_file.unlink(missing_ok=True)
+        arguments: Sequence[str] = build_edge_arguments(edge, profile)
         creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
         try:
@@ -104,6 +127,11 @@ class EdgeProcess:
             )
         except OSError as exc:
             raise EdgeLaunchError("managed Microsoft Edge could not be started") from exc
+        try:
+            port = port_waiter(profile, process)
+        except BaseException:
+            cls(process=process, port=0).close()
+            raise
         return cls(process=process, port=port)
 
     def close(self, *, timeout_seconds: float = 5.0) -> None:

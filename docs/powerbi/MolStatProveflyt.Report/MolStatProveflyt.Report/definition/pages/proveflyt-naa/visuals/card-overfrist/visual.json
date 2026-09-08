@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "card-overfrist",
+  "position": {
+    "x": 824,
+    "y": 24,
+    "z": 4,
+    "height": 112,
+    "width": 188,
+    "tabOrder": 4
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Over_frist_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Over_frist_naa",
+              "nativeQueryRef": "Over_frist_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Over frist'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

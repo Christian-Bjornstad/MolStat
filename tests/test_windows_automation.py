@@ -2,6 +2,8 @@ import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
+
 from molstat.windows_automation import (
     BACKLOG_TASK_NAME,
     BOARD_TASK_NAME,
@@ -36,7 +38,7 @@ def _trigger_hours(xml_path: Path) -> list[str]:
     return [str(node.text)[-8:] for node in starts]
 
 
-def test_install_registers_statistics_backlog_and_board_tasks(tmp_path: Path) -> None:
+def test_install_registers_data_tasks_and_removes_legacy_board(tmp_path: Path) -> None:
     runner = RecordingRunner()
 
     result = install_automation(
@@ -45,11 +47,13 @@ def test_install_registers_statistics_backlog_and_board_tasks(tmp_path: Path) ->
 
     assert result.statistics_task == STATISTICS_TASK_NAME
     assert result.backlog_task == BACKLOG_TASK_NAME
-    assert result.board_task == BOARD_TASK_NAME
-    assert [call[3] for call in runner.calls] == [
+    create_calls = [call for call in runner.calls if "/Create" in call]
+    assert [call[3] for call in create_calls] == [
         STATISTICS_TASK_NAME,
         BACKLOG_TASK_NAME,
-        BOARD_TASK_NAME,
+    ]
+    assert runner.calls[-1] == [
+        "schtasks.exe", "/Delete", "/TN", BOARD_TASK_NAME, "/F"
     ]
 
 
@@ -76,7 +80,46 @@ def test_launchers_use_one_molstat_cli(tmp_path: Path) -> None:
 
     statistics = (paths.app_root / "statistics.cmd").read_text(encoding="utf-8")
     backlog = (paths.app_root / "backlog.cmd").read_text(encoding="utf-8")
-    board = (paths.app_root / "board.cmd").read_text(encoding="utf-8")
     assert "-m molstat.cli run statistics" in statistics
     assert "-m molstat.cli run backlog" in backlog
-    assert "-m molstat.cli serve" in board
+    assert not (paths.app_root / "board.cmd").exists()
+    assert not (paths.app_root / "board-task.xml").exists()
+
+
+def test_install_surfaces_failure_to_remove_existing_board_task(
+    tmp_path: Path,
+) -> None:
+    class DeniedRunner(RecordingRunner):
+        def __call__(self, command, **kwargs):
+            self.calls.append(list(command))
+            if "/Delete" in command:
+                return subprocess.CompletedProcess(
+                    command, 1, stdout="", stderr="ERROR: Access is denied."
+                )
+            return subprocess.CompletedProcess(command, 0, stdout="SUCCESS", stderr="")
+
+    with pytest.raises(RuntimeError, match="tavleserver"):
+        install_automation(
+            _paths(tmp_path), username="DOMAIN\\bruker", runner=DeniedRunner()
+        )
+
+
+def test_install_ignores_missing_legacy_board_task(tmp_path: Path) -> None:
+    class MissingRunner(RecordingRunner):
+        def __call__(self, command, **kwargs):
+            self.calls.append(list(command))
+            if "/Delete" in command:
+                return subprocess.CompletedProcess(
+                    command,
+                    1,
+                    stdout="",
+                    stderr="ERROR: The system cannot find the file specified.",
+                )
+            return subprocess.CompletedProcess(command, 0, stdout="SUCCESS", stderr="")
+
+    result = install_automation(
+        _paths(tmp_path), username="DOMAIN\\bruker", runner=MissingRunner()
+    )
+
+    assert result.statistics_task == STATISTICS_TASK_NAME
+    assert result.backlog_task == BACKLOG_TASK_NAME

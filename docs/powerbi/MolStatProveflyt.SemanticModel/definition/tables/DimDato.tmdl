@@ -1,0 +1,37 @@
+table DimDato
+	dataCategory: Time
+
+	column Date
+		dataType: dateTime
+		isKey
+		isNameInferred
+		isDataTypeInferred
+		sourceColumn: [Date]
+
+	column Aar
+		dataType: int64
+		isNameInferred
+		isDataTypeInferred
+		sourceColumn: [Aar]
+
+	column MaanedNr
+		dataType: int64
+		isNameInferred
+		isDataTypeInferred
+		sourceColumn: [MaanedNr]
+
+	column Maaned
+		dataType: string
+		isNameInferred
+		isDataTypeInferred
+		sourceColumn: [Maaned]
+
+	column Uke
+		dataType: int64
+		isNameInferred
+		isDataTypeInferred
+		sourceColumn: [Uke]
+
+	partition DimDato = calculated
+		mode: import
+		source = VAR MinDato = MINX ( FactRestanse, FactRestanse[Dato] ) VAR MaksDato = MAXX ( FactRestanse, FactRestanse[Dato] ) RETURN ADDCOLUMNS ( CALENDAR ( MinDato, MaksDato ), "Aar", YEAR ( [Date] ), "MaanedNr", MONTH ( [Date] ), "Maaned", FORMAT ( [Date], "YYYY-MM" ), "Uke", WEEKNUM ( [Date], 2 ) )

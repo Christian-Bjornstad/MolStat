@@ -1,0 +1,14 @@
+{
+  "name": "MolStat Prøveflyt",
+  "dataColors": ["#F2C811", "#1B7D3A", "#9A6A00", "#A4262C", "#5C553D", "#E6D17A"],
+  "background": "#FFF9E6",
+  "foreground": "#2B2618",
+  "tableAccent": "#F2C811",
+  "good": "#1B7D3A",
+  "neutral": "#9A6A00",
+  "bad": "#A4262C",
+  "minimum": "#FFF3C4",
+  "center": "#F2C811",
+  "maximum": "#A4262C",
+  "null": "#D8CFAC"
+}

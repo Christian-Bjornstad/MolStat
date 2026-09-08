@@ -75,9 +75,14 @@ class StatisticsProcessor:
         output_dir: Path,
     ) -> StatisticsResult:
         del unit
-        ordered = _one_report(raw_files, "ANTALL")
-        answered = _one_report(raw_files, "RESULTATER")
-        extraction = _one_report(raw_files, "EKSTRAKSJON")
+        merged_dir = output_dir / "merged"
+        ordered = _merge_archives(_one_report(raw_files, "ANTALL"), merged_dir)
+        answered = _merge_archives(
+            _one_report(raw_files, "RESULTATER"), merged_dir
+        )
+        extraction = _merge_archives(
+            _one_report(raw_files, "EKSTRAKSJON"), merged_dir
+        )
         counts = process_reports(
             ordered,
             answered,
@@ -91,6 +96,25 @@ class StatisticsProcessor:
             resultater=output_dir / "resultater.csv",
             row_counts=counts,
         )
+
+
+def _report_archives(current: Path) -> tuple[Path, ...]:
+    report_id, separator, _interval = current.name.partition("__")
+    if not separator or not report_id:
+        raise ValueError(f"Ugyldig arkivnavn: {current.name}")
+    paths = tuple(sorted(current.parent.glob(f"{report_id}__*.csv")))
+    if not paths:
+        raise ValueError(f"Fant ingen arkiver for {report_id}.")
+    return paths
+
+
+def _merge_archives(current: Path, output_dir: Path) -> Path:
+    archives = _report_archives(current)
+    header, rows = merge_report_csvs(list(archives))
+    report_id = current.name.partition("__")[0]
+    destination = output_dir / f"{report_id}.csv"
+    write_merged_csv(header, rows, destination)
+    return destination
 
 
 def _one_report(raw_files: Sequence[Path], marker: str) -> Path:

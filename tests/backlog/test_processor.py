@@ -1,5 +1,9 @@
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
+import sqlite3
+
+import pytest
 
 from molstat.backlog import (
     AnalysisConfig,
@@ -84,3 +88,69 @@ def test_processor_replaces_sensitive_snapshot_and_exposes_only_aggregates(
         str(tmp_path),
     ):
         assert forbidden not in serialized
+
+
+def _write_snapshot(path: Path, sample_id: str) -> None:
+    path.write_text(
+        "SampleID;Analyse;Tidspunkt analysebestilling;Tidspunkt ankomst;"
+        "Status analyse;Analyseresultat\n"
+        f"{sample_id};IGH-OU;30.08.2026 07:00;30.08.2026 08:00;Initial;\n",
+        encoding="cp1252",
+    )
+
+
+def test_processor_retains_one_aggregate_row_per_group_and_hour(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "restanse.csv"
+    _write_snapshot(csv_path, "SYNTHETIC-1")
+    database = MolStatDatabase(tmp_path / "molstat.sqlite3")
+    database.migrate()
+    processor = BacklogProcessor(
+        _config(), _contract(), now=lambda: datetime(2026, 9, 7, 11, 42)
+    )
+
+    processor.import_snapshot(csv_path, database)
+    processor.import_snapshot(csv_path, database)
+
+    with database._connect() as connection:
+        rows = connection.execute(
+            "SELECT observed_at, analysis_code FROM backlog_snapshot"
+        ).fetchall()
+    assert rows == [("2026-09-07T11:00:00", "KLONALITET")]
+
+
+def test_history_failure_rolls_back_current_sensitive_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+    _write_snapshot(first, "PRESERVED-SYNTHETIC")
+    _write_snapshot(second, "REJECTED-SYNTHETIC")
+    database = MolStatDatabase(tmp_path / "molstat.sqlite3")
+    database.migrate()
+    processor = BacklogProcessor(
+        _config(), _contract(), now=lambda: datetime(2026, 9, 7, 11, 42)
+    )
+    processor.import_snapshot(first, database)
+
+    from molstat._backlog.history import build_history_rows as real_build
+
+    def invalid_history(*args, **kwargs):
+        rows = real_build(*args, **kwargs)
+        return (replace(rows[0], ready_count=-1),)
+
+    monkeypatch.setattr("molstat.backlog.build_history_rows", invalid_history)
+
+    with pytest.raises(sqlite3.IntegrityError):
+        processor.import_snapshot(second, database)
+
+    with database._connect() as connection:
+        current = connection.execute(
+            "SELECT sample_key FROM backlog_sample"
+        ).fetchall()
+        snapshot_count = connection.execute(
+            "SELECT COUNT(*) FROM backlog_snapshot"
+        ).fetchone()[0]
+    assert current == [("PRESERVED-SYNTHETIC",)]
+    assert snapshot_count == 1

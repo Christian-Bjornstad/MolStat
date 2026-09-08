@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "card-mangler",
+  "position": {
+    "x": 424,
+    "y": 24,
+    "z": 2,
+    "height": 112,
+    "width": 188,
+    "tabOrder": 2
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Mangler_godkjenning_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Mangler_godkjenning_naa",
+              "nativeQueryRef": "Mangler_godkjenning_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Mangler godkjenning'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

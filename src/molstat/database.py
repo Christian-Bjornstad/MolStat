@@ -12,7 +12,7 @@ class WriterLeaseBusy(RuntimeError):
     """Raised when another MolStat writer still owns the database lease."""
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = (
     """
@@ -71,6 +71,33 @@ _SCHEMA = (
         PRIMARY KEY (sample_key, analysis_group)
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS backlog_snapshot (
+        observed_at TEXT NOT NULL,
+        unit_key TEXT NOT NULL,
+        analysis_code TEXT NOT NULL,
+        analysis_label TEXT NOT NULL,
+        ready_count INTEGER NOT NULL CHECK (ready_count >= 0),
+        awaiting_approval_count INTEGER NOT NULL
+            CHECK (awaiting_approval_count >= 0),
+        in_transit_count INTEGER NOT NULL CHECK (in_transit_count >= 0),
+        overdue_count INTEGER NOT NULL CHECK (overdue_count >= 0),
+        median_ready_hours REAL,
+        oldest_ready_hours REAL,
+        severity TEXT NOT NULL,
+        invalid_rows INTEGER NOT NULL CHECK (invalid_rows >= 0),
+        excluded_rows INTEGER NOT NULL CHECK (excluded_rows >= 0),
+        source_is_fresh INTEGER NOT NULL CHECK (source_is_fresh IN (0, 1)),
+        classifier_version INTEGER NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+        PRIMARY KEY (
+            observed_at,
+            unit_key,
+            analysis_code,
+            classifier_version
+        )
+    )
+    """,
 )
 
 
@@ -109,6 +136,10 @@ class MolStatDatabase:
                     connection.execute(
                         "INSERT INTO schema_info(version) VALUES (?)",
                         (SCHEMA_VERSION,),
+                    )
+                elif row[0] == 1:
+                    connection.execute(
+                        "UPDATE schema_info SET version = ?", (SCHEMA_VERSION,)
                     )
                 elif row[0] != SCHEMA_VERSION:
                     raise RuntimeError(f"Ukjent databaseskjema: {row[0]}")

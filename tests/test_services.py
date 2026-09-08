@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from molstat.services import DefaultServices
+from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
+from molstat.services import DefaultServices, PowerBiController
 
 
 def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
@@ -14,6 +15,7 @@ def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
         "lvms_url": "",
         "lookup_hemato": "",
         "lookup_solide": "",
+        "power_bi_report_url": "",
     }
 
 
@@ -98,3 +100,57 @@ def test_job_failure_diagnostic_omits_exception_text(
     contents = log.read_text(encoding="utf-8")
     assert "statistics_run_failed: RuntimeError" in contents
     assert "SECRET-SAMPLE-42" not in contents
+
+
+def test_system_build_wires_exact_backlog_publication_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sensitive = tmp_path / "sensitive"
+    sharepoint = tmp_path / "sharepoint"
+    sensitive.mkdir()
+    sharepoint.mkdir()
+    hemato = tmp_path / "hemato.xlsx"
+    solide = tmp_path / "solide.xlsx"
+    hemato.write_bytes(b"lookup")
+    solide.write_bytes(b"lookup")
+    services = DefaultServices(tmp_path / "settings.json")
+    services.save_settings_fields(
+        {
+            "sensitive_root": str(sensitive),
+            "sharepoint_root": str(sharepoint),
+            "lvms_url": "https://lvms.example.invalid/clims/",
+            "lookup_hemato": str(hemato),
+            "lookup_solide": str(solide),
+        }
+    )
+
+    class FakeFetcher:
+        def __init__(self, **kwargs) -> None:
+            del kwargs
+
+        def fetch_statistics(self):
+            return {}
+
+        def fetch_backlog(self):
+            raise AssertionError("unused")
+
+    monkeypatch.setattr("molstat.services.UnifiedLvmsFetcher", FakeFetcher)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+
+    system = services._build_system(require_statistics=False)
+
+    assert system.backlog_publisher is not None
+    assert system.backlog_publisher.policy.allowed_columns == {
+        "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
+    }
+    assert system.sharepoint_root == sharepoint
+
+
+def test_power_bi_controller_opens_validated_report_url() -> None:
+    opened: list[str] = []
+    url = "https://app.powerbi.com/groups/me/reports/report-id"
+    controller = PowerBiController(url, opener=opened.append)
+
+    controller.open()
+
+    assert opened == [url]

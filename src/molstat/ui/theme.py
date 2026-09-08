@@ -2,16 +2,18 @@ from __future__ import annotations
 
 
 COLORS = {
-    "primary": "#0284C7",
-    "secondary": "#0891B2",
-    "accent": "#16A34A",
-    "background": "#F0F9FF",
+    "primary": "#F2C811",
+    "background": "#FFF9E6",
+    "muted": "#FFF3C4",
     "surface": "#FFFFFF",
-    "foreground": "#0C4A6E",
-    "muted": "#E8F2F8",
-    "border": "#BAE6FD",
-    "danger": "#DC2626",
-    "sidebar": "#082F49",
+    "foreground": "#2B2618",
+    "muted_text": "#5C553D",
+    "border": "#E6D17A",
+    "focus": "#8A6A00",
+    "success": "#1B7D3A",
+    "warning": "#9A6A00",
+    "danger": "#A4262C",
+    "sidebar": "#3A321B",
 }
 
 
@@ -25,7 +27,7 @@ def build_stylesheet() -> str:
     QMainWindow, QWidget#app-shell {{ background: {COLORS['background']}; }}
     QFrame#sidebar {{ background: {COLORS['sidebar']}; border: none; }}
     QLabel#brand {{ color: white; font-size: 27px; font-weight: 700; }}
-    QLabel#brand-subtitle {{ color: #BAE6FD; font-size: 12px; }}
+    QLabel#brand-subtitle {{ color: #F5E8B0; font-size: 12px; }}
     QPushButton {{
         min-height: 44px;
         border-radius: 8px;
@@ -34,46 +36,46 @@ def build_stylesheet() -> str:
         background: {COLORS['muted']};
         border: 1px solid {COLORS['border']};
     }}
-    QPushButton:hover {{ background: #D9F0FA; border-color: {COLORS['primary']}; }}
-    QPushButton:pressed {{ background: #C7E7F5; }}
-    QPushButton:focus {{ border: 3px solid {COLORS['primary']}; }}
-    QPushButton:disabled {{ color: #64748B; background: #E2E8F0; border-color: #CBD5E1; }}
+    QPushButton:hover {{ background: #FBE69A; border-color: {COLORS['focus']}; }}
+    QPushButton:pressed {{ background: #F6D85D; }}
+    QPushButton:focus {{ border: 3px solid {COLORS['focus']}; }}
+    QPushButton:disabled {{ color: #6B6657; background: #EEE9D8; border-color: #D8CFAC; }}
     QPushButton[primary="true"] {{
-        color: white;
-        background: {COLORS['accent']};
-        border-color: {COLORS['accent']};
+        color: {COLORS['foreground']};
+        background: {COLORS['primary']};
+        border-color: {COLORS['focus']};
     }}
-    QPushButton[primary="true"]:hover {{ background: #15803D; border-color: #15803D; }}
+    QPushButton[primary="true"]:hover {{ background: #DDB600; border-color: #6E5500; }}
     QPushButton[nav="true"] {{
-        color: #E0F2FE;
+        color: #FFF9E6;
         background: transparent;
         border: 1px solid transparent;
         text-align: left;
     }}
-    QPushButton[nav="true"]:hover {{ background: #0C4A6E; border-color: #0E7490; }}
+    QPushButton[nav="true"]:hover {{ background: #514622; border-color: #8A6A00; }}
     QPushButton[nav="true"][active="true"] {{
         color: white;
-        background: #075985;
-        border-color: #38BDF8;
+        background: #665718;
+        border-color: {COLORS['primary']};
     }}
     QLabel#page-title {{ font-size: 26px; font-weight: 700; }}
-    QLabel#page-intro {{ color: #475569; font-size: 15px; }}
+    QLabel#page-intro {{ color: {COLORS['muted_text']}; font-size: 15px; }}
     QFrame#status-card {{
         background: white;
         border: 1px solid {COLORS['border']};
         border-radius: 12px;
     }}
-    QLabel[cardTitle="true"] {{ color: #475569; font-weight: 600; }}
+    QLabel[cardTitle="true"] {{ color: {COLORS['muted_text']}; font-weight: 600; }}
     QLabel[cardState="true"] {{ font-size: 20px; font-weight: 700; }}
-    QLabel[cardDetail="true"] {{ color: #475569; }}
+    QLabel[cardDetail="true"] {{ color: {COLORS['muted_text']}; }}
     QLineEdit, QPlainTextEdit {{
         background: white;
-        border: 1px solid #94A3B8;
+        border: 1px solid #9B8C52;
         border-radius: 8px;
         padding: 10px 12px;
         selection-background-color: {COLORS['primary']};
     }}
-    QLineEdit:focus, QPlainTextEdit:focus {{ border: 3px solid {COLORS['primary']}; }}
+    QLineEdit:focus, QPlainTextEdit:focus {{ border: 3px solid {COLORS['focus']}; }}
     QGroupBox {{
         background: white;
         border: 1px solid {COLORS['border']};

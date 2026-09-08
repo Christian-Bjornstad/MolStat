@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "gruppe-valg",
+  "position": {
+    "x": 24,
+    "y": 24,
+    "z": 0,
+    "height": 112,
+    "width": 300,
+    "tabOrder": 0
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "DimAnalysegruppe"
+                    }
+                  },
+                  "Property": "Analysegruppe"
+                }
+              },
+              "queryRef": "DimAnalysegruppe.Analysegruppe",
+              "nativeQueryRef": "Analysegruppe"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Velg analysegruppe'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

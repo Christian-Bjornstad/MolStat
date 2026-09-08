@@ -1,0 +1,72 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "trend-overfrist",
+  "position": {
+    "x": 652,
+    "y": 348,
+    "z": 3,
+    "height": 300,
+    "width": 604,
+    "tabOrder": 3
+  },
+  "visual": {
+    "visualType": "lineChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Observert_tidspunkt"
+                }
+              },
+              "queryRef": "FactRestanse.Observert_tidspunkt",
+              "nativeQueryRef": "Observert_tidspunkt",
+              "active": true
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Over_frist_ved_tidspunkt"
+                }
+              },
+              "queryRef": "FactRestanse.Over_frist_ved_tidspunkt",
+              "nativeQueryRef": "Over_frist_ved_tidspunkt"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Over frist over tid'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="nb"><head><meta charset="utf-8">
+<title>MolStat Prøveflyt – tavle (mockup)</title>
+<style>
+  :root { --bg:#F2F2F2; --fg:#252423; --muted:#605E5C; --card:#FFFFFF; --border:#E1DFDD; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:"Segoe UI",system-ui,sans-serif; padding:20px 28px; }
+  .topbar { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
+  h1 { margin:0; font-size:24px; font-weight:600; }
+  .updated { color:var(--muted); font-size:12px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
+  .header { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:24px; padding-bottom:18px; border-bottom:1px solid var(--border); }
+  .kpi { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:14px 18px; }
+  .kpi-label { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.6px; font-weight:600; }
+  .kpi-value { font-size:36px; font-weight:700; margin-top:4px; line-height:1.1; }
+  .kpi-sub { font-size:13px; color:var(--muted); margin-top:2px; }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); font-weight:600; margin:0 0 12px 0; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:16px 20px; position:relative; }
+  .card-title { font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; }
+  .card-status { position:absolute; top:14px; right:14px; color:white; font-size:10px; font-weight:600; padding:3px 9px; border-radius:10px; text-transform:uppercase; letter-spacing:.3px; }
+  .card-value { font-size:56px; font-weight:700; line-height:1; margin:8px 0 2px 0; }
+  .card-label { font-size:12px; color:var(--muted); }
+  .card-bar { height:6px; background:#EDEBE9; border-radius:3px; margin:12px 0 8px 0; overflow:hidden; }
+  .card-bar-fill { height:100%; border-radius:3px; }
+  .card-meta { font-size:12px; color:var(--muted); }
+  .footer { margin-top:22px; color:var(--muted); font-size:11px; text-align:right; }
+</style></head>
+<body>
+  <div class="topbar"><h1>MolStat – Prøveflyt</h1><div class="updated">Sist oppdatert: 2026-09-07 · 06:00</div></div>
+  <div class="sub">Restanseoversikt per analysegruppe · automatisk oppdatert fra SharePoint</div>
+  <div class="header">
+    <div class="kpi"><div class="kpi-label">Bestilt</div><div class="kpi-value">1684</div><div class="kpi-sub">prøver siste 38 dager</div></div>
+    <div class="kpi"><div class="kpi-label">Kommet</div><div class="kpi-value">1366</div><div class="kpi-sub">81% av bestilt</div></div>
+    <div class="kpi"><div class="kpi-label">Restanse</div><div class="kpi-value" style="color:#A4262C">318</div><div class="kpi-sub">19% restansegrad</div></div>
+</div>
+  <h2>Analysegrupper</h2>
+  <div class="grid">
+    <div class="card" data-group="CYTOMETRI">
+      <div class="card-title">CYTOMETRI</div>
+      <div class="card-status" style="background:#1B7D3A">OK flyt</div>
+      <div class="card-value" style="color:#1B7D3A">12</div>
+      <div class="card-label">restanse av 362 bestilte · <b>3%</b></div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:3%;background:#1B7D3A"></div></div>
+      <div class="card-meta">Eldste ventende: 3 dager</div>
+    </div>
+    <div class="card" data-group="KLONALITET">
+      <div class="card-title">KLONALITET</div>
+      <div class="card-status" style="background:#1B7D3A">OK flyt</div>
+      <div class="card-value" style="color:#1B7D3A">21</div>
+      <div class="card-label">restanse av 243 bestilte · <b>9%</b></div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:9%;background:#1B7D3A"></div></div>
+      <div class="card-meta">Eldste ventende: 7 dager</div>
+    </div>
+    <div class="card" data-group="SEKV">
+      <div class="card-title">SEKV</div>
+      <div class="card-status" style="background:#B8821A">Merk restanse</div>
+      <div class="card-value" style="color:#B8821A">46</div>
+      <div class="card-label">restanse av 285 bestilte · <b>16%</b></div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:16%;background:#B8821A"></div></div>
+      <div class="card-meta">Eldste ventende: 7 dager</div>
+    </div>
+    <div class="card" data-group="MYELOID">
+      <div class="card-title">MYELOID</div>
+      <div class="card-status" style="background:#B8821A">Merk restanse</div>
+      <div class="card-value" style="color:#B8821A">55</div>
+      <div class="card-label">restanse av 301 bestilte · <b>18%</b></div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:18%;background:#B8821A"></div></div>
+      <div class="card-meta">Eldste ventende: 14 dager</div>
+    </div>
+    <div class="card" data-group="FISH">
+      <div class="card-title">FISH</div>
+      <div class="card-status" style="background:#A4262C">Kritisk restanse</div>
+      <div class="card-value" style="color:#A4262C">77</div>
+      <div class="card-label">restanse av 246 bestilte · <b>31%</b></div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:31%;background:#A4262C"></div></div>
+      <div class="card-meta">Eldste ventende: 29 dager</div>
+    </div>
+    <div class="card" data-group="PATOLOGI">
+      <div class="card-title">PATOLOGI</div>
+      <div class="card-status" style="background:#A4262C">Kritisk restanse</div>
+      <div class="card-value" style="color:#A4262C">107</div>
+      <div class="card-label">restanse av 247 bestilte · <b>43%</b></div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:43%;background:#A4262C"></div></div>
+      <div class="card-meta">Eldste ventende: 35 dager</div>
+    </div></div>
+  <div class="footer">Mockup – ferdig PBI-rapport bygges etter BYGG_PBI_MAL.md</div>
+</body></html>

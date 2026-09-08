@@ -158,7 +158,7 @@ class CdpConnection:
             socket = socket_factory(
                 target.websocket_url,
                 timeout=10,
-                origin=f"http://127.0.0.1:{target.port}",
+                suppress_origin=True,
                 enable_multithread=False,
             )
         except Exception as exc:

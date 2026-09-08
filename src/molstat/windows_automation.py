@@ -28,7 +28,6 @@ class AutomationPaths:
 class AutomationResult:
     statistics_task: str
     backlog_task: str
-    board_task: str
 
 
 def default_automation_paths(
@@ -70,19 +69,14 @@ def install_automation(
             paths.app_root / "backlog-task.xml",
             _task_xml(active_user, launchers["backlog"], range(6, 19)),
         ),
-        (
-            BOARD_TASK_NAME,
-            paths.app_root / "board-task.xml",
-            _task_xml(active_user, launchers["board"], None),
-        ),
     )
     for name, xml_path, content in definitions:
         xml_path.write_text(content, encoding="utf-16")
         _register_task(name, xml_path, runner)
+    _delete_legacy_board_task(runner)
     return AutomationResult(
         STATISTICS_TASK_NAME,
         BACKLOG_TASK_NAME,
-        BOARD_TASK_NAME,
     )
 
 
@@ -91,8 +85,9 @@ def _write_launchers(paths: AutomationPaths) -> dict[str, Path]:
     commands = {
         "statistics": "run statistics",
         "backlog": "run backlog",
-        "board": "serve",
     }
+    (paths.app_root / "board.cmd").unlink(missing_ok=True)
+    (paths.app_root / "board-task.xml").unlink(missing_ok=True)
     result: dict[str, Path] = {}
     for name, command in commands.items():
         path = paths.app_root / f"{name}.cmd"
@@ -162,3 +157,26 @@ def _register_task(
     if result.returncode:
         detail = (result.stderr or result.stdout or "ukjent feil").strip()
         raise RuntimeError(f"Kunne ikke opprette «{name}»: {detail}")
+
+
+def _delete_legacy_board_task(
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    result = runner(
+        ["schtasks.exe", "/Delete", "/TN", BOARD_TASK_NAME, "/F"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if not result.returncode:
+        return
+    detail = (result.stderr or result.stdout or "ukjent feil").strip()
+    missing_markers = (
+        "cannot find",
+        "does not exist",
+        "finner ikke",
+        "ikke finnes",
+    )
+    if any(marker in detail.casefold() for marker in missing_markers):
+        return
+    raise RuntimeError(f"Kunne ikke fjerne «{BOARD_TASK_NAME}»: {detail}")

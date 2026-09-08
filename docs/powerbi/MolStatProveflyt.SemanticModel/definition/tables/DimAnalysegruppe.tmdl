@@ -1,0 +1,19 @@
+table DimAnalysegruppe
+
+	column Analysegruppe_kode
+		dataType: string
+		isNameInferred
+		isDataTypeInferred
+		sourceColumn: FactRestanse[Analysegruppe_kode]
+		columnOrigin: FactRestanse.Analysegruppe_kode
+
+	column Analysegruppe
+		dataType: string
+		isNameInferred
+		isDataTypeInferred
+		sourceColumn: FactRestanse[Analysegruppe]
+		columnOrigin: FactRestanse.Analysegruppe
+
+	partition DimAnalysegruppe = calculated
+		mode: import
+		source = SUMMARIZE ( FactRestanse, FactRestanse[Analysegruppe_kode], FactRestanse[Analysegruppe] )

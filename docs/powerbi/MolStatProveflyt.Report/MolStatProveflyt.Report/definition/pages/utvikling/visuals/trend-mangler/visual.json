@@ -1,0 +1,72 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "trend-mangler",
+  "position": {
+    "x": 652,
+    "y": 24,
+    "z": 1,
+    "height": 300,
+    "width": 604,
+    "tabOrder": 1
+  },
+  "visual": {
+    "visualType": "lineChart",
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Observert_tidspunkt"
+                }
+              },
+              "queryRef": "FactRestanse.Observert_tidspunkt",
+              "nativeQueryRef": "Observert_tidspunkt",
+              "active": true
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Mangler_godkjenning_ved_tidspunkt"
+                }
+              },
+              "queryRef": "FactRestanse.Mangler_godkjenning_ved_tidspunkt",
+              "nativeQueryRef": "Mangler_godkjenning_ved_tidspunkt"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Mangler godkjenning over tid'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

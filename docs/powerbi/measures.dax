@@ -1,0 +1,53 @@
+DimDato =
+VAR MinDato = MINX ( FactRestanse, FactRestanse[Dato] )
+VAR MaksDato = MAXX ( FactRestanse, FactRestanse[Dato] )
+RETURN
+    ADDCOLUMNS (
+        CALENDAR ( MinDato, MaksDato ),
+        "Aar", YEAR ( [Date] ),
+        "MaanedNr", MONTH ( [Date] ),
+        "Maaned", FORMAT ( [Date], "YYYY-MM" ),
+        "Uke", WEEKNUM ( [Date], 2 )
+    )
+
+DimAnalysegruppe =
+SUMMARIZE (
+    FactRestanse,
+    FactRestanse[Analysegruppe_kode],
+    FactRestanse[Analysegruppe]
+)
+
+Siste_observerte_tidspunkt =
+CALCULATE (
+    MAX ( FactRestanse[Observert_tidspunkt] ),
+    REMOVEFILTERS ( DimDato ),
+    REMOVEFILTERS ( FactRestanse[Dato] ),
+    REMOVEFILTERS ( FactRestanse[Observert_tidspunkt] )
+)
+
+Klar_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
+RETURN CALCULATE ( SUM ( FactRestanse[Klar] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+
+Mangler_godkjenning_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
+RETURN CALCULATE ( SUM ( FactRestanse[Mangler_godkjenning] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+
+Paa_vei_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
+RETURN CALCULATE ( SUM ( FactRestanse[Paa_vei] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+
+Total_restanse_naa = [Klar_naa] + [Mangler_godkjenning_naa] + [Paa_vei_naa]
+
+Over_frist_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
+RETURN CALCULATE ( SUM ( FactRestanse[Over_frist] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+
+Eldste_klare_timer_naa =
+VAR SisteTid = [Siste_observerte_tidspunkt]
+RETURN CALCULATE ( MAX ( FactRestanse[Eldste_klare_timer] ), KEEPFILTERS ( FactRestanse[Observert_tidspunkt] = SisteTid ) )
+
+Klar_ved_tidspunkt = SUM ( FactRestanse[Klar] )
+Mangler_godkjenning_ved_tidspunkt = SUM ( FactRestanse[Mangler_godkjenning] )
+Paa_vei_ved_tidspunkt = SUM ( FactRestanse[Paa_vei] )
+Over_frist_ved_tidspunkt = SUM ( FactRestanse[Over_frist] )

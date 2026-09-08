@@ -28,6 +28,7 @@ from ._backlog.ingestion import (
     file_fingerprint,
     read_restanse_csv,
 )
+from ._backlog.history import build_history_rows
 from .database import MolStatDatabase
 
 ImportResult = CsvImportResult
@@ -57,7 +58,16 @@ class BacklogProcessor:
             self.contract,
             analysis_groups=self.config.source_groups,
         )
-        observed_at = self._now().isoformat()
+        observed_at = self._now()
+        history_rows = build_history_rows(
+            self.config,
+            imported.samples,
+            observed_at,
+            invalid_rows=imported.invalid_rows,
+            excluded_rows=imported.excluded_rows,
+            classifier_version=self.contract.classifier_version,
+        )
+        observed_at_text = observed_at.isoformat()
         with database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
@@ -84,9 +94,53 @@ class BacklogProcessor:
                                 else None
                             ),
                             sample.stage.value,
-                            observed_at,
+                            observed_at_text,
                         )
                         for sample in imported.samples
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO backlog_snapshot(
+                        observed_at,
+                        unit_key,
+                        analysis_code,
+                        analysis_label,
+                        ready_count,
+                        awaiting_approval_count,
+                        in_transit_count,
+                        overdue_count,
+                        median_ready_hours,
+                        oldest_ready_hours,
+                        severity,
+                        invalid_rows,
+                        excluded_rows,
+                        source_is_fresh,
+                        classifier_version,
+                        source_fingerprint
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (
+                        (
+                            row.observed_at.isoformat(),
+                            row.unit_key,
+                            row.analysis_code,
+                            row.analysis_label,
+                            row.ready_count,
+                            row.awaiting_approval_count,
+                            row.in_transit_count,
+                            row.overdue_count,
+                            row.median_ready_hours,
+                            row.oldest_ready_hours,
+                            row.severity.value,
+                            row.invalid_rows,
+                            row.excluded_rows,
+                            int(row.source_is_fresh),
+                            row.classifier_version,
+                            imported.fingerprint,
+                        )
+                        for row in history_rows
                     ),
                 )
                 connection.execute("COMMIT")

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -20,8 +21,9 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
     database.migrate()
     database.migrate()
 
-    assert database.schema_version() == 1
+    assert database.schema_version() == 2
     assert database.table_names() == {
+        "backlog_snapshot",
         "backlog_sample",
         "job_run",
         "raw_file",
@@ -29,6 +31,46 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
         "statistics_publication",
         "writer_lease",
     }
+
+
+def test_v1_migration_adds_history_without_rewriting_current_samples(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "molstat.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE schema_info (version INTEGER NOT NULL)")
+        connection.execute("INSERT INTO schema_info(version) VALUES (1)")
+        connection.execute(
+            """
+            CREATE TABLE backlog_sample (
+                sample_key TEXT NOT NULL,
+                analysis_group TEXT NOT NULL,
+                ordered_at TEXT NOT NULL,
+                arrived_at TEXT,
+                workflow_stage TEXT NOT NULL,
+                observed_at TEXT NOT NULL,
+                PRIMARY KEY (sample_key, analysis_group)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO backlog_sample VALUES
+            ('preserved-key', 'KLONALITET', '2026-09-07T08:00:00', NULL,
+             'in_transit', '2026-09-07T09:00:00')
+            """
+        )
+
+    database = MolStatDatabase(path)
+    database.migrate()
+
+    assert database.schema_version() == 2
+    assert "backlog_snapshot" in database.table_names()
+    with database._connect() as connection:
+        row = connection.execute(
+            "SELECT sample_key, analysis_group FROM backlog_sample"
+        ).fetchone()
+    assert row == ("preserved-key", "KLONALITET")
 
 
 def test_second_writer_is_rejected_while_lease_is_active(tmp_path: Path) -> None:

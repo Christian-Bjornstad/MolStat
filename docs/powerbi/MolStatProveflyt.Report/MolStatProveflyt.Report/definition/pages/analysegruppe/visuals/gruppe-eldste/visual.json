@@ -1,0 +1,53 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "gruppe-eldste",
+  "position": {
+    "x": 812,
+    "y": 24,
+    "z": 3,
+    "height": 112,
+    "width": 208,
+    "tabOrder": 3
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Eldste_klare_timer_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Eldste_klare_timer_naa",
+              "nativeQueryRef": "Eldste_klare_timer_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Eldste klare timer'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

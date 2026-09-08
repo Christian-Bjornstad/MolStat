@@ -1,0 +1,72 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.7.0/schema.json",
+  "name": "matrix-grupper",
+  "position": {
+    "x": 24,
+    "y": 160,
+    "z": 6,
+    "height": 520,
+    "width": 920,
+    "tabOrder": 6
+  },
+  "visual": {
+    "visualType": "pivotTable",
+    "query": {
+      "queryState": {
+        "Rows": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "DimAnalysegruppe"
+                    }
+                  },
+                  "Property": "Analysegruppe"
+                }
+              },
+              "queryRef": "DimAnalysegruppe.Analysegruppe",
+              "nativeQueryRef": "Analysegruppe",
+              "active": true
+            }
+          ]
+        },
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "FactRestanse"
+                    }
+                  },
+                  "Property": "Total_restanse_naa"
+                }
+              },
+              "queryRef": "FactRestanse.Total_restanse_naa",
+              "nativeQueryRef": "Total_restanse_naa"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Restanse per analysegruppe'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
