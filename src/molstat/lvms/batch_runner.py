@@ -65,7 +65,12 @@ def _default_dependencies() -> BatchRunnerDependencies:
         browser_open=open_owned_browser,
         connection_open=CdpConnection.open,
         page_factory=BrowserPage,
-        actions_factory=DocumentDomActions,
+        actions_factory=lambda page, origin: DocumentDomActions(
+            page,
+            origin,
+            action_delay_seconds=2.0,
+            sleep=time.sleep,
+        ),
         navigator_factory=lambda origin, clock, sleeper: DefinedReportsNavigator(
             origin, clock=clock, sleep=sleeper
         ),

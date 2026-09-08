@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from molstat.lvms.batch_controls import DocumentControlIdentity
+from molstat.lvms.batch_runner import _default_dependencies
 from molstat.lvms.control_identity import ControlIdentity
 from molstat.lvms.dom_actions import DocumentDomActions
 
@@ -87,11 +89,12 @@ class DocumentDomActionsTests(unittest.TestCase):
             [
                 ("activate", "a" * 32),
                 ("focus", "a" * 32),
+                ("focus", "a" * 32),
                 ("replace", "REPORT-A"),
             ],
         )
 
-    def test_grid_value_is_replaced_without_refocusing_after_activation(self) -> None:
+    def test_grid_value_is_replaced_only_after_live_control_is_refocused(self) -> None:
         page = RefreshingGridPage()
         actions = DocumentDomActions(page, EXPECTED_ORIGIN)  # type: ignore[arg-type]
 
@@ -104,10 +107,22 @@ class DocumentDomActionsTests(unittest.TestCase):
             page.events,
             [
                 ("activate", f"{1:032x}"),
+                ("focus", f"{2:032x}"),
+                ("focus", f"{3:032x}"),
                 ("replace", "VALUE-A"),
             ],
         )
-        self.assertEqual(page.resolve_count, 1)
+        self.assertEqual(page.resolve_count, 3)
+
+    def test_production_actions_wait_two_seconds_after_activation(self) -> None:
+        page = ChoicePage()
+        control = DocumentControlIdentity("top", ControlIdentity("BUTTON"))
+
+        with patch("molstat.lvms.batch_runner.time.sleep") as sleep:
+            actions = _default_dependencies().actions_factory(page, EXPECTED_ORIGIN)
+            actions.activate(control)
+
+        sleep.assert_called_once_with(2.0)
 
     def test_commit_choice_refocuses_report_id_and_sends_enter_once(self) -> None:
         page = ChoicePage()
@@ -121,6 +136,7 @@ class DocumentDomActionsTests(unittest.TestCase):
             page.events,
             [
                 ("activate", "a" * 32),
+                ("focus", "a" * 32),
                 ("focus", "a" * 32),
                 ("key", "ENTER"),
             ],
