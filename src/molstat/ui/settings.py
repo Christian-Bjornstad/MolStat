@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..modules import DEFAULT_MODULES
+
 
 class SettingsPage(QWidget):
     def __init__(self) -> None:
@@ -39,8 +41,7 @@ class SettingsPage(QWidget):
         self.power_bi_report_url = _field(
             "power-bi-report-url", "Power BI-rapportlenke"
         )
-        self.lookup_hemato = _field("lookup-hemato", "Lookup-fil for Hemato")
-        self.lookup_solide = _field("lookup-solide", "Lookup-fil for Solide")
+        self.lookup_fields: dict[str, QLineEdit] = {}
         form.addRow(
             "K-sensitiv mappe",
             self._directory_row(
@@ -59,22 +60,19 @@ class SettingsPage(QWidget):
         )
         form.addRow("LVMS-adresse", self.lvms_url)
         form.addRow("Power BI-rapport", self.power_bi_report_url)
-        form.addRow(
-            "Lookup Hemato",
-            self._file_row(
-                self.lookup_hemato,
-                "browse-lookup-hemato",
-                "Velg lookup-fil for Hemato",
-            ),
-        )
-        form.addRow(
-            "Lookup Solide",
-            self._file_row(
-                self.lookup_solide,
-                "browse-lookup-solide",
-                "Velg lookup-fil for Solide",
-            ),
-        )
+        for module in DEFAULT_MODULES.for_job("statistics"):
+            accessible_name = f"Lookup-fil for {module.display_name}"
+            field = _field(f"lookup-{module.key}", accessible_name)
+            self.lookup_fields[module.key] = field
+            setattr(self, f"lookup_{module.key}", field)
+            form.addRow(
+                f"Lookup {module.display_name}",
+                self._file_row(
+                    field,
+                    f"browse-lookup-{module.key}",
+                    f"Velg lookup-fil for {module.display_name}",
+                ),
+            )
         layout.addWidget(storage)
         self.save_button = QPushButton("Valider og lagre")
         self.save_button.setAccessibleName("Valider og lagre innstillinger")

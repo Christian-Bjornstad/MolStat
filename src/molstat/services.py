@@ -14,22 +14,15 @@ import webbrowser
 from collections.abc import Callable
 
 from .archive import RawArchive
-from ._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restanse_columns
 from .config import MolStatSettings, _valid_power_bi_url
 from .database import MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
+from .modules import DEFAULT_MODULES
 from .orchestrator import MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
-from .statistics import (
-    ANTALL_COLUMNS,
-    RESULTATER_COLUMNS,
-    SOLIDE_ANTALL_COLUMNS,
-    SOLIDE_RESULTATER_COLUMNS,
-    StatisticsProcessor,
-    load_units,
-)
+from .statistics import StatisticsProcessor, load_units
 from .system import MolStatSystem
 
 
@@ -185,45 +178,31 @@ class DefaultServices:
         statistics_processors: dict[str, StatisticsProcessor] = {}
         publishers: dict[str, SharePointPublisher] = {}
         if require_statistics:
-            for unit in load_units(units_path):
-                lookup = self.settings.statistics_lookup_paths.get(unit.key)
+            units = {unit.key: unit for unit in load_units(units_path)}
+            for module in DEFAULT_MODULES.for_job("statistics"):
+                unit = units.get(module.key)
+                if unit is None:
+                    raise ValueError(f"Hentedefinisjon mangler for {module.key}.")
+                if unit.profile != module.processor_profile:
+                    raise ValueError(
+                        f"Prosessorprofil for {module.key} stemmer ikke med modulregisteret."
+                    )
+                lookup = self.settings.statistics_lookup_paths.get(module.key)
                 if lookup is None:
-                    raise ValueError(f"Lookup-fil mangler for {unit.key}.")
-                statistics_processors[unit.key] = StatisticsProcessor(
-                    lookup, profile=unit.profile
+                    raise ValueError(f"Lookup-fil mangler for {module.key}.")
+                statistics_processors[module.key] = StatisticsProcessor(
+                    lookup, profile=module.processor_profile
                 )
-                antall = (
-                    SOLIDE_ANTALL_COLUMNS if unit.profile == "solide" else ANTALL_COLUMNS
-                )
-                resultater = (
-                    SOLIDE_RESULTATER_COLUMNS
-                    if unit.profile == "solide"
-                    else RESULTATER_COLUMNS
-                )
-                publishers[unit.key] = SharePointPublisher(
+                publishers[module.key] = SharePointPublisher(
                     PublicationPolicy(
-                        allowed_columns={
-                            "antall.csv": frozenset(antall),
-                            "resultater.csv": frozenset(resultater),
-                        },
+                        allowed_columns=module.allowed_columns,
                         forbidden_patterns=default_forbidden_patterns(),
                     )
                 )
-        else:
-            publishers["hemato"] = SharePointPublisher(
-                PublicationPolicy(
-                    allowed_columns={
-                        "antall.csv": frozenset(ANTALL_COLUMNS),
-                        "resultater.csv": frozenset(RESULTATER_COLUMNS),
-                    },
-                    forbidden_patterns=default_forbidden_patterns(),
-                )
-            )
+        backlog_module = DEFAULT_MODULES.single_for_job("backlog")
         backlog_publisher = SharePointPublisher(
             PublicationPolicy(
-                allowed_columns={
-                    "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
-                },
+                allowed_columns=backlog_module.allowed_columns,
                 forbidden_patterns=default_forbidden_patterns(),
             )
         )
@@ -238,6 +217,7 @@ class DefaultServices:
             work_root=self.settings.sensitive_root / "work" / "processing",
             statistics_fetch=fetcher.fetch_statistics,
             backlog_fetch=fetcher.fetch_backlog,
+            modules=DEFAULT_MODULES,
         )
 
     def _orchestrator(self, system: MolStatSystem) -> MolStatOrchestrator:
@@ -253,16 +233,21 @@ class DefaultServices:
 
     def load_settings_fields(self) -> dict[str, str]:
         if not self._settings_exist:
-            return {
+            fields = {
                 "sensitive_root": "",
                 "sharepoint_root": "",
                 "lvms_url": "",
-                "lookup_hemato": "",
-                "lookup_solide": "",
                 "power_bi_report_url": "",
             }
+            fields.update(
+                {
+                    f"lookup_{module.key}": ""
+                    for module in DEFAULT_MODULES.for_job("statistics")
+                }
+            )
+            return fields
         lookups = self.settings.statistics_lookup_paths
-        return {
+        fields = {
             "sensitive_root": str(self.settings.sensitive_root),
             "sharepoint_root": (
                 str(self.settings.sharepoint_root)
@@ -270,10 +255,15 @@ class DefaultServices:
                 else ""
             ),
             "lvms_url": self.settings.lvms_url,
-            "lookup_hemato": str(lookups.get("hemato", "")),
-            "lookup_solide": str(lookups.get("solide", "")),
             "power_bi_report_url": self.settings.power_bi_report_url,
         }
+        fields.update(
+            {
+                f"lookup_{module.key}": str(lookups.get(module.key, ""))
+                for module in DEFAULT_MODULES.for_job("statistics")
+            }
+        )
+        return fields
 
     def overview_status_fields(self) -> dict[str, tuple[str, str]]:
         if not self._settings_exist:
@@ -308,12 +298,9 @@ class DefaultServices:
             raise ValueError("K-sensitiv mappe må fylles ut.")
         sharepoint_text = values.get("sharepoint_root", "").strip()
         lookups = {
-            unit: Path(text)
-            for unit, text in (
-                ("hemato", values.get("lookup_hemato", "").strip()),
-                ("solide", values.get("lookup_solide", "").strip()),
-            )
-            if text
+            module.key: Path(text)
+            for module in DEFAULT_MODULES.for_job("statistics")
+            if (text := values.get(f"lookup_{module.key}", "").strip())
         }
         updated = replace(
             self.settings,
@@ -384,10 +371,10 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
         raise ValueError("K-sensitiv mappe finnes ikke eller er ikke tilgjengelig.")
     if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
         raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
-    for unit in ("hemato", "solide"):
-        lookup = settings.statistics_lookup_paths.get(unit)
+    for module in DEFAULT_MODULES.for_job("statistics"):
+        lookup = settings.statistics_lookup_paths.get(module.key)
         if lookup is None or not lookup.is_file():
-            raise ValueError(f"Lookup-fil for {unit.capitalize()} finnes ikke.")
+            raise ValueError(f"Lookup-fil for {module.display_name} finnes ikke.")
     parsed = urlparse(settings.lvms_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("LVMS-adressen må være en fullstendig http- eller https-adresse.")

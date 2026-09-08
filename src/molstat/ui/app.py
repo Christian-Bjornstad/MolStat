@@ -213,8 +213,8 @@ class MainWindow(QMainWindow):
         self.settings_page.power_bi_report_url.setText(
             values.get("power_bi_report_url", "")
         )
-        self.settings_page.lookup_hemato.setText(values.get("lookup_hemato", ""))
-        self.settings_page.lookup_solide.setText(values.get("lookup_solide", ""))
+        for key, field in self.settings_page.lookup_fields.items():
+            field.setText(values.get(f"lookup_{key}", ""))
 
     def _save_settings(self) -> None:
         if self.settings_store is None or not hasattr(
@@ -229,9 +229,13 @@ class MainWindow(QMainWindow):
             "power_bi_report_url": (
                 self.settings_page.power_bi_report_url.text().strip()
             ),
-            "lookup_hemato": self.settings_page.lookup_hemato.text().strip(),
-            "lookup_solide": self.settings_page.lookup_solide.text().strip(),
         }
+        values.update(
+            {
+                f"lookup_{key}": field.text().strip()
+                for key, field in self.settings_page.lookup_fields.items()
+            }
+        )
         try:
             self.settings_store.save_settings_fields(values)
         except ValueError as exc:

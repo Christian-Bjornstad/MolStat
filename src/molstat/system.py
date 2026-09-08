@@ -11,6 +11,7 @@ from ._backlog.export import export_backlog_history
 from .backlog import BacklogProcessor
 from .database import MolStatDatabase
 from .lvms.report import ReportRequest
+from .modules import DEFAULT_MODULES, ModuleRegistry
 from .publisher import SharePointPublisher
 
 
@@ -31,6 +32,7 @@ class MolStatSystem:
         statistics_fetch: Callable[[], Mapping[str, Sequence[FetchedReport]]],
         backlog_fetch: Callable[[], FetchedReport],
         backlog_publisher: SharePointPublisher | None = None,
+        modules: ModuleRegistry = DEFAULT_MODULES,
     ) -> None:
         self.database = database
         self.archive = archive
@@ -42,11 +44,15 @@ class MolStatSystem:
         self.statistics_fetch = statistics_fetch
         self.backlog_fetch = backlog_fetch
         self.backlog_publisher = backlog_publisher
+        self.modules = modules
 
     def run_statistics(self) -> dict[str, int]:
         fetched = self.statistics_fetch()
         total_rows = 0
         for unit, reports in fetched.items():
+            module = self.modules.require(unit)
+            if module.job_kind != "statistics":
+                raise ValueError(f"Modulen {unit} er ikke en statistikkmodul.")
             processor = self.statistics_processors.get(unit)
             if processor is None:
                 raise ValueError(f"Statistikkprosessor mangler for {unit}.")
@@ -63,7 +69,7 @@ class MolStatSystem:
                     "antall.csv": result.antall,
                     "resultater.csv": result.resultater,
                 },
-                self.sharepoint_root / unit,
+                self.sharepoint_root / module.sharepoint_folder,
             )
             total_rows += sum(int(value) for value in result.row_counts.values())
         return {"rows": total_rows, "units": len(fetched)}
@@ -74,12 +80,13 @@ class MolStatSystem:
         imported = self.backlog_processor.import_snapshot(archived, self.database)
         published_rows = 0
         if self.backlog_publisher is not None:
+            module = self.modules.single_for_job("backlog")
             output_dir = self.work_root / f"backlog-{uuid4().hex}"
             candidate = output_dir / "restansehistorikk.csv"
             published_rows = export_backlog_history(self.database, candidate)
             self.backlog_publisher.publish(
                 {"restansehistorikk.csv": candidate},
-                self.sharepoint_root / "Prøveflyt",
+                self.sharepoint_root / module.sharepoint_folder,
             )
         with self.database._connect() as connection:
             snapshots = int(
