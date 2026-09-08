@@ -17,4 +17,3 @@ table DimAnalysegruppe
 	partition DimAnalysegruppe = calculated
 		mode: import
 		source = SUMMARIZE ( FactRestanse, FactRestanse[Analysegruppe_kode], FactRestanse[Analysegruppe] )
-

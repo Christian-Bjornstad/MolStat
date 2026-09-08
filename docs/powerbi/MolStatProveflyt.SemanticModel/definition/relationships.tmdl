@@ -5,4 +5,3 @@ relationship FactRestanse_DimDato
 relationship FactRestanse_DimAnalysegruppe
 	fromColumn: FactRestanse.Analysegruppe_kode
 	toColumn: DimAnalysegruppe.Analysegruppe_kode
-

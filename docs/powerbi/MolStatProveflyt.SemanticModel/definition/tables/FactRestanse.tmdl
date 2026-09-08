@@ -158,6 +158,4 @@ table FactRestanse
 				    MedDato = Table.AddColumn(Typer, "Dato", each Date.From([Observert_tidspunkt]), type date)
 				in
 				    MedDato
-				
 				```
-

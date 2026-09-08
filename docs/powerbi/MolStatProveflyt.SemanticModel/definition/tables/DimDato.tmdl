@@ -35,4 +35,3 @@ table DimDato
 	partition DimDato = calculated
 		mode: import
 		source = VAR MinDato = MINX ( FactRestanse, FactRestanse[Dato] ) VAR MaksDato = MAXX ( FactRestanse, FactRestanse[Dato] ) RETURN ADDCOLUMNS ( CALENDAR ( MinDato, MaksDato ), "Aar", YEAR ( [Date] ), "MaanedNr", MONTH ( [Date] ), "Maaned", FORMAT ( [Date], "YYYY-MM" ), "Uke", WEEKNUM ( [Date], 2 ) )
-
