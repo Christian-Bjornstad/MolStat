@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ..modules import DEFAULT_UNITS, UnitDefinition
+
 
 class StatusCard(QFrame):
     def __init__(self, title: str, state: str, detail: str) -> None:
@@ -41,47 +43,115 @@ class StatusCard(QFrame):
         self.setAccessibleName(f"{self.title}: {state}. {detail}")
 
 
+class UnitCard(QFrame):
+    def __init__(self, unit: UnitDefinition) -> None:
+        super().__init__()
+        self.unit = unit
+        self.setObjectName(f"unit-card-{unit.key}")
+        self.setProperty("unitStatus", unit.status)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(8)
+
+        heading = QHBoxLayout()
+        title = QLabel(unit.display_name)
+        title.setProperty("unitTitle", True)
+        state = QLabel("Aktiv" if unit.status == "active" else "Kommer")
+        state.setProperty("unitBadge", unit.status)
+        heading.addWidget(title)
+        heading.addStretch(1)
+        heading.addWidget(state)
+        layout.addLayout(heading)
+
+        capability_names = {
+            "statistics": "Statistikk",
+            "backlog": "restanse",
+        }
+        capabilities = " + ".join(
+            capability_names[item.job_kind]
+            for item in unit.capabilities
+        )
+        self.capability_label = QLabel(capabilities or "Flere funksjoner kommer")
+        self.capability_label.setObjectName(f"capabilities-{unit.key}")
+        self.capability_label.setProperty("cardDetail", True)
+        self.capability_label.setWordWrap(True)
+        layout.addWidget(self.capability_label)
+
+        self.status_label = QLabel(
+            "Klar for kjøring" if unit.status == "active" else "Ikke tilgjengelig ennå"
+        )
+        self.status_label.setProperty("unitRunState", True)
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+        layout.addStretch(1)
+
+        text = f"Kjør {unit.display_name}" if unit.status == "active" else "Kommer"
+        self.run_button = _button(text, f"run-{unit.key}")
+        self.run_button.setEnabled(unit.status == "active")
+        self.run_button.setAccessibleName(
+            f"Kjør alle funksjoner for {unit.display_name}"
+            if unit.status == "active"
+            else f"{unit.display_name} kommer senere"
+        )
+        layout.addWidget(self.run_button)
+        self._refresh_accessible_name()
+
+    def set_status(self, state: str, detail: str) -> None:
+        self.status_label.setText(f"{state}: {detail}")
+        self._refresh_accessible_name()
+
+    def _refresh_accessible_name(self) -> None:
+        self.setAccessibleName(
+            f"{self.unit.display_name}. {self.capability_label.text()}. "
+            f"{self.status_label.text()}"
+        )
+
+
 class OverviewPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("overview-page")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(22)
+        layout.setSpacing(18)
 
         title = QLabel("Driftsoversikt")
         title.setObjectName("page-title")
         intro = QLabel(
-            "Én trygg dataflyt fra LVMS til K-sensitiv og SharePoint."
+            "Kjør hele MolStat eller én hovedenhet om gangen."
         )
         intro.setObjectName("page-intro")
         intro.setWordWrap(True)
         layout.addWidget(title)
         layout.addWidget(intro)
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(16)
-        self.cards = {
-            "statistics": StatusCard("Statistikk", "Klar", "Neste kjøring kl. 05:00"),
-            "backlog": StatusCard("Restanse", "Klar", "Kjører hver time kl. 06–18"),
-            "database": StatusCard("Database", "Beskyttet", "Én aktiv skriver på K-sensitiv"),
-            "sharepoint": StatusCard("SharePoint", "Ikke satt opp", "Velg mappe i Innstillinger"),
-        }
-        for index, card in enumerate(self.cards.values()):
-            grid.addWidget(card, index // 2, index % 2)
-        layout.addLayout(grid)
+        self.run_all = _button("Kjør alt", "run-all", primary=True)
+        self.run_all.setAccessibleName("Kjør alle funksjoner for aktive enheter")
+        layout.addWidget(self.run_all, 0, Qt.AlignmentFlag.AlignLeft)
 
-        action_row = QHBoxLayout()
-        action_row.setSpacing(12)
-        self.run_statistics = _button(
-            "Kjør statistikk nå", "run-statistics", primary=True
-        )
-        self.run_backlog = _button("Hent restanse nå", "run-backlog")
-        action_row.addWidget(self.run_statistics)
-        action_row.addWidget(self.run_backlog)
-        action_row.addStretch(1)
-        layout.addLayout(action_row)
+        unit_grid = QGridLayout()
+        unit_grid.setHorizontalSpacing(16)
+        unit_grid.setVerticalSpacing(16)
+        self.unit_cards = {
+            unit.key: UnitCard(unit) for unit in DEFAULT_UNITS
+        }
+        for index, card in enumerate(self.unit_cards.values()):
+            unit_grid.addWidget(card, index // 2, index % 2)
+        layout.addLayout(unit_grid)
+
+        system_grid = QGridLayout()
+        system_grid.setHorizontalSpacing(16)
+        self.cards = {
+            "database": StatusCard(
+                "Database", "Beskyttet", "Én aktiv skriver på K-sensitiv"
+            ),
+            "sharepoint": StatusCard(
+                "SharePoint", "Ikke satt opp", "Velg mappe i Innstillinger"
+            ),
+        }
+        system_grid.addWidget(self.cards["database"], 0, 0)
+        system_grid.addWidget(self.cards["sharepoint"], 0, 1)
+        layout.addLayout(system_grid)
         layout.addStretch(1)
 
 

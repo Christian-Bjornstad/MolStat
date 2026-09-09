@@ -28,14 +28,14 @@ class _WorkerSignals(QObject):
 
 
 class _JobWorker(QRunnable):
-    def __init__(self, orchestrator: Any, kind: str) -> None:
+    def __init__(self, orchestrator: Any, target: str) -> None:
         super().__init__()
         self.orchestrator = orchestrator
-        self.kind = kind
+        self.target = target
         self.signals = _WorkerSignals()
 
     def run(self) -> None:
-        self.signals.finished.emit(self.orchestrator.run(self.kind, "manual"))
+        self.signals.finished.emit(self.orchestrator.run(self.target, "manual"))
 
 
 class MainWindow(QMainWindow):
@@ -78,10 +78,12 @@ class MainWindow(QMainWindow):
         self.nav_overview.clicked.connect(lambda: self._navigate(0))
         self.nav_settings.clicked.connect(lambda: self._navigate(1))
         self.nav_diagnostics.clicked.connect(lambda: self._navigate(2))
-        self.overview.run_statistics.clicked.connect(
-            lambda: self._start_job("statistics")
-        )
-        self.overview.run_backlog.clicked.connect(lambda: self._start_job("backlog"))
+        self.overview.run_all.clicked.connect(lambda: self._start_job("all"))
+        for key, card in self.overview.unit_cards.items():
+            if card.unit.status == "active":
+                card.run_button.clicked.connect(
+                    lambda _checked=False, target=key: self._start_job(target)
+                )
         self.settings_page.save_button.clicked.connect(self._save_settings)
         self._load_settings()
         self._refresh_overview_status()
@@ -125,14 +127,14 @@ class MainWindow(QMainWindow):
             button.style().unpolish(button)
             button.style().polish(button)
 
-    def _start_job(self, kind: str) -> None:
+    def _start_job(self, target: str) -> None:
         if self.orchestrator is None:
             self.statusBar().showMessage("Kjøring er ikke konfigurert.")
             return
-        self._set_run_buttons_enabled(False)
         self.statusBar().showMessage("Kjøring pågår …")
-        worker = _JobWorker(self.orchestrator, kind)
+        worker = _JobWorker(self.orchestrator, target)
         self._workers.add(worker)
+        self._refresh_run_button_states()
         worker.signals.finished.connect(
             lambda result, active=worker: self._job_finished(result, active)
         )
@@ -140,27 +142,48 @@ class MainWindow(QMainWindow):
 
     def _job_finished(self, result: Any, worker: _JobWorker) -> None:
         self._workers.discard(worker)
-        self._set_run_buttons_enabled(True)
+        self._refresh_run_button_states()
         if result.status == "succeeded":
-            if result.kind == "statistics":
-                units = int(result.summary.get("units", 0))
-                self.overview.cards["sharepoint"].set_status(
-                    "Publisert",
-                    f"Siste kjøring publiserte {units} enheter til SharePoint",
-                )
-            elif result.kind == "backlog":
-                rows = int(result.summary.get("published_rows", 0))
-                snapshots = int(result.summary.get("snapshots", 0))
-                self.overview.cards["backlog"].set_status(
-                    "Publisert",
-                    f"{rows} analyserader i {snapshots} timesnapshots",
-                )
+            detail = self._completion_detail(result.summary)
+            self._set_target_status(result.kind, "Fullført", detail)
+            self.overview.cards["sharepoint"].set_status(
+                "Publisert", "Siste kjøring ble fullført"
+            )
             self.statusBar().showMessage("Kjøringen er fullført.", 5000)
+        elif result.status == "partial":
+            succeeded = int(result.summary.get("succeeded", 0))
+            failed = int(result.summary.get("failed", 0))
+            detail = f"{succeeded} fullført, {failed} feilet"
+            self._set_target_status(result.kind, "Delvis feil", detail)
+            self._refresh_diagnostics()
+            self.statusBar().showMessage(
+                "Kjøringen ble delvis fullført. Se Diagnostikk.", 7000
+            )
         elif result.status == "busy":
             self.statusBar().showMessage("En annen kjøring er allerede aktiv.", 5000)
         else:
+            self._set_target_status(
+                result.kind, "Feilet", "Se personvernsikker diagnostikk"
+            )
             self._refresh_diagnostics()
             self.statusBar().showMessage("Kjøringen feilet. Se Diagnostikk.", 7000)
+
+    def _completion_detail(self, summary: dict[str, object]) -> str:
+        capabilities = int(summary.get("capabilities", 0))
+        if capabilities:
+            return f"{capabilities} funksjoner fullført"
+        rows = int(summary.get("rows", 0))
+        return f"{rows} rader behandlet"
+
+    def _set_target_status(self, target: str, state: str, detail: str) -> None:
+        if target == "all":
+            for card in self.overview.unit_cards.values():
+                if card.unit.status == "active":
+                    card.set_status(state, detail)
+            return
+        card = self.overview.unit_cards.get(target)
+        if card is not None:
+            card.set_status(state, detail)
 
     def _refresh_diagnostics(self) -> None:
         if self.settings_store is None or not hasattr(
@@ -175,8 +198,9 @@ class MainWindow(QMainWindow):
             if self.orchestrator is not None
             else ("Ikke klar", "Kontroller Innstillinger og Diagnostikk")
         )
-        self.overview.cards["statistics"].set_status(*runtime_status)
-        self.overview.cards["backlog"].set_status(*runtime_status)
+        for card in self.overview.unit_cards.values():
+            if card.unit.status == "active":
+                card.set_status(*runtime_status)
         if self.settings_store is None or not hasattr(
             self.settings_store, "overview_status_fields"
         ):
@@ -185,9 +209,16 @@ class MainWindow(QMainWindow):
             if key in self.overview.cards:
                 self.overview.cards[key].set_status(*status)
 
-    def _set_run_buttons_enabled(self, enabled: bool) -> None:
-        self.overview.run_statistics.setEnabled(enabled)
-        self.overview.run_backlog.setEnabled(enabled)
+    def _refresh_run_button_states(self) -> None:
+        running = {worker.target for worker in self._workers}
+        self.overview.run_all.setEnabled(not running)
+        for key, card in self.overview.unit_cards.items():
+            if card.unit.status != "active":
+                card.run_button.setEnabled(False)
+            else:
+                card.run_button.setEnabled(
+                    "all" not in running and key not in running
+                )
 
     def _load_settings(self) -> None:
         if self.settings_store is None or not hasattr(

@@ -101,8 +101,9 @@ def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
         "nav-overview",
         "nav-settings",
         "nav-diagnostics",
-        "run-statistics",
-        "run-backlog",
+        "run-all",
+        "run-hemato",
+        "run-solide",
     ):
         button = window.findChild(QPushButton, object_name)
         assert button is not None
@@ -128,18 +129,51 @@ def test_navigation_works_and_power_bi_action_is_removed(qtbot) -> None:
     assert window.findChild(QPushButton, "open-power-bi") is None
 
 
-def test_manual_job_disables_buttons_and_reports_completion(qtbot) -> None:
+def test_manual_unit_job_dispatches_stable_target_and_reports_completion(qtbot) -> None:
     orchestrator = FakeOrchestrator()
     window = MainWindow(orchestrator, None)
     qtbot.addWidget(window)
     window.show()
-    button = window.findChild(QPushButton, "run-statistics")
+    button = window.findChild(QPushButton, "run-hemato")
 
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
 
     qtbot.waitUntil(lambda: button.isEnabled(), timeout=3000)
-    assert orchestrator.calls == [("statistics", "manual")]
+    assert orchestrator.calls == [("hemato", "manual")]
     assert "fullført" in window.statusBar().currentMessage().casefold()
+
+
+def test_overview_exposes_active_and_coming_units(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), None)
+    qtbot.addWidget(window)
+
+    assert "statistikk + restanse" in (
+        window.findChild(object, "capabilities-hemato").text().casefold()
+    )
+    assert "statistikk" in (
+        window.findChild(object, "capabilities-solide").text().casefold()
+    )
+    for key in ("lege", "flow", "pre", "hist"):
+        button = window.findChild(QPushButton, f"run-{key}")
+        assert button is not None
+        assert button.isEnabled() is False
+        assert "kommer" in button.text().casefold()
+        assert button.accessibleName()
+
+
+def test_run_all_and_solide_dispatch_explicit_targets(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    window = MainWindow(orchestrator, None)
+    qtbot.addWidget(window)
+
+    all_button = window.findChild(QPushButton, "run-all")
+    qtbot.mouseClick(all_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: all_button.isEnabled(), timeout=3000)
+    solide = window.findChild(QPushButton, "run-solide")
+    qtbot.mouseClick(solide, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: solide.isEnabled(), timeout=3000)
+
+    assert orchestrator.calls == [("all", "manual"), ("solide", "manual")]
 
 
 def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
@@ -249,7 +283,7 @@ def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:
         DiagnosticSettingsStore(),
     )
     qtbot.addWidget(window)
-    button = window.findChild(QPushButton, "run-statistics")
+    button = window.findChild(QPushButton, "run-hemato")
 
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
 
@@ -257,3 +291,22 @@ def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:
     assert "statistics_run_failed: RuntimeError" in (
         window.diagnostics.log.toPlainText()
     )
+
+
+def test_partial_run_has_clear_non_success_feedback(qtbot) -> None:
+    class PartialOrchestrator:
+        def run(self, kind: str, trigger: str) -> JobResult:
+            return JobResult(
+                kind,
+                "partial",
+                {"capabilities": 3, "succeeded": 2, "failed": 1},
+            )
+
+    window = MainWindow(PartialOrchestrator(), DiagnosticSettingsStore())
+    qtbot.addWidget(window)
+    button = window.findChild(QPushButton, "run-all")
+
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(lambda: button.isEnabled(), timeout=3000)
+    assert "delvis" in window.statusBar().currentMessage().casefold()

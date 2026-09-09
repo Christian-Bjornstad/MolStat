@@ -65,6 +65,26 @@ def build_stylesheet() -> str:
         border: 1px solid {COLORS['border']};
         border-radius: 12px;
     }}
+    QFrame[unitStatus="active"] {{
+        background: {COLORS['surface']};
+        border: 1px solid {COLORS['border']};
+        border-radius: 12px;
+    }}
+    QFrame[unitStatus="coming"] {{
+        background: #F7F3E7;
+        border: 1px dashed #B8AA78;
+        border-radius: 12px;
+    }}
+    QLabel[unitTitle="true"] {{ font-size: 19px; font-weight: 700; }}
+    QLabel[unitBadge="active"] {{
+        color: {COLORS['success']};
+        font-weight: 700;
+    }}
+    QLabel[unitBadge="coming"] {{
+        color: {COLORS['muted_text']};
+        font-weight: 700;
+    }}
+    QLabel[unitRunState="true"] {{ color: {COLORS['foreground']}; }}
     QLabel[cardTitle="true"] {{ color: {COLORS['muted_text']}; font-weight: 600; }}
     QLabel[cardState="true"] {{ font-size: 20px; font-weight: 700; }}
     QLabel[cardDetail="true"] {{ color: {COLORS['muted_text']}; }}
