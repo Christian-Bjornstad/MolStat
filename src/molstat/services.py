@@ -16,7 +16,7 @@ from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restan
 from .config import MolStatSettings
 from .database import MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
-from .modules import DEFAULT_MODULES, DEFAULT_UNITS
+from .modules import DEFAULT_UNITS
 from .orchestrator import MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
@@ -83,7 +83,13 @@ class DefaultServices:
     def auto(self) -> int:
         database = self._database()
         now = datetime.now(timezone.utc)
-        due = due_jobs(now, database.last_successes())
+        due = due_jobs(
+            now,
+            database.last_successes(),
+            statistics_hour=self.settings.statistics_hour,
+            backlog_first_hour=self.settings.backlog_first_hour,
+            backlog_last_hour=self.settings.backlog_last_hour,
+        )
         statuses = [self.run(kind) for kind in due]
         if not due:
             print(json.dumps({"status": "idle"}))
@@ -99,7 +105,12 @@ class DefaultServices:
             project_root=Path(__file__).resolve().parents[2],
             settings_path=self.settings_path,
         )
-        result = install_automation(paths)
+        result = install_automation(
+            paths,
+            statistics_hour=self.settings.statistics_hour,
+            backlog_first_hour=self.settings.backlog_first_hour,
+            backlog_last_hour=self.settings.backlog_last_hour,
+        )
         print(
             json.dumps(
                 {
@@ -242,8 +253,8 @@ class DefaultServices:
             }
             fields.update(
                 {
-                    f"lookup_{module.key}": ""
-                    for module in DEFAULT_MODULES.for_job("statistics")
+                    f"lookup_{unit.key}": ""
+                    for unit in DEFAULT_UNITS.for_job("statistics")
                 }
             )
             fields.update(
@@ -265,8 +276,8 @@ class DefaultServices:
         }
         fields.update(
             {
-                f"lookup_{module.key}": str(lookups.get(module.key, ""))
-                for module in DEFAULT_MODULES.for_job("statistics")
+                f"lookup_{unit.key}": str(lookups.get(unit.key, ""))
+                for unit in DEFAULT_UNITS.for_job("statistics")
             }
         )
         fields.update(
@@ -312,9 +323,9 @@ class DefaultServices:
             raise ValueError("K-sensitiv mappe må fylles ut.")
         sharepoint_text = values.get("sharepoint_root", "").strip()
         lookups = {
-            module.key: Path(text)
-            for module in DEFAULT_MODULES.for_job("statistics")
-            if (text := values.get(f"lookup_{module.key}", "").strip())
+            unit.key: Path(text)
+            for unit in DEFAULT_UNITS.for_job("statistics")
+            if (text := values.get(f"lookup_{unit.key}", "").strip())
         }
         updated = replace(
             self.settings,

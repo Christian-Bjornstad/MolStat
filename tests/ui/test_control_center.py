@@ -54,6 +54,13 @@ class RefreshingSettingsStore(FakeSettingsStore):
         return self.runtime
 
 
+class DisabledSolideSettingsStore(FakeSettingsStore):
+    def load_settings_fields(self) -> dict[str, str]:
+        values = super().load_settings_fields()
+        values["enabled_solide"] = "false"
+        return values
+
+
 class DiagnosticSettingsStore(FakeSettingsStore):
     def diagnostic_messages(self) -> tuple[str, ...]:
         return ("statistics_run_failed: RuntimeError",)
@@ -185,6 +192,18 @@ def test_run_all_and_solide_dispatch_explicit_targets(qtbot) -> None:
     qtbot.waitUntil(lambda: solide.isEnabled(), timeout=3000)
 
     assert orchestrator.calls == [("all", "manual"), ("solide", "manual")]
+
+
+def test_disabled_unit_cannot_be_dispatched(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    window = MainWindow(orchestrator, DisabledSolideSettingsStore())
+    qtbot.addWidget(window)
+    solide = window.findChild(QPushButton, "run-solide")
+
+    assert solide.isEnabled() is False
+    assert "deaktivert" in (
+        window.overview.unit_cards["solide"].status_label.text().casefold()
+    )
 
 
 def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:

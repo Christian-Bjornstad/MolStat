@@ -49,6 +49,9 @@ def install_automation(
     *,
     username: str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    statistics_hour: int = 5,
+    backlog_first_hour: int = 6,
+    backlog_last_hour: int = 18,
 ) -> AutomationResult:
     active_user = username or os.environ.get("USERNAME")
     domain = os.environ.get("USERDOMAIN")
@@ -62,12 +65,20 @@ def install_automation(
         (
             STATISTICS_TASK_NAME,
             paths.app_root / "statistics-task.xml",
-            _task_xml(active_user, launchers["statistics"], range(5, 6)),
+            _task_xml(
+                active_user,
+                launchers["statistics"],
+                range(statistics_hour, statistics_hour + 1),
+            ),
         ),
         (
             BACKLOG_TASK_NAME,
             paths.app_root / "backlog-task.xml",
-            _task_xml(active_user, launchers["backlog"], range(6, 19)),
+            _task_xml(
+                active_user,
+                launchers["backlog"],
+                range(backlog_first_hour, backlog_last_hour + 1),
+            ),
         ),
     )
     for name, xml_path, content in definitions:

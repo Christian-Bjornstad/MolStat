@@ -90,6 +90,8 @@ class MainWindow(QMainWindow):
         self.settings_page.save_button.clicked.connect(self._save_settings)
         self.settings_page.import_button.clicked.connect(self._import_settings)
         self.settings_page.export_button.clicked.connect(self._export_settings)
+        for field in self.settings_page.enabled_fields.values():
+            field.toggled.connect(self._refresh_overview_status)
         self._load_settings()
         self._refresh_overview_status()
         self._navigate(0)
@@ -135,6 +137,13 @@ class MainWindow(QMainWindow):
     def _start_job(self, target: str) -> None:
         if self.orchestrator is None:
             self.statusBar().showMessage("Kjøring er ikke konfigurert.")
+            return
+        if target in self.settings_page.enabled_fields and (
+            target not in self._enabled_unit_keys()
+        ):
+            self.statusBar().showMessage(
+                "Enheten er deaktivert. Aktiver den i Innstillinger.", 5000
+            )
             return
         self.statusBar().showMessage("Kjøring pågår …")
         worker = _JobWorker(self.orchestrator, target)
@@ -206,6 +215,11 @@ class MainWindow(QMainWindow):
         for card in self.overview.unit_cards.values():
             if card.unit.status == "active":
                 card.set_status(*runtime_status)
+        enabled = self._enabled_unit_keys()
+        for key, card in self.overview.unit_cards.items():
+            if card.unit.status == "active" and key not in enabled:
+                card.set_status("Deaktivert", "Aktiver enheten i Innstillinger")
+        self._refresh_run_button_states()
         if self.settings_store is None or not hasattr(
             self.settings_store, "overview_status_fields"
         ):
@@ -216,14 +230,22 @@ class MainWindow(QMainWindow):
 
     def _refresh_run_button_states(self) -> None:
         running = {worker.target for worker in self._workers}
-        self.overview.run_all.setEnabled(not running)
+        enabled = self._enabled_unit_keys()
+        self.overview.run_all.setEnabled(not running and bool(enabled))
         for key, card in self.overview.unit_cards.items():
-            if card.unit.status != "active":
+            if card.unit.status != "active" or key not in enabled:
                 card.run_button.setEnabled(False)
             else:
                 card.run_button.setEnabled(
                     "all" not in running and key not in running
                 )
+
+    def _enabled_unit_keys(self) -> set[str]:
+        return {
+            key
+            for key, field in self.settings_page.enabled_fields.items()
+            if field.isChecked()
+        }
 
     def _load_settings(self) -> None:
         if self.settings_store is None or not hasattr(
@@ -238,6 +260,7 @@ class MainWindow(QMainWindow):
             field.setText(values.get(f"lookup_{key}", ""))
         for key, field in self.settings_page.enabled_fields.items():
             field.setChecked(values.get(f"enabled_{key}", "true") == "true")
+        self._refresh_run_button_states()
 
     def _save_settings(self) -> None:
         if self.settings_store is None or not hasattr(

@@ -12,7 +12,7 @@ from ._backlog.export import export_backlog_history
 from .backlog import BacklogProcessor
 from .database import MolStatDatabase
 from .lvms.report import ReportRequest
-from .modules import DEFAULT_UNITS, JobKind, ModuleRegistry, UnitRegistry
+from .modules import DEFAULT_UNITS, JobKind, UnitRegistry
 from .publisher import SharePointPublisher
 
 
@@ -45,7 +45,6 @@ class MolStatSystem:
         backlog_fetch: Callable[[], FetchedReport],
         backlog_publisher: SharePointPublisher | None = None,
         units: UnitRegistry = DEFAULT_UNITS,
-        modules: ModuleRegistry | None = None,
     ) -> None:
         self.database = database
         self.archive = archive
@@ -58,9 +57,6 @@ class MolStatSystem:
         self.backlog_fetch = backlog_fetch
         self.backlog_publisher = backlog_publisher
         self.units = units
-        # Accepted during the registry migration so older construction sites
-        # remain source-compatible. Routing is exclusively unit-based.
-        self.modules = modules
 
     def run_statistics(self) -> dict[str, int]:
         fetched = self.statistics_fetch(None)
