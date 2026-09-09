@@ -15,7 +15,6 @@ EXPECTED_COLUMNS = (
     "Materiale",
     "Analyse",
     "Nukleinsyre",
-    "Rapportgruppe",
     "Analysegruppe_kode",
     "Analysegruppe",
     "Tidspunkt.prøvetaking",
@@ -27,6 +26,8 @@ EXPECTED_COLUMNS = (
     "Status.prelgruppe",
     "Restansestatus",
     "Svarfrist",
+    "Analyseresultat",
+    "Ekstern.analysekommentar",
     "Klassifikatorversjon",
 )
 
@@ -52,7 +53,8 @@ def _insert_detail(
             (?, ?, 1, 'Blod', ?, 'DNA', 'lymfom', 'KLONALITET',
              'Klonalitet', '2026-09-06T07:30:00', '2026-09-06T08:00:00',
              '2026-09-06T08:15:00', 'Høy', 'Vanlig', 'Initial', 'Initial',
-             'ready', '14', '', '', 2, 'internal-secret-fingerprint')
+             'ready', '14', 'Påvist – behold æøå', 'Ordrett kommentar',
+             2, 'internal-secret-fingerprint')
             """,
             (
                 observed_at,
@@ -79,9 +81,15 @@ def test_export_is_deterministic_and_contains_only_public_columns(
         "hemato",
         "A",
     )
-    destination = tmp_path / "export" / "restansehistorikk.csv"
+    _insert_detail(
+        database,
+        "2026-09-07T10:00:00",
+        "solide",
+        "SKAL-IKKE-MED",
+    )
+    destination = tmp_path / "export" / "restansehistorikk_hemato.csv"
 
-    exported = export_backlog_history(database, destination)
+    exported = export_backlog_history(database, destination, unit_key="hemato")
 
     assert exported == 2
     assert BACKLOG_PUBLIC_COLUMNS == EXPECTED_COLUMNS
@@ -93,11 +101,19 @@ def test_export_is_deterministic_and_contains_only_public_columns(
     with destination.open(encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream, delimiter=";"))
     assert [row["Analyse"] for row in rows] == ["A", "B"]
-    assert rows[0]["Rapportgruppe"] == "lymfom"
+    assert "Rapportgruppe" not in rows[0]
     assert rows[0]["Analysegruppe"] == "Klonalitet"
     assert rows[0]["Svarfrist"] == "14"
+    assert rows[0]["Analyseresultat"] == "Påvist – behold æøå"
+    assert rows[0]["Ekstern.analysekommentar"] == "Ordrett kommentar"
     serialized = repr(rows)
-    for forbidden in ("SampleID", "PID", "WorkItem", "Analyseresultat"):
+    for forbidden in (
+        "SampleID",
+        "PID",
+        "WorkItem",
+        "internal-secret-fingerprint",
+        "SKAL-IKKE-MED",
+    ):
         assert forbidden not in serialized
 
 
@@ -119,6 +135,7 @@ def test_detail_sample_matches_public_contract_and_hourly_history() -> None:
     assert len({frozenset(groups) for groups in groups_by_time.values()}) == 1
     assert all(groups == {"KLONALITET"} for groups in groups_by_time.values())
     assert {row["Analyse"] for row in rows} == {"IGH-VDJ-OU", "TRG-OU"}
+    assert any("æøå" in row["Analyseresultat"] for row in rows)
     serialized = repr(rows).casefold()
     for forbidden in (
         "sampleid",
@@ -126,8 +143,6 @@ def test_detail_sample_matches_public_contract_and_hourly_history() -> None:
         "workitem",
         "fingerprint",
         "pasient",
-        "analyseresultat",
-        "kommentar",
     ):
         assert forbidden not in serialized
 

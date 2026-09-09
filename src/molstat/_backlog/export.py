@@ -16,7 +16,6 @@ BACKLOG_PUBLIC_COLUMNS = (
     "Materiale",
     "Analyse",
     "Nukleinsyre",
-    "Rapportgruppe",
     "Analysegruppe_kode",
     "Analysegruppe",
     "Tidspunkt.prøvetaking",
@@ -28,6 +27,8 @@ BACKLOG_PUBLIC_COLUMNS = (
     "Status.prelgruppe",
     "Restansestatus",
     "Svarfrist",
+    "Analyseresultat",
+    "Ekstern.analysekommentar",
     "Klassifikatorversjon",
 )
 
@@ -35,6 +36,8 @@ BACKLOG_PUBLIC_COLUMNS = (
 def export_backlog_history(
     database: MolStatDatabase,
     destination: Path,
+    *,
+    unit_key: str,
 ) -> int:
     with database._connect() as connection:
         rows = connection.execute(
@@ -44,7 +47,6 @@ def export_backlog_history(
                    material,
                    analysis_code,
                    nucleic_acid,
-                   report_group,
                    analysis_group_code,
                    analysis_group_label,
                    collected_at,
@@ -56,10 +58,14 @@ def export_backlog_history(
                    preliminary_status,
                    workflow_stage,
                    response_deadline,
+                   analysis_result,
+                   external_analysis_comment,
                    classifier_version
             FROM backlog_detail_snapshot
-            ORDER BY observed_at, unit_key, row_number
-            """
+            WHERE unit_key = ?
+            ORDER BY observed_at, row_number
+            """,
+            (unit_key,),
         ).fetchall()
 
     destination.parent.mkdir(parents=True, exist_ok=True)

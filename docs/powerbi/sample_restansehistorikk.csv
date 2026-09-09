@@ -1,5 +1,5 @@
-Observert_tidspunkt;Enhet;Materiale;Analyse;Nukleinsyre;Rapportgruppe;Analysegruppe_kode;Analysegruppe;Tidspunkt.prøvetaking;Tidspunkt.ankomst;Tidspunkt.analysebestilling;Prioritet.analyse;Prioritet.rekvisisjon;Status.analyse;Status.prelgruppe;Restansestatus;Svarfrist;Klassifikatorversjon
-2026-09-07T10:00:00;hemato;Blod;IGH-VDJ-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;5;2
-2026-09-07T10:00:00;hemato;Blod;TRG-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;14;2
-2026-09-07T11:00:00;hemato;Blod;IGH-VDJ-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;5;2
-2026-09-07T11:00:00;hemato;Blod;TRG-OU;DNA;lymfom;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;14;2
+Observert_tidspunkt;Enhet;Materiale;Analyse;Nukleinsyre;Analysegruppe_kode;Analysegruppe;Tidspunkt.prøvetaking;Tidspunkt.ankomst;Tidspunkt.analysebestilling;Prioritet.analyse;Prioritet.rekvisisjon;Status.analyse;Status.prelgruppe;Restansestatus;Svarfrist;Analyseresultat;Ekstern.analysekommentar;Klassifikatorversjon
+2026-09-07T10:00:00;hemato;Blod;IGH-VDJ-OU;DNA;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;5;Påvist – eksempel æøå;Syntetisk kommentar;2
+2026-09-07T10:00:00;hemato;Blod;TRG-OU;DNA;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;14;;;2
+2026-09-07T11:00:00;hemato;Blod;IGH-VDJ-OU;DNA;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;5;Påvist – eksempel æøå;Syntetisk kommentar;2
+2026-09-07T11:00:00;hemato;Blod;TRG-OU;DNA;KLONALITET;Klonalitet;2026-09-06T07:30:00;2026-09-06T08:00:00;2026-09-06T08:15:00;Vanlig;Vanlig;Initial;Initial;ready;14;;;2

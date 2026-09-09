@@ -83,7 +83,9 @@ class MolStatSystem:
             module = self.modules.single_for_job("backlog")
             output_dir = self.work_root / f"backlog-{uuid4().hex}"
             candidate = output_dir / "restansehistorikk.csv"
-            published_rows = export_backlog_history(self.database, candidate)
+            published_rows = export_backlog_history(
+                self.database, candidate, unit_key="hemato"
+            )
             self.backlog_publisher.publish(
                 {"restansehistorikk.csv": candidate},
                 self.sharepoint_root / module.sharepoint_folder,
