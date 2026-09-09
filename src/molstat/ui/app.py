@@ -7,6 +7,7 @@ from typing import Any
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -85,6 +86,8 @@ class MainWindow(QMainWindow):
                     lambda _checked=False, target=key: self._start_job(target)
                 )
         self.settings_page.save_button.clicked.connect(self._save_settings)
+        self.settings_page.import_button.clicked.connect(self._import_settings)
+        self.settings_page.export_button.clicked.connect(self._export_settings)
         self._load_settings()
         self._refresh_overview_status()
         self._navigate(0)
@@ -231,6 +234,8 @@ class MainWindow(QMainWindow):
         self.settings_page.lvms_url.setText(values.get("lvms_url", ""))
         for key, field in self.settings_page.lookup_fields.items():
             field.setText(values.get(f"lookup_{key}", ""))
+        for key, field in self.settings_page.enabled_fields.items():
+            field.setChecked(values.get(f"enabled_{key}", "true") == "true")
 
     def _save_settings(self) -> None:
         if self.settings_store is None or not hasattr(
@@ -247,6 +252,12 @@ class MainWindow(QMainWindow):
             {
                 f"lookup_{key}": field.text().strip()
                 for key, field in self.settings_page.lookup_fields.items()
+            }
+        )
+        values.update(
+            {
+                f"enabled_{key}": "true" if field.isChecked() else "false"
+                for key, field in self.settings_page.enabled_fields.items()
             }
         )
         try:
@@ -268,6 +279,68 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             "Innstillingene er validert og lagret. MolStat er klar.", 5000
         )
+
+    def _export_settings(self) -> None:
+        if self.settings_store is None or not hasattr(
+            self.settings_store, "export_settings"
+        ):
+            self.statusBar().showMessage(
+                "Eksport av innstillinger er ikke tilgjengelig."
+            )
+            return
+        selected, _ = QFileDialog.getSaveFileName(
+            self,
+            "Eksporter MolStat-innstillinger",
+            "molstat-innstillinger.json",
+            "JSON-filer (*.json)",
+        )
+        if not selected:
+            return
+        try:
+            self.settings_store.export_settings(Path(selected))
+        except (OSError, ValueError):
+            self.statusBar().showMessage(
+                "Innstillingene kunne ikke eksporteres.", 8000
+            )
+            return
+        self.statusBar().showMessage("Innstillingene er eksportert.", 5000)
+
+    def _import_settings(self) -> None:
+        if self.settings_store is None or not hasattr(
+            self.settings_store, "import_settings"
+        ):
+            self.statusBar().showMessage(
+                "Import av innstillinger er ikke tilgjengelig."
+            )
+            return
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "Importer MolStat-innstillinger",
+            "",
+            "JSON-filer (*.json)",
+        )
+        if not selected:
+            return
+        try:
+            warnings = self.settings_store.import_settings(Path(selected))
+        except (OSError, ValueError) as error:
+            self.statusBar().showMessage(str(error), 8000)
+            return
+        self._load_settings()
+        if hasattr(self.settings_store, "refresh_gui_runtime"):
+            orchestrator, error = self.settings_store.refresh_gui_runtime()
+            self.orchestrator = orchestrator
+            self.diagnostics.set_configuration_error(error)
+            self._refresh_overview_status()
+        if warnings:
+            labels = ", ".join(warnings)
+            self.statusBar().showMessage(
+                f"Importert. Må velges på denne PC-en: {labels}.", 10000
+            )
+        else:
+            self.statusBar().showMessage(
+                "Innstillingene er importert og klare.", 5000
+            )
 
 
 def _nav_button(text: str, name: str) -> QPushButton:

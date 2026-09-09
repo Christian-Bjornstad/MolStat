@@ -20,6 +20,8 @@ class FakeOrchestrator:
 class FakeSettingsStore:
     def __init__(self) -> None:
         self.saved: dict[str, str] | None = None
+        self.exported: Path | None = None
+        self.imported: Path | None = None
 
     def load_settings_fields(self) -> dict[str, str]:
         return {
@@ -28,10 +30,19 @@ class FakeSettingsStore:
             "lvms_url": "https://lvms.example.invalid/app",
             "lookup_hemato": "K:/sensitiv/lookup-hemato.xlsx",
             "lookup_solide": "K:/sensitiv/lookup-solide.xlsx",
+            "enabled_hemato": "true",
+            "enabled_solide": "true",
         }
 
     def save_settings_fields(self, values: dict[str, str]) -> None:
         self.saved = values
+
+    def export_settings(self, path: Path) -> None:
+        self.exported = path
+
+    def import_settings(self, path: Path) -> tuple[str, ...]:
+        self.imported = path
+        return ("SharePoint-mappe",)
 
 
 class RefreshingSettingsStore(FakeSettingsStore):
@@ -189,6 +200,12 @@ def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
         assert field is not None
         assert field.accessibleName()
 
+    for key in ("hemato", "solide"):
+        enabled = window.findChild(object, f"enabled-{key}")
+        assert enabled is not None
+        assert enabled.accessibleName()
+        assert enabled.isChecked()
+
 
 def test_settings_browse_buttons_fill_directory_and_lookup_paths(
     qtbot, monkeypatch
@@ -250,8 +267,36 @@ def test_settings_are_loaded_and_saved_through_controller(qtbot) -> None:
 
     assert store.saved is not None
     assert store.saved["sharepoint_root"] == "C:/SharePoint/Ny"
+    assert store.saved["enabled_hemato"] == "true"
     assert "power_bi_report_url" not in store.saved
     assert "lagret" in window.statusBar().currentMessage().casefold()
+
+
+def test_settings_import_and_export_use_json_dialogs(qtbot, monkeypatch) -> None:
+    store = FakeSettingsStore()
+    window = MainWindow(FakeOrchestrator(), store)
+    qtbot.addWidget(window)
+    export_path = Path("C:/temp/molstat-innstillinger.json")
+    import_path = Path("C:/temp/fra-annen-pc.json")
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(export_path), "JSON (*.json)"),
+    )
+    export_button = window.findChild(QPushButton, "export-settings")
+    qtbot.mouseClick(export_button, Qt.MouseButton.LeftButton)
+    assert store.exported == export_path
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(import_path), "JSON (*.json)"),
+    )
+    import_button = window.findChild(QPushButton, "import-settings")
+    qtbot.mouseClick(import_button, Qt.MouseButton.LeftButton)
+    assert store.imported == import_path
+    assert "må velges" in window.statusBar().currentMessage().casefold()
 
 
 def test_saving_settings_reconfigures_jobs_without_restart(qtbot) -> None:

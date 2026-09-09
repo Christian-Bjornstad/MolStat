@@ -246,6 +246,12 @@ class DefaultServices:
                     for module in DEFAULT_MODULES.for_job("statistics")
                 }
             )
+            fields.update(
+                {
+                    f"enabled_{unit.key}": "true"
+                    for unit in DEFAULT_UNITS.active()
+                }
+            )
             return fields
         lookups = self.settings.statistics_lookup_paths
         fields = {
@@ -261,6 +267,14 @@ class DefaultServices:
             {
                 f"lookup_{module.key}": str(lookups.get(module.key, ""))
                 for module in DEFAULT_MODULES.for_job("statistics")
+            }
+        )
+        fields.update(
+            {
+                f"enabled_{unit.key}": (
+                    "true" if unit.key in self.settings.enabled_units else "false"
+                )
+                for unit in DEFAULT_UNITS.active()
             }
         )
         return fields
@@ -308,6 +322,15 @@ class DefaultServices:
             sharepoint_root=Path(sharepoint_text) if sharepoint_text else None,
             statistics_lookup_paths=lookups,
             lvms_url=values.get("lvms_url", "").strip(),
+            enabled_units=tuple(
+                unit.key
+                for unit in DEFAULT_UNITS.active()
+                if values.get(
+                    f"enabled_{unit.key}",
+                    "true" if unit.key in self.settings.enabled_units else "false",
+                ).casefold()
+                == "true"
+            ),
         )
         errors = updated.validate()
         if errors:
@@ -316,6 +339,17 @@ class DefaultServices:
         updated.save(self.settings_path)
         self.settings = updated
         self._settings_exist = True
+
+    def export_settings(self, path: Path) -> None:
+        self.settings.export_to(path)
+
+    def import_settings(self, path: Path) -> tuple[str, ...]:
+        imported = MolStatSettings.import_from(path)
+        warnings = _unavailable_path_messages(imported)
+        imported.save(self.settings_path)
+        self.settings = imported
+        self._settings_exist = True
+        return warnings
 
     def _ensure_lvms_config(self, local_root: Path) -> Path:
         path = self.settings.lvms_config_path or local_root / "lvms-config.json"
@@ -377,3 +411,16 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
     parsed = urlparse(settings.lvms_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("LVMS-adressen må være en fullstendig http- eller https-adresse.")
+
+
+def _unavailable_path_messages(settings: MolStatSettings) -> tuple[str, ...]:
+    unavailable: list[str] = []
+    if not settings.sensitive_root.is_dir():
+        unavailable.append("K-sensitiv mappe")
+    if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
+        unavailable.append("SharePoint-mappe")
+    for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
+        lookup = settings.statistics_lookup_paths.get(unit.key)
+        if lookup is None or not lookup.is_file():
+            unavailable.append(f"Lookup-fil for {unit.display_name}")
+    return tuple(unavailable)

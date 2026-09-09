@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -12,7 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..modules import DEFAULT_MODULES
+from ..modules import DEFAULT_UNITS
 
 
 class SettingsPage(QWidget):
@@ -21,24 +22,24 @@ class SettingsPage(QWidget):
         self.setObjectName("settings-page")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(20)
+        layout.setSpacing(16)
         title = QLabel("Innstillinger")
         title.setObjectName("page-title")
         intro = QLabel(
-            "Produksjonsstier lagres lokalt. Sensitive data publiseres aldri til SharePoint."
+            "Globale mapper og enhetsoppsett lagres lokalt. "
+            "Fritekst publiseres ordrett og må ikke inneholde identifikatorer."
         )
         intro.setObjectName("page-intro")
         intro.setWordWrap(True)
         layout.addWidget(title)
         layout.addWidget(intro)
 
-        storage = QGroupBox("Lagring og publisering")
+        storage = QGroupBox("Lagring og LVMS")
         form = QFormLayout(storage)
-        form.setSpacing(14)
+        form.setSpacing(12)
         self.sensitive_root = _field("sensitive-root", "K-sensitiv mappe")
         self.sharepoint_root = _field("sharepoint-root", "SharePoint-mappe")
         self.lvms_url = _field("lvms-url", "LVMS-adresse")
-        self.lookup_fields: dict[str, QLineEdit] = {}
         form.addRow(
             "K-sensitiv mappe",
             self._directory_row(
@@ -56,20 +57,51 @@ class SettingsPage(QWidget):
             ),
         )
         form.addRow("LVMS-adresse", self.lvms_url)
-        for module in DEFAULT_MODULES.for_job("statistics"):
-            accessible_name = f"Lookup-fil for {module.display_name}"
-            field = _field(f"lookup-{module.key}", accessible_name)
-            self.lookup_fields[module.key] = field
-            setattr(self, f"lookup_{module.key}", field)
-            form.addRow(
-                f"Lookup {module.display_name}",
+        layout.addWidget(storage)
+
+        self.lookup_fields: dict[str, QLineEdit] = {}
+        self.enabled_fields: dict[str, QCheckBox] = {}
+        for unit in DEFAULT_UNITS.active():
+            group = QGroupBox(unit.display_name)
+            unit_form = QFormLayout(group)
+            unit_form.setSpacing(12)
+            enabled = QCheckBox(f"Aktiver {unit.display_name}")
+            enabled.setObjectName(f"enabled-{unit.key}")
+            enabled.setAccessibleName(f"Aktiver enheten {unit.display_name}")
+            enabled.setMinimumHeight(44)
+            enabled.setChecked(True)
+            self.enabled_fields[unit.key] = enabled
+            unit_form.addRow("Enhet", enabled)
+
+            capability = unit.capability("statistics")
+            del capability
+            accessible_name = f"Lookup-fil for {unit.display_name}"
+            field = _field(f"lookup-{unit.key}", accessible_name)
+            self.lookup_fields[unit.key] = field
+            setattr(self, f"lookup_{unit.key}", field)
+            unit_form.addRow(
+                "Lookup-fil",
                 self._file_row(
                     field,
-                    f"browse-lookup-{module.key}",
-                    f"Velg lookup-fil for {module.display_name}",
+                    f"browse-lookup-{unit.key}",
+                    f"Velg lookup-fil for {unit.display_name}",
                 ),
             )
-        layout.addWidget(storage)
+            layout.addWidget(group)
+
+        transfer = QGroupBox("Flytt innstillinger")
+        transfer_layout = QHBoxLayout(transfer)
+        self.import_button = _action_button(
+            "Importer …", "import-settings", "Importer MolStat-innstillinger"
+        )
+        self.export_button = _action_button(
+            "Eksporter …", "export-settings", "Eksporter MolStat-innstillinger"
+        )
+        transfer_layout.addWidget(self.import_button)
+        transfer_layout.addWidget(self.export_button)
+        transfer_layout.addStretch(1)
+        layout.addWidget(transfer)
+
         self.save_button = QPushButton("Valider og lagre")
         self.save_button.setAccessibleName("Valider og lagre innstillinger")
         self.save_button.setMinimumHeight(44)
@@ -116,7 +148,11 @@ def _field(name: str, accessible_name: str) -> QLineEdit:
 
 
 def _browse_button(name: str, accessible_name: str) -> QPushButton:
-    button = QPushButton("Bla gjennom …")
+    return _action_button("Bla gjennom …", name, accessible_name)
+
+
+def _action_button(text: str, name: str, accessible_name: str) -> QPushButton:
+    button = QPushButton(text)
     button.setObjectName(name)
     button.setAccessibleName(accessible_name)
     button.setMinimumHeight(44)
@@ -125,9 +161,9 @@ def _browse_button(name: str, accessible_name: str) -> QPushButton:
 
 def _path_row(field: QLineEdit, button: QPushButton) -> QWidget:
     container = QWidget()
-    layout = QHBoxLayout(container)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setSpacing(8)
-    layout.addWidget(field, 1)
-    layout.addWidget(button)
+    row = QHBoxLayout(container)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(8)
+    row.addWidget(field, 1)
+    row.addWidget(button)
     return container

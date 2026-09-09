@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,8 @@ def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
         "lvms_url": "",
         "lookup_hemato": "",
         "lookup_solide": "",
+        "enabled_hemato": "true",
+        "enabled_solide": "true",
     }
 
 
@@ -143,3 +146,61 @@ def test_system_build_wires_exact_backlog_publication_policy(
         "restansehistorikk_hemato.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
     }
     assert system.sharepoint_root == sharepoint
+
+
+def test_settings_transfer_imports_unavailable_paths_with_safe_labels(
+    tmp_path: Path,
+) -> None:
+    settings_path = tmp_path / "settings.json"
+    services = DefaultServices(settings_path)
+    transfer = tmp_path / "molstat-innstillinger.json"
+    payload = services.settings.to_transfer_payload()
+    payload["sensitive_root"] = str(tmp_path / "mangler-sensitiv")
+    payload["sharepoint_root"] = str(tmp_path / "mangler-sharepoint")
+    payload["lvms_url"] = "https://lvms.example.invalid/clims/"
+    payload["units"]["hemato"]["statistics_lookup_path"] = str(
+        tmp_path / "mangler-hemato.xlsx"
+    )
+    payload["units"]["solide"]["statistics_lookup_path"] = str(
+        tmp_path / "mangler-solide.xlsx"
+    )
+    transfer.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    warnings = services.import_settings(transfer)
+
+    assert warnings == (
+        "K-sensitiv mappe",
+        "SharePoint-mappe",
+        "Lookup-fil for Hemato",
+        "Lookup-fil for Solide",
+    )
+    assert services.settings.sensitive_root == tmp_path / "mangler-sensitiv"
+    assert settings_path.is_file()
+
+
+def test_settings_transfer_failure_is_atomic(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    services = DefaultServices(settings_path)
+    services.settings.save(settings_path)
+    services = DefaultServices(settings_path)
+    before = settings_path.read_bytes()
+    transfer = tmp_path / "ugyldig.json"
+    transfer.write_text('{"schema_version":999}', encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        services.import_settings(transfer)
+
+    assert settings_path.read_bytes() == before
+    assert services.settings.sensitive_root == Path(".")
+
+
+def test_settings_export_excludes_local_lvms_runtime(tmp_path: Path) -> None:
+    services = DefaultServices(tmp_path / "settings.json")
+    transfer = tmp_path / "molstat-innstillinger.json"
+
+    services.export_settings(transfer)
+
+    exported = transfer.read_text(encoding="utf-8").casefold()
+    assert '"schema_version": 2' in exported
+    for forbidden in ("lvms_config_path", "profile_directory", "cdp", "session"):
+        assert forbidden not in exported
