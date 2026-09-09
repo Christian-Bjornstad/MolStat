@@ -3,6 +3,7 @@ from pathlib import Path
 
 from molstat.database import MolStatDatabase
 from molstat.orchestrator import MolStatOrchestrator
+import molstat.system as system_module
 
 
 def test_successful_job_is_recorded_without_sensitive_summary(
@@ -97,3 +98,37 @@ def test_active_writer_returns_busy_without_running_job(tmp_path: Path) -> None:
 
     assert result.status == "busy"
     assert called is False
+
+
+def test_composite_target_reports_partial_and_continues_safely(
+    tmp_path: Path,
+) -> None:
+    database = MolStatDatabase(tmp_path / "molstat.sqlite3")
+    database.migrate()
+    secret = RuntimeError("SECRET-SAMPLE-42")
+    reported: list[tuple[str, BaseException]] = []
+    runs = (
+        system_module.CapabilityRun(
+            "hemato", "statistics", {}, error=secret
+        ),
+        system_module.CapabilityRun("hemato", "backlog", {"rows": 2}),
+        system_module.CapabilityRun("solide", "statistics", {"rows": 3}),
+    )
+    orchestrator = MolStatOrchestrator(
+        database,
+        {"all": lambda: runs},
+        owner="pc-a",
+        failure_reporter=lambda stage, error: reported.append((stage, error)),
+    )
+
+    result = orchestrator.run("all", "manual")
+
+    assert result.status == "partial"
+    assert result.summary == {
+        "capabilities": 3,
+        "succeeded": 2,
+        "failed": 1,
+        "rows": 5,
+    }
+    assert reported == [("hemato_statistics_run_failed", secret)]
+    assert "SECRET" not in (result.message or "")

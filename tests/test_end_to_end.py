@@ -18,6 +18,8 @@ from molstat.lvms.report import ReportRequest
 from molstat.publisher import PublicationPolicy, SharePointPublisher
 from molstat.statistics import StatisticsProcessor, StatisticsResult
 from molstat.system import MolStatSystem
+import molstat.system as system_module
+from molstat.modules import DEFAULT_UNITS
 
 
 class SyntheticStatisticsProcessor:
@@ -129,7 +131,9 @@ def test_complete_flow_keeps_identifiers_out_of_public_outputs(tmp_path: Path) -
         publisher=publisher,
         sharepoint_root=sharepoint,
         work_root=sensitive / "work",
-        statistics_fetch=lambda: {"hemato": ((statistics_request, stats_download),)},
+        statistics_fetch=lambda _unit_keys=None: {
+            "hemato": ((statistics_request, stats_download),)
+        },
         backlog_fetch=lambda: (backlog_request, backlog_download),
     )
 
@@ -178,7 +182,7 @@ def test_second_statistics_run_publishes_complete_deduplicated_history(
         )
         return request, source
 
-    def fetch_statistics():
+    def fetch_statistics(_unit_keys=None):
         nonlocal calls
         calls += 1
         values = ["historical", "overlap"] if calls == 1 else ["overlap", "latest"]
@@ -300,7 +304,7 @@ def test_two_backlog_hours_publish_complete_identifier_free_history(
     backlog_publisher = SharePointPublisher(
         PublicationPolicy(
             allowed_columns={
-                "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
+                "restansehistorikk_hemato.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
             },
             forbidden_patterns=(
                 re.compile(r"sample[ ._-]*id", re.I),
@@ -318,7 +322,7 @@ def test_two_backlog_hours_publish_complete_identifier_free_history(
         backlog_publisher=backlog_publisher,
         sharepoint_root=sharepoint,
         work_root=sensitive / "work" / "processing",
-        statistics_fetch=lambda: {},
+        statistics_fetch=lambda _unit_keys=None: {},
         backlog_fetch=fetch_backlog,
     )
 
@@ -326,7 +330,7 @@ def test_two_backlog_hours_publish_complete_identifier_free_history(
     clock[0] = datetime(2026, 9, 7, 11, 15)
     assert system.run_backlog()["published_rows"] == 2
 
-    public_file = sharepoint / "Prøveflyt" / "restansehistorikk.csv"
+    public_file = sharepoint / "Prøveflyt" / "restansehistorikk_hemato.csv"
     with public_file.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream, delimiter=";"))
     assert len(rows) == 2
@@ -361,3 +365,48 @@ def _backlog_contract() -> CsvContract:
         },
         completed_values=("Completed",),
     )
+
+
+def test_run_all_continues_after_one_capability_fails() -> None:
+    calls: list[str] = []
+    system = MolStatSystem.__new__(MolStatSystem)
+    system.units = DEFAULT_UNITS
+
+    def run_capability(unit_key: str, job_kind: str) -> dict[str, int]:
+        label = f"{unit_key}:{job_kind}"
+        calls.append(label)
+        if label == "hemato:statistics":
+            raise RuntimeError("private test failure")
+        return {"rows": 2 if job_kind == "backlog" else 3}
+
+    system._run_capability = run_capability
+
+    runs = system.run_all(("hemato", "solide"))
+
+    assert calls == [
+        "hemato:statistics",
+        "hemato:backlog",
+        "solide:statistics",
+    ]
+    assert [
+        (run.unit_key, run.job_kind, run.error is None) for run in runs
+    ] == [
+        ("hemato", "statistics", False),
+        ("hemato", "backlog", True),
+        ("solide", "statistics", True),
+    ]
+    assert isinstance(runs[0], system_module.CapabilityRun)
+
+
+def test_unit_target_runs_only_its_registered_capabilities() -> None:
+    calls: list[tuple[str, str]] = []
+    system = MolStatSystem.__new__(MolStatSystem)
+    system.units = DEFAULT_UNITS
+    system._run_capability = lambda unit, job: (
+        calls.append((unit, job)) or {"rows": 1}
+    )
+
+    runs = system.run_unit("solide")
+
+    assert calls == [("solide", "statistics")]
+    assert len(runs) == 1

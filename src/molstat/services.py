@@ -16,7 +16,7 @@ from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restan
 from .config import MolStatSettings
 from .database import MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
-from .modules import DEFAULT_MODULES
+from .modules import DEFAULT_MODULES, DEFAULT_UNITS
 from .orchestrator import MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
@@ -59,7 +59,7 @@ class DefaultServices:
 
     def run(self, kind: str) -> int:
         try:
-            system = self._build_system(require_statistics=kind == "statistics")
+            system = self._build_system(require_statistics=kind != "backlog")
             result = self._orchestrator(system).run(kind, "scheduled")
         except Exception:
             print(json.dumps({"status": "failed", "message": "Kontroller MolStat-oppsettet."}, ensure_ascii=False))
@@ -155,32 +155,45 @@ class DefaultServices:
         publishers: dict[str, SharePointPublisher] = {}
         if require_statistics:
             units = {unit.key: unit for unit in load_units(units_path)}
-            for module in DEFAULT_MODULES.for_job("statistics"):
-                unit = units.get(module.key)
+            for definition in DEFAULT_UNITS.for_job(
+                "statistics", self.settings.enabled_units
+            ):
+                capability = definition.capability("statistics")
+                unit = units.get(definition.key)
                 if unit is None:
-                    raise ValueError(f"Hentedefinisjon mangler for {module.key}.")
-                if unit.profile != module.processor_profile:
                     raise ValueError(
-                        f"Prosessorprofil for {module.key} stemmer ikke med modulregisteret."
+                        f"Hentedefinisjon mangler for {definition.key}."
                     )
-                lookup = self.settings.statistics_lookup_paths.get(module.key)
+                if unit.profile != capability.processor_profile:
+                    raise ValueError(
+                        f"Prosessorprofil for {definition.key} stemmer ikke med enhetsregisteret."
+                    )
+                lookup = self.settings.statistics_lookup_paths.get(definition.key)
                 if lookup is None:
-                    raise ValueError(f"Lookup-fil mangler for {module.key}.")
-                statistics_processors[module.key] = StatisticsProcessor(
-                    lookup, profile=module.processor_profile
+                    raise ValueError(
+                        f"Lookup-fil mangler for {definition.display_name}."
+                    )
+                statistics_processors[definition.key] = StatisticsProcessor(
+                    lookup, profile=capability.processor_profile
                 )
-                publishers[module.key] = SharePointPublisher(
+                publishers[definition.key] = SharePointPublisher(
                     PublicationPolicy(
-                        allowed_columns=module.allowed_columns,
+                        allowed_columns=capability.allowed_columns,
                         forbidden_patterns=default_forbidden_patterns(),
                     )
                 )
-        backlog_module = DEFAULT_MODULES.single_for_job("backlog")
+        backlog_capability = DEFAULT_UNITS.require("hemato").capability("backlog")
         backlog_publisher = SharePointPublisher(
             PublicationPolicy(
-                allowed_columns=backlog_module.allowed_columns,
+                allowed_columns=backlog_capability.allowed_columns,
                 forbidden_patterns=default_forbidden_patterns(),
             )
+        )
+        hemato_lookup = self.settings.statistics_lookup_paths.get("hemato")
+        analysis_lookup = (
+            load_lookup(hemato_lookup)
+            if hemato_lookup is not None and "hemato" in self.settings.enabled_units
+            else {}
         )
         return MolStatSystem(
             database=database,
@@ -189,9 +202,7 @@ class DefaultServices:
             backlog_processor=BacklogProcessor(
                 backlog_config,
                 contract,
-                analysis_lookup=load_lookup(
-                    self.settings.statistics_lookup_paths["hemato"]
-                ),
+                analysis_lookup=analysis_lookup,
             ),
             publisher=publishers,
             backlog_publisher=backlog_publisher,
@@ -199,16 +210,25 @@ class DefaultServices:
             work_root=self.settings.sensitive_root / "work" / "processing",
             statistics_fetch=fetcher.fetch_statistics,
             backlog_fetch=fetcher.fetch_backlog,
-            modules=DEFAULT_MODULES,
+            units=DEFAULT_UNITS,
         )
 
     def _orchestrator(self, system: MolStatSystem) -> MolStatOrchestrator:
+        enabled = self.settings.enabled_units
+        runners = {
+            "all": lambda: system.run_all(enabled),
+            "statistics": lambda: system.run_job("statistics", enabled),
+            "backlog": lambda: system.run_job("backlog", enabled),
+        }
+        runners.update(
+            {
+                unit.key: lambda key=unit.key: system.run_unit(key)
+                for unit in DEFAULT_UNITS.active(enabled)
+            }
+        )
         return MolStatOrchestrator(
             system.database,
-            {
-                "statistics": system.run_statistics,
-                "backlog": system.run_backlog,
-            },
+            runners,
             owner=socket.gethostname() or "molstat-pc",
             failure_reporter=self._record_job_failure,
         )
@@ -350,10 +370,10 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
         raise ValueError("K-sensitiv mappe finnes ikke eller er ikke tilgjengelig.")
     if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
         raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
-    for module in DEFAULT_MODULES.for_job("statistics"):
-        lookup = settings.statistics_lookup_paths.get(module.key)
+    for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
+        lookup = settings.statistics_lookup_paths.get(unit.key)
         if lookup is None or not lookup.is_file():
-            raise ValueError(f"Lookup-fil for {module.display_name} finnes ikke.")
+            raise ValueError(f"Lookup-fil for {unit.display_name} finnes ikke.")
     parsed = urlparse(settings.lvms_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("LVMS-adressen må være en fullstendig http- eller https-adresse.")

@@ -126,7 +126,7 @@ def test_system_build_wires_exact_backlog_publication_policy(
         def __init__(self, **kwargs) -> None:
             del kwargs
 
-        def fetch_statistics(self):
+        def fetch_statistics(self, _unit_keys=None):
             return {}
 
         def fetch_backlog(self):
@@ -140,6 +140,6 @@ def test_system_build_wires_exact_backlog_publication_policy(
 
     assert system.backlog_publisher is not None
     assert system.backlog_publisher.policy.allowed_columns == {
-        "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
+        "restansehistorikk_hemato.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
     }
     assert system.sharepoint_root == sharepoint

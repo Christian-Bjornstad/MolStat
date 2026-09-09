@@ -43,6 +43,18 @@ def _units(path: Path) -> Path:
                                 "report_id": "PAT-DIT-ANTALL-OU",
                             }
                         ],
+                    },
+                    "solide": {
+                        "label": "Solide",
+                        "profile": "solide",
+                        "analysis_codes": ["KRAS-VAR-OU"],
+                        "reports": [
+                            {
+                                "job_key": "solide-ordered",
+                                "fetch_report_id": "PAT-DIT-ANTALL-OU",
+                                "report_id": "PAT-DIT-ANTALL-OU",
+                            }
+                        ],
                     }
                 }
             }
@@ -93,6 +105,44 @@ def test_fetcher_runs_statistics_and_backlog_through_one_runtime(
     assert backlog_request.date_from == date(2026, 1, 1)
     assert backlog_source.is_file()
     assert runner.jobs[-1].report_groups == ("OU-HEM", "OU-MOTTAKMOLPAT")
+
+
+def test_fetcher_scopes_statistics_to_requested_unit(tmp_path: Path) -> None:
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms-config.json",
+        sensitive_root=tmp_path / "sensitive",
+        work_root=tmp_path / "sensitive" / "work",
+        units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog-report.json"),
+        run_batch=runner,
+        today=lambda: date(2026, 9, 2),
+    )
+
+    statistics = fetcher.fetch_statistics(("solide",))
+
+    assert tuple(statistics) == ("solide",)
+    assert [job.job_key for job in runner.jobs] == ["solide-ordered"]
+
+
+def test_fetcher_rejects_unknown_unit_before_running_lvms(tmp_path: Path) -> None:
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms-config.json",
+        sensitive_root=tmp_path / "sensitive",
+        work_root=tmp_path / "sensitive" / "work",
+        units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog-report.json"),
+        run_batch=runner,
+    )
+
+    try:
+        fetcher.fetch_statistics(("ukjent",))
+    except ValueError as error:
+        assert "ukjent" in str(error)
+    else:
+        raise AssertionError("Unknown unit should be rejected")
+    assert runner.jobs == []
 
 
 def test_plan_window_uses_three_day_overlap_from_last_archive(tmp_path: Path) -> None:

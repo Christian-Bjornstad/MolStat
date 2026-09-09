@@ -51,10 +51,22 @@ class UnifiedLvmsFetcher:
 
     def fetch_statistics(
         self,
+        unit_keys: Sequence[str] | None = None,
     ) -> Mapping[str, Sequence[tuple[ReportRequest, Path]]]:
         today = self._today()
         result: dict[str, tuple[tuple[ReportRequest, Path], ...]] = {}
-        for unit in load_units(self.units_path):
+        configured = load_units(self.units_path)
+        by_key = {unit.key: unit for unit in configured}
+        if unit_keys is None:
+            selected = configured
+        else:
+            unknown = tuple(key for key in unit_keys if key not in by_key)
+            if unknown:
+                raise ValueError(
+                    "Ukjent statistikkenhet: " + ", ".join(unknown)
+                )
+            selected = tuple(by_key[key] for key in unit_keys)
+        for unit in selected:
             created_from, created_to = plan_window(
                 self.sensitive_root,
                 kind="statistics",
