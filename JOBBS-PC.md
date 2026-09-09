@@ -9,9 +9,12 @@
 
 ## Planlagte oppgaver
 
-- `MolStat - daglig statistikk`: kl. 05:00
-- `MolStat - restansehenting`: hver time kl. 06:00–18:00
-- `MolStat - tavleserver`: ved pålogging
+- `MolStat - daglig statistikk`: standard kl. 05:00
+- `MolStat - restansehenting`: standard hver time kl. 06:00–18:00
+
+Tidene hentes fra MolStat-innstillingene når oppgavene installeres. Kjør
+installasjon av automatikken på nytt etter at tidsfeltene er endret eller
+importert. En eventuell gammel `MolStat - tavleserver` fjernes automatisk.
 
 Windows ignorerer en ny start dersom samme oppgave allerede kjører. Databasen
 har i tillegg en lease som hindrer samtidige skrivere.
@@ -21,6 +24,9 @@ har i tillegg en lease som hindrer samtidige skrivere.
 Råfiler, identifikatorer, database og arbeidsfiler skal bli på K-sensitiv.
 SharePoint-publisering bruker eksplisitte kolonnelister og atomisk filbytte.
 Ved avvik stoppes publisering uten delvis Power BI-oppdatering.
+
+`Analyseresultat` og `Ekstern analysekommentar` i Prøveflyt eksporteres ordrett.
+Disse LVMS-feltene må derfor aldri inneholde prøve- eller pasientidentifikatorer.
 
 ## Drift
 
