@@ -227,6 +227,8 @@ def read_restanse_csv(
                     analysis_status=status_text,
                     preliminary_status=preliminary_text,
                     stage=stage,
+                    analysis_result=result_text,
+                    external_analysis_comment=external_comment,
                 )
             except (KeyError, ValueError, TypeError):
                 invalid_rows += 1

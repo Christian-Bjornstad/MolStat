@@ -12,7 +12,7 @@ class WriterLeaseBusy(RuntimeError):
     """Raised when another MolStat writer still owns the database lease."""
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = (
     """
@@ -118,6 +118,8 @@ _SCHEMA = (
         preliminary_status TEXT NOT NULL,
         workflow_stage TEXT NOT NULL,
         response_deadline TEXT NOT NULL,
+        analysis_result TEXT NOT NULL DEFAULT '',
+        external_analysis_comment TEXT NOT NULL DEFAULT '',
         classifier_version INTEGER NOT NULL,
         source_fingerprint TEXT NOT NULL,
         PRIMARY KEY (observed_at, unit_key, row_number, classifier_version)
@@ -154,6 +156,27 @@ class MolStatDatabase:
             try:
                 for statement in _SCHEMA:
                     connection.execute(statement)
+                detail_columns = {
+                    str(column[1])
+                    for column in connection.execute(
+                        "PRAGMA table_info(backlog_detail_snapshot)"
+                    )
+                }
+                if "analysis_result" not in detail_columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE backlog_detail_snapshot
+                        ADD COLUMN analysis_result TEXT NOT NULL DEFAULT ''
+                        """
+                    )
+                if "external_analysis_comment" not in detail_columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE backlog_detail_snapshot
+                        ADD COLUMN external_analysis_comment
+                        TEXT NOT NULL DEFAULT ''
+                        """
+                    )
                 row = connection.execute(
                     "SELECT version FROM schema_info LIMIT 1"
                 ).fetchone()
@@ -162,7 +185,7 @@ class MolStatDatabase:
                         "INSERT INTO schema_info(version) VALUES (?)",
                         (SCHEMA_VERSION,),
                     )
-                elif row[0] in (1, 2):
+                elif row[0] in (1, 2, 3):
                     connection.execute(
                         "UPDATE schema_info SET version = ?", (SCHEMA_VERSION,)
                     )

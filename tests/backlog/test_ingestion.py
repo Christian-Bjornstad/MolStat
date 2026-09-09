@@ -285,9 +285,11 @@ def test_detail_rows_keep_safe_source_fields_without_identifiers(tmp_path):
     path.write_text(
         "SampleID;Analyse;Materiale;Tidspunkt prøvetaking;Tidspunkt ankomst;"
         "Tidspunkt analysebestilling;Prioritet analyse;Prioritet Rekvisisjon;"
-        "Status analyse;Status prelgruppe;Analyseresultat;PID;Workitemgruppe\n"
+        "Status analyse;Status prelgruppe;Analyseresultat;"
+        "Ekstern analysekommentar;PID;Workitemgruppe\n"
         "SENSITIVE-1;TRG-OU;Blod;20.08.2026 07:30;20.08.2026 08:00;"
-        "20.08.2026 08:15;Høy;Vanlig;Initial;Initial;IKKE-EKSPORTER;"
+        "20.08.2026 08:15;Høy;Vanlig;Initial;Initial;"
+        '=T("Påvist – behold æøå");=T("Linje 1, vurdert");'
         "PID-1;WORK-1\n",
         encoding="utf-8",
     )
@@ -318,10 +320,11 @@ def test_detail_rows_keep_safe_source_fields_without_identifiers(tmp_path):
     assert detail.material == "Blod"
     assert detail.analysis_priority == "Høy"
     assert detail.request_priority == "Vanlig"
+    assert detail.analysis_result == "Påvist – behold æøå"
+    assert detail.external_analysis_comment == "Linje 1, vurdert"
     serialized = repr(detail)
     assert "PID-1" not in serialized
     assert "WORK-1" not in serialized
-    assert "IKKE-EKSPORTER" not in serialized
 
 
 def test_excludes_rows_without_order_time(tmp_path):

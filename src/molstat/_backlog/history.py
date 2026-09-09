@@ -37,7 +37,6 @@ class BacklogDetailHistoryRow:
     material: str
     analysis_code: str
     nucleic_acid: str
-    report_group: str
     analysis_group_code: str
     analysis_group_label: str
     collected_at: datetime | None
@@ -49,6 +48,8 @@ class BacklogDetailHistoryRow:
     preliminary_status: str
     workflow_stage: str
     response_deadline: str
+    analysis_result: str
+    external_analysis_comment: str
     classifier_version: int
 
 
@@ -109,7 +110,6 @@ def build_detail_history_rows(
                 material=detail.material,
                 analysis_code=detail.analysis_code,
                 nucleic_acid=str(metadata.get("Nukleinsyre", "")),
-                report_group=str(metadata.get("Rapportgruppe", "")),
                 analysis_group_code=detail.analysis_group,
                 analysis_group_label=(
                     configured.label if configured is not None else detail.analysis_group
@@ -123,6 +123,8 @@ def build_detail_history_rows(
                 preliminary_status=detail.preliminary_status,
                 workflow_stage=detail.stage.value,
                 response_deadline=str(metadata.get("Svarfrist", "")),
+                analysis_result=detail.analysis_result,
+                external_analysis_comment=detail.external_analysis_comment,
                 classifier_version=classifier_version,
             )
         )

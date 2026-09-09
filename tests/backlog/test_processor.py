@@ -44,6 +44,7 @@ def _contract() -> CsvContract:
             "arrival_at": "Tidspunkt ankomst",
             "status": "Status analyse",
             "result": "Analyseresultat",
+            "external_comment": "Ekstern analysekommentar",
         },
         completed_values=("Completed",),
     )
@@ -130,8 +131,9 @@ def test_processor_persists_identifier_free_detail_with_statistics_metadata(
     csv_path = tmp_path / "restanse.csv"
     csv_path.write_text(
         "SampleID;Analyse;Tidspunkt analysebestilling;Tidspunkt ankomst;"
-        "Status analyse;Analyseresultat\n"
-        "SECRET-42;IGH-OU;30.08.2026 07:00;30.08.2026 08:00;Initial;\n",
+        "Status analyse;Analyseresultat;Ekstern analysekommentar\n"
+        "SECRET-42;IGH-OU;30.08.2026 07:00;30.08.2026 08:00;Initial;"
+        "Påvist – test;Ordrett vurdering\n",
         encoding="cp1252",
     )
     database = MolStatDatabase(tmp_path / "molstat.sqlite3")
@@ -155,7 +157,8 @@ def test_processor_persists_identifier_free_detail_with_statistics_metadata(
         row = connection.execute(
             """
             SELECT analysis_code, nucleic_acid, report_group,
-                   analysis_group_code, analysis_group_label, response_deadline
+                   analysis_group_code, analysis_group_label, response_deadline,
+                   analysis_result, external_analysis_comment
             FROM backlog_detail_snapshot
             """
         ).fetchone()
@@ -168,10 +171,12 @@ def test_processor_persists_identifier_free_detail_with_statistics_metadata(
     assert row == (
         "IGH-OU",
         "DNA",
-        "lymfom",
+        "",
         "KLONALITET",
         "Klonalitet",
         "14",
+        "Påvist – test",
+        "Ordrett vurdering",
     )
     assert "sample_id" not in columns
     assert "pid" not in columns

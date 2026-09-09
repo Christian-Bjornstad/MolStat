@@ -182,8 +182,9 @@ class BacklogProcessor:
                             collected_at, arrived_at, ordered_at,
                             analysis_priority, request_priority, analysis_status,
                             preliminary_status, workflow_stage, response_deadline,
+                            analysis_result, external_analysis_comment,
                             classifier_version, source_fingerprint
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             (
@@ -193,7 +194,7 @@ class BacklogProcessor:
                                 row.material,
                                 row.analysis_code,
                                 row.nucleic_acid,
-                                row.report_group,
+                                "",
                                 row.analysis_group_code,
                                 row.analysis_group_label,
                                 row.collected_at.isoformat() if row.collected_at else None,
@@ -205,6 +206,8 @@ class BacklogProcessor:
                                 row.preliminary_status,
                                 row.workflow_stage,
                                 row.response_deadline,
+                                row.analysis_result,
+                                row.external_analysis_comment,
                                 row.classifier_version,
                                 imported.fingerprint,
                             )

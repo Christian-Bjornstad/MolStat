@@ -40,11 +40,19 @@ def _insert_detail(
     with database._connect() as connection:
         connection.execute(
             """
-            INSERT INTO backlog_detail_snapshot VALUES
+            INSERT INTO backlog_detail_snapshot(
+             observed_at, unit_key, row_number, material, analysis_code,
+             nucleic_acid, report_group, analysis_group_code,
+             analysis_group_label, collected_at, arrived_at, ordered_at,
+             analysis_priority, request_priority, analysis_status,
+             preliminary_status, workflow_stage, response_deadline,
+             analysis_result, external_analysis_comment, classifier_version,
+             source_fingerprint
+            ) VALUES
             (?, ?, 1, 'Blod', ?, 'DNA', 'lymfom', 'KLONALITET',
              'Klonalitet', '2026-09-06T07:30:00', '2026-09-06T08:00:00',
              '2026-09-06T08:15:00', 'Høy', 'Vanlig', 'Initial', 'Initial',
-             'ready', '14', 2, 'internal-secret-fingerprint')
+             'ready', '14', '', '', 2, 'internal-secret-fingerprint')
             """,
             (
                 observed_at,

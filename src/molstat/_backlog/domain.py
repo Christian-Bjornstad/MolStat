@@ -50,6 +50,8 @@ class BacklogDetail:
     analysis_status: str
     preliminary_status: str
     stage: WorkflowStage
+    analysis_result: str
+    external_analysis_comment: str
 
 
 def parse_lvms_datetime(text: str) -> datetime:
