@@ -59,5 +59,10 @@ def test_board_css_is_responsive_and_prevents_horizontal_scroll():
 def test_package_data_includes_web_assets():
     pyproject = (WEB.parents[2] / "pyproject.toml").read_text(encoding="utf-8")
     assert "[tool.setuptools.package-data]" in pyproject
-    assert 'molstat = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]' in pyproject
+    for pattern in (
+        '"web_assets/*.html"',
+        '"web_assets/*.css"',
+        '"web_assets/*.js"',
+    ):
+        assert pattern in pyproject
 

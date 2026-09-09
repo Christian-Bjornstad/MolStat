@@ -83,3 +83,14 @@ def test_python_felles_scripts_require_python_314() -> None:
     if functions["sys"].version_info[:2] != (3, 14):
         with pytest.raises(RuntimeError, match="Python FELLES 3.14"):
             functions["activate_user_site"]()
+
+
+def test_icon_assets_are_present_and_packaged() -> None:
+    png = ROOT / "src" / "molstat" / "assets" / "molstat.png"
+    ico = ROOT / "src" / "molstat" / "assets" / "molstat.ico"
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert png.stat().st_size > 1000
+    assert ico.stat().st_size > 1000
+    assert '"assets/*.png"' in pyproject
+    assert '"assets/*.ico"' in pyproject

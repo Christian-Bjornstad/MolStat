@@ -5,6 +5,7 @@ import sys
 from typing import Any
 
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, Qt, pyqtSignal
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
         self.settings_store = settings_store
         self._workers: set[_JobWorker] = set()
         self.setWindowTitle("MolStat")
+        self.setWindowIcon(QIcon(str(asset_path("molstat.ico"))))
         self.setMinimumSize(1100, 720)
         self.resize(1280, 800)
         self.setStyleSheet(build_stylesheet())
@@ -357,5 +359,12 @@ def create_application(settings_path: Path) -> QApplication:
     del settings_path
     existing = QApplication.instance()
     if existing is not None:
+        existing.setWindowIcon(QIcon(str(asset_path("molstat.ico"))))
         return existing
-    return QApplication(sys.argv)
+    application = QApplication(sys.argv)
+    application.setWindowIcon(QIcon(str(asset_path("molstat.ico"))))
+    return application
+
+
+def asset_path(name: str) -> Path:
+    return Path(__file__).resolve().parents[1] / "assets" / name

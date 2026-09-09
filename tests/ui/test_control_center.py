@@ -355,3 +355,10 @@ def test_partial_run_has_clear_non_success_feedback(qtbot) -> None:
 
     qtbot.waitUntil(lambda: button.isEnabled(), timeout=3000)
     assert "delvis" in window.statusBar().currentMessage().casefold()
+
+
+def test_window_has_packaged_molstat_icon(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+
+    assert window.windowIcon().isNull() is False

@@ -23,7 +23,13 @@ molstat = "molstat.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-molstat = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]
+molstat = [
+    "web_assets/*.html",
+    "web_assets/*.css",
+    "web_assets/*.js",
+    "assets/*.png",
+    "assets/*.ico",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
