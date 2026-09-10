@@ -125,13 +125,13 @@
 **Description:** Eksponer en intern sensitiv registerkontrakt fra eksisterende statistikkprosessering og importer forekomster/hendelser uten å endre publiserte CSV-filer.
 
 **Acceptance criteria:**
-- [ ] ANTALL, RESULTATER og ekstraksjon kan kobles til samme prøve.
-- [ ] Tredagers overlapp er idempotent i registeret.
-- [ ] Eksisterende `antall.csv` og `resultater.csv` er celle-for-celle uendret.
+- [x] ANTALL, RESULTATER og ekstraksjon kan kobles til samme prøve.
+- [x] Tredagers overlapp er idempotent i registeret.
+- [x] Eksisterende `antall.csv` og `resultater.csv` er celle-for-celle uendret.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/statistics tests/registry/test_statistics_linking.py -q`.
-- [ ] Kjør relevante gullstandard-/ende-til-ende-tester.
+- [x] Kjør `python -m pytest tests/statistics tests/registry/test_statistics_linking.py -q`.
+- [x] Kjør relevante gullstandard-/ende-til-ende-tester.
 
 **Dependencies:** Task 3
 
@@ -145,10 +145,10 @@
 
 ## Checkpoint: Source integration
 
-- [ ] Tasks 4–6 er fullført.
-- [ ] `python -m pytest tests/backlog tests/statistics tests/registry tests/test_end_to_end.py -q` består.
-- [ ] Samme syntetiske prøve fra RESTANSE og Statistikk har én MolStat-ID.
-- [ ] Ingen nye RESTANSE-råfiler blir liggende igjen.
+- [x] Tasks 4–6 er fullført.
+- [x] `python -m pytest tests/backlog tests/statistics tests/registry tests/test_end_to_end.py -q` består.
+- [x] Samme syntetiske prøve fra RESTANSE og Statistikk har én MolStat-ID.
+- [x] Ingen nye RESTANSE-råfiler blir liggende igjen.
 
 ## Task 7: Legg til backup og integritetskontroll
 

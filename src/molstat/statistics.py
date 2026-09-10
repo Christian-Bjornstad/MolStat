@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, datetime
+import hashlib
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -51,6 +54,13 @@ from ._statistics.units import (
     load_units,
     validate_units,
 )
+from .database import MolStatDatabase
+from .registry import (
+    OccurrenceEventInput,
+    OccurrenceInput,
+    RegistryImportItem,
+    SampleRegistry,
+)
 
 # Compatibility name for the validated manifest interval contract.
 UnitReport = ManifestUnitReport
@@ -64,9 +74,18 @@ class StatisticsResult:
 
 
 class StatisticsProcessor:
-    def __init__(self, lookup_path: Path, *, profile: str = "hemato") -> None:
+    def __init__(
+        self,
+        lookup_path: Path,
+        *,
+        profile: str = "hemato",
+        database: MolStatDatabase | None = None,
+        now: Callable[[], datetime] = datetime.now,
+    ) -> None:
         self.lookup_path = lookup_path
         self.profile = profile
+        self.database = database
+        self._now = now
 
     def process(
         self,
@@ -74,7 +93,6 @@ class StatisticsProcessor:
         raw_files: Sequence[Path],
         output_dir: Path,
     ) -> StatisticsResult:
-        del unit
         merged_dir = output_dir / "merged"
         ordered = _merge_archives(_one_report(raw_files, "ANTALL"), merged_dir)
         answered = _merge_archives(
@@ -91,6 +109,20 @@ class StatisticsProcessor:
             output_dir,
             profile=self.profile,
         )
+        if self.database is not None:
+            interval_from, interval_to = _archive_interval(raw_files)
+            records = _registry_records(ordered, answered, extraction)
+            SampleRegistry(self.database).import_batch(
+                records,
+                kind="statistics",
+                unit_key=unit,
+                date_from=interval_from,
+                date_to=interval_to,
+                observed_at=self._now(),
+                source_fingerprint=_combined_fingerprint(
+                    (ordered, answered, extraction)
+                ),
+            )
         return StatisticsResult(
             antall=output_dir / "antall.csv",
             resultater=output_dir / "resultater.csv",
@@ -124,3 +156,102 @@ def _one_report(raw_files: Sequence[Path], marker: str) -> Path:
             f"Forventet nøyaktig én {marker}-rapport, fant {len(matches)}."
         )
     return matches[0]
+
+
+def _first_value(row: Mapping[str, str], names: Sequence[str]) -> str:
+    for name in names:
+        value = clean_text(row.get(name))
+        if value:
+            return value
+    return ""
+
+
+def _registry_records(
+    ordered: Path,
+    answered: Path,
+    extraction: Path,
+) -> tuple[RegistryImportItem, ...]:
+    records: list[RegistryImportItem] = []
+    sources = (
+        ("statistics_ordered", ordered, ("ordered",)),
+        ("statistics_answered", answered, ("resulted", "approved")),
+        (
+            "statistics_extraction",
+            extraction,
+            ("ordered", "resulted", "approved"),
+        ),
+    )
+    event_columns = {
+        "ordered": ("Tidspunkt.analysebestilling", "Tidspunkt.opprettet"),
+        "resulted": ("Tidspunkt.analyseresultat",),
+        "approved": ("Tidspunkt.godkjenning",),
+    }
+    for source_kind, path, event_types in sources:
+        for row in read_lvms_csv(path):
+            sample_number = _first_value(row, ("Sample.ID", "SampleID"))
+            analysis_code = _first_value(row, ("Analyse",))
+            ordered_at = parse_tidspunkt(
+                _first_value(
+                    row,
+                    ("Tidspunkt.analysebestilling", "Tidspunkt.opprettet"),
+                )
+            )
+            if not sample_number or not analysis_code or ordered_at is None:
+                continue
+            events = tuple(
+                OccurrenceEventInput(event_type, event_at)
+                for event_type in event_types
+                if (
+                    event_at := parse_tidspunkt(
+                        _first_value(row, event_columns[event_type])
+                    )
+                )
+                is not None
+            )
+            records.append(
+                RegistryImportItem(
+                    occurrence=OccurrenceInput(
+                        source_system="LVMS",
+                        sample_number=sample_number,
+                        analysis_code=analysis_code,
+                        ordered_at=ordered_at,
+                        source_occurrence_id=(
+                            _first_value(
+                                row,
+                                ("WorkItem", "Workitem", "WorkItem.ID"),
+                            )
+                            or None
+                        ),
+                        source_kind=source_kind,
+                    ),
+                    events=events,
+                )
+            )
+    return tuple(records)
+
+
+def _archive_interval(raw_files: Sequence[Path]) -> tuple[date, date]:
+    starts: list[date] = []
+    ends: list[date] = []
+    for current in raw_files:
+        for path in _report_archives(current):
+            parts = path.name.split("__")
+            if len(parts) < 3:
+                continue
+            try:
+                starts.append(date.fromisoformat(parts[1]))
+                ends.append(date.fromisoformat(parts[2].removesuffix(".csv")))
+            except ValueError:
+                continue
+    if not starts or not ends:
+        raise ValueError("Kunne ikke lese statistikkperioden fra arkivnavnene.")
+    return min(starts), max(ends)
+
+
+def _combined_fingerprint(paths: Sequence[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+    return digest.hexdigest()

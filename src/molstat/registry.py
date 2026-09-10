@@ -7,7 +7,7 @@ sample numbers remain inside the protected database and must never be logged.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 import hashlib
 import json
 from pathlib import Path
@@ -62,6 +62,18 @@ class RegisteredOccurrence:
     occurrence_id: int
     molstat_key: str
     identity_status: str
+
+
+@dataclass(frozen=True, slots=True)
+class OccurrenceEventInput:
+    event_type: str
+    event_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class RegistryImportItem:
+    occurrence: OccurrenceInput
+    events: tuple[OccurrenceEventInput, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +187,76 @@ class SampleRegistry:
             molstat_key=molstat_key,
             identity_status=identity_status,
         )
+
+    def import_batch(
+        self,
+        items: tuple[RegistryImportItem, ...],
+        *,
+        kind: str,
+        unit_key: str,
+        date_from: date,
+        date_to: date,
+        observed_at: datetime,
+        source_fingerprint: str,
+    ) -> int:
+        """Atomically import a complete source batch and its events."""
+
+        observed_text = observed_at.isoformat(timespec="seconds")
+        with self.database._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO import_run(
+                        kind, unit_key, date_from, date_to, started_at,
+                        finished_at, status, source_fingerprint, row_count,
+                        invalid_rows, excluded_rows
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'completed', ?, ?, 0, 0)
+                    """,
+                    (
+                        kind,
+                        unit_key,
+                        date_from.isoformat(),
+                        date_to.isoformat(),
+                        observed_text,
+                        observed_text,
+                        source_fingerprint,
+                        len(items),
+                    ),
+                )
+                import_run_id = int(cursor.lastrowid)
+                for item in items:
+                    registered = self.register_occurrence_in_transaction(
+                        connection,
+                        item.occurrence,
+                        observed_at=observed_at,
+                        import_run_id=import_run_id,
+                    )
+                    connection.executemany(
+                        """
+                        INSERT INTO analysis_event(
+                            occurrence_id, event_type, event_at, source_kind,
+                            import_run_id
+                        ) VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(occurrence_id, event_type, event_at, source_kind)
+                        DO UPDATE SET import_run_id = excluded.import_run_id
+                        """,
+                        (
+                            (
+                                registered.occurrence_id,
+                                event.event_type,
+                                event.event_at.isoformat(timespec="seconds"),
+                                item.occurrence.source_kind.strip().casefold(),
+                                import_run_id,
+                            )
+                            for event in item.events
+                        ),
+                    )
+                connection.execute("COMMIT")
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+        return import_run_id
 
     def counts(self) -> tuple[int, int]:
         with self.database._connect() as connection:

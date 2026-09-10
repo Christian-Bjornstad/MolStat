@@ -185,7 +185,9 @@ class DefaultServices:
                         f"Lookup-fil mangler for {definition.display_name}."
                     )
                 statistics_processors[definition.key] = StatisticsProcessor(
-                    lookup, profile=capability.processor_profile
+                    lookup,
+                    profile=capability.processor_profile,
+                    database=database,
                 )
                 publishers[definition.key] = SharePointPublisher(
                     PublicationPolicy(
