@@ -207,11 +207,11 @@
 
 **Acceptance criteria:**
 - [ ] Filen åpnes uten reparasjonsvarsel og formler rekalkulerer i mål-Excel.
-- [ ] Ledende nuller og lange identifikatorer bevares som tekst.
-- [ ] Generatorvalg, versjonsgrense og installasjonskonsekvens er dokumentert og godkjent.
+- [x] Ledende nuller og lange identifikatorer lagres som tekst i OOXML; visning i mål-Excel gjenstår i pilotporten.
+- [x] Generatorvalg, versjonsgrense og installasjonskonsekvens er dokumentert og godkjent.
 
 **Verification:**
-- [ ] Kjør målrettet generator-/installasjonstest.
+- [x] Kjør målrettet generator-/installasjonstest og uavhengig import/formelfeilskann.
 - [ ] Åpne syntetisk fil manuelt i jobb-PC-ens Excel og endre søkecellen.
 
 **Dependencies:** Checkpoint Data safety

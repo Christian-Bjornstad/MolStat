@@ -90,5 +90,13 @@ formler rekalkulerer etter endring av søkecellen.
 
 ## Open Questions
 
-- Før implementering velges XLSX-generator etter en kompatibilitetstest. Et lite, vedlikeholdt Python-bibliotek er foretrukket fremfor Excel COM-automatisering.
 - Detaljtabellen deles per år når en dokumentert terskel nås. Første leveranse skal dekke alle data fra 2024 og måle faktisk filstørrelse og åpningstid.
+
+## Generatorbeslutning 2026-09-10
+
+Produksjonsgeneratoren er `XlsxWriter>=3.2,<4`. Biblioteket finnes i dagens
+Python-miljø, lager makrofrie OOXML-filer og krever ingen Excel-installasjon på
+skriver-PC-en. En syntetisk kompatibilitetsfil er kontrollert for tekstlagrede
+identifikatorer, numerisk Excel-dato, formel, automatisk full rekalkulering ved
+åpning og fravær av VBA. Uavhengig import og formelfeilskann besto. Endelig
+manuell åpning og rekalkulering i jobb-PC-ens Excel gjenstår som pilotport.
