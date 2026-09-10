@@ -74,5 +74,8 @@ med alle eksisterende tabeller og rader bevart.
 
 ## Open Questions
 
-- Bekreft faktisk LVMS-kolonne for WorkItem-/ordrelinje-ID mot en sensitiv produksjonsfil før skjemaet låses.
+- Utviklingsmaskinen hadde ingen lokal MolStat-konfigurasjon 2026-09-10. Faktisk
+  LVMS-kolonne for WorkItem-/ordrelinje-ID må derfor bekreftes mot en sensitiv
+  produksjonsheader før registereksporten aktiveres. Kontrakten støtter
+  `WorkItem`, `Workitem` og `WorkItem ID` uten å gjøre feltet obligatorisk.
 - Avklar om prøvenummer kan gjenbrukes mellom år eller enheter. Inntil dette er verifisert inngår `source_system` i identitetsgrensen.

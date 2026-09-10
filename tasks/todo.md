@@ -5,13 +5,13 @@
 **Description:** Kartlegg headerne i RESTANSE, ANTALL, RESULTATER og ekstraksjonsrapporten og velg en stabil forekomst-ID. Les bare feltnavn og syntetiser testdata; ingen produksjonsrader eller verdier skal inn i Git eller logger.
 
 **Acceptance criteria:**
-- [ ] WorkItem-/ordrelinjefelt per rapport er dokumentert.
-- [ ] Primær og reserve forekomstnøkkel er definert uten mutable status-/resultatfelt.
-- [ ] Regler for mulig gjenbruk av prøvenummer er dokumentert.
+- [ ] WorkItem-/ordrelinjefelt er bekreftet mot produksjonsheader. Kandidatfeltene er dokumentert; lokal produksjonskonfigurasjon mangler på utviklingsmaskinen.
+- [x] Primær og reserve forekomstnøkkel er definert uten mutable status-/resultatfelt.
+- [x] Regler for mulig gjenbruk av prøvenummer er dokumentert.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/registry/test_identity_contract.py -q`.
-- [ ] Skann diffen for produksjonsidentifikatorer og lokale K-stier.
+- [x] Kjør `python -m pytest tests/registry/test_identity_contract.py -q`.
+- [x] Skann diffen for produksjonsidentifikatorer og lokale K-stier.
 
 **Dependencies:** None
 
