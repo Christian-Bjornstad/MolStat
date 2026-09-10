@@ -12,7 +12,7 @@ class WriterLeaseBusy(RuntimeError):
     """Raised when another MolStat writer still owns the database lease."""
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = (
     """
@@ -72,6 +72,94 @@ _SCHEMA = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS import_run (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        unit_key TEXT NOT NULL,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        status TEXT NOT NULL,
+        source_fingerprint TEXT,
+        row_count INTEGER CHECK (row_count IS NULL OR row_count >= 0),
+        invalid_rows INTEGER CHECK (invalid_rows IS NULL OR invalid_rows >= 0),
+        excluded_rows INTEGER CHECK (excluded_rows IS NULL OR excluded_rows >= 0)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS sample (
+        id INTEGER PRIMARY KEY,
+        molstat_key TEXT NOT NULL UNIQUE,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS sample_identifier (
+        id INTEGER PRIMARY KEY,
+        sample_id INTEGER NOT NULL REFERENCES sample(id) ON DELETE RESTRICT,
+        source_system TEXT NOT NULL,
+        identifier_type TEXT NOT NULL,
+        identifier_value TEXT NOT NULL,
+        normalized_value TEXT NOT NULL,
+        UNIQUE (source_system, identifier_type, normalized_value)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS analysis_occurrence (
+        id INTEGER PRIMARY KEY,
+        sample_id INTEGER NOT NULL REFERENCES sample(id) ON DELETE RESTRICT,
+        occurrence_key TEXT NOT NULL UNIQUE,
+        source_system TEXT NOT NULL,
+        source_occurrence_id TEXT,
+        analysis_code TEXT NOT NULL,
+        ordered_at TEXT NOT NULL,
+        uses_fallback INTEGER NOT NULL CHECK (uses_fallback IN (0, 1)),
+        identity_status TEXT NOT NULL DEFAULT 'resolved',
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS analysis_event (
+        id INTEGER PRIMARY KEY,
+        occurrence_id INTEGER NOT NULL
+            REFERENCES analysis_occurrence(id) ON DELETE RESTRICT,
+        event_type TEXT NOT NULL,
+        event_at TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        import_run_id INTEGER REFERENCES import_run(id) ON DELETE RESTRICT,
+        UNIQUE (occurrence_id, event_type, event_at, source_kind)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS source_observation (
+        occurrence_id INTEGER NOT NULL
+            REFERENCES analysis_occurrence(id) ON DELETE RESTRICT,
+        source_kind TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        last_import_run_id INTEGER REFERENCES import_run(id) ON DELETE RESTRICT,
+        PRIMARY KEY (occurrence_id, source_kind)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS backlog_current (
+        occurrence_id INTEGER PRIMARY KEY
+            REFERENCES analysis_occurrence(id) ON DELETE RESTRICT,
+        import_run_id INTEGER NOT NULL REFERENCES import_run(id) ON DELETE RESTRICT,
+        unit_key TEXT NOT NULL,
+        analysis_group TEXT NOT NULL,
+        workflow_stage TEXT NOT NULL,
+        collected_at TEXT,
+        arrived_at TEXT,
+        analysis_status TEXT NOT NULL DEFAULT '',
+        preliminary_status TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS backlog_snapshot (
         observed_at TEXT NOT NULL,
         unit_key TEXT NOT NULL,
@@ -125,6 +213,26 @@ _SCHEMA = (
         PRIMARY KEY (observed_at, unit_key, row_number, classifier_version)
     )
     """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sample_identifier_value
+    ON sample_identifier(normalized_value)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_analysis_occurrence_sample
+    ON analysis_occurrence(sample_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_analysis_occurrence_code
+    ON analysis_occurrence(analysis_code)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_analysis_occurrence_ordered
+    ON analysis_occurrence(ordered_at)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_source_observation_kind
+    ON source_observation(source_kind, last_seen_at)
+    """,
 )
 
 
@@ -146,6 +254,7 @@ class MolStatDatabase:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
         connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = DELETE")
         connection.execute("PRAGMA synchronous = FULL")
         return connection
@@ -185,7 +294,7 @@ class MolStatDatabase:
                         "INSERT INTO schema_info(version) VALUES (?)",
                         (SCHEMA_VERSION,),
                     )
-                elif row[0] in (1, 2, 3):
+                elif row[0] in (1, 2, 3, 4):
                     connection.execute(
                         "UPDATE schema_info SET version = ?", (SCHEMA_VERSION,)
                     )

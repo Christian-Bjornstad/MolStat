@@ -21,14 +21,21 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
     database.migrate()
     database.migrate()
 
-    assert database.schema_version() == 4
+    assert database.schema_version() == 5
     assert database.table_names() == {
+        "analysis_event",
+        "analysis_occurrence",
+        "backlog_current",
         "backlog_snapshot",
         "backlog_detail_snapshot",
         "backlog_sample",
+        "import_run",
         "job_run",
         "raw_file",
+        "sample",
+        "sample_identifier",
         "schema_info",
+        "source_observation",
         "statistics_publication",
         "writer_lease",
     }
@@ -65,7 +72,7 @@ def test_v1_migration_adds_history_without_rewriting_current_samples(
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 4
+    assert database.schema_version() == 5
     assert "backlog_snapshot" in database.table_names()
     assert "backlog_detail_snapshot" in database.table_names()
     with database._connect() as connection:
@@ -121,7 +128,7 @@ def test_v3_migration_adds_approved_text_columns_with_empty_history(
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 4
+    assert database.schema_version() == 5
     with database._connect() as connection:
         columns = {
             str(row[1])

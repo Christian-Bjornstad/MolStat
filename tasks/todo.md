@@ -28,13 +28,13 @@
 **Description:** Legg til schema v5-tabellene for prøve, identifikator, analyseforekomst, hendelse, kildeobservasjon, importkjøring og nåværende restanse. Migreringen er additiv og beholder alle eksisterende tabeller og rader.
 
 **Acceptance criteria:**
-- [ ] Ny database opprettes med alle registertabeller, fremmednøkler og indekser.
-- [ ] Schema v4 migreres til v5 uten sletting eller omskriving av eksisterende data.
-- [ ] Ukjent skjemaversjon avvises og hele migreringen rulles tilbake.
+- [x] Ny database opprettes med alle registertabeller, fremmednøkler og indekser.
+- [x] Schema v4 migreres til v5 uten sletting eller omskriving av eksisterende data.
+- [x] Ukjent skjemaversjon avvises og hele migreringen rulles tilbake.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/test_database.py tests/registry/test_migration.py -q`.
-- [ ] Kjør `python -m compileall -q src tests`.
+- [x] Kjør `python -m pytest tests/test_database.py tests/registry/test_migration.py -q`.
+- [x] Kjør `python -m compileall -q src tests`.
 
 **Dependencies:** Task 1
 
