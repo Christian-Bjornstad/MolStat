@@ -16,8 +16,6 @@ def _analysis(year: int, sequence: int) -> ExcelAnalysisRow:
         sample_number=f"S-{year}-{sequence}",
         analysis_code="CALR-OU",
         ordered_at=datetime(year, 1, 1, 8, sequence),
-        source_occurrence_id=f"W-{year}-{sequence}",
-        identity_status="resolved",
         in_backlog=False,
         source_kinds="statistics_answered",
         resulted_at=None,

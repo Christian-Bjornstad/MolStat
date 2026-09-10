@@ -31,8 +31,6 @@ class ExcelAnalysisRow:
     sample_number: str
     analysis_code: str
     ordered_at: datetime
-    source_occurrence_id: str | None
-    identity_status: str
     in_backlog: bool
     source_kinds: str
     resulted_at: datetime | None
@@ -143,8 +141,7 @@ def read_excel_snapshot(
             analysis_rows = connection.execute(
                 """
                 SELECT s.molstat_key, si.identifier_value, ao.analysis_code,
-                       ao.ordered_at, ao.source_occurrence_id,
-                       ao.identity_status,
+                       ao.ordered_at,
                        CASE WHEN bc.occurrence_id IS NULL THEN 0 ELSE 1 END,
                        (
                            SELECT GROUP_CONCAT(source_kind, ', ')
@@ -164,9 +161,7 @@ def read_excel_snapshot(
                 LEFT JOIN backlog_current AS bc ON bc.occurrence_id = ao.id
                 LEFT JOIN analysis_event AS ae ON ae.occurrence_id = ao.id
                 GROUP BY ao.id, s.molstat_key, si.identifier_value,
-                         ao.analysis_code, ao.ordered_at,
-                         ao.source_occurrence_id, ao.identity_status,
-                         bc.occurrence_id
+                         ao.analysis_code, ao.ordered_at, bc.occurrence_id
                 ORDER BY si.normalized_value, ao.ordered_at, ao.id
                 """
             ).fetchall()
@@ -193,15 +188,13 @@ def read_excel_snapshot(
                 sample_number=str(row[1]),
                 analysis_code=str(row[2]),
                 ordered_at=datetime.fromisoformat(str(row[3])),
-                source_occurrence_id=(str(row[4]) if row[4] is not None else None),
-                identity_status=str(row[5]),
-                in_backlog=bool(row[6]),
-                source_kinds=str(row[7] or ""),
+                in_backlog=bool(row[4]),
+                source_kinds=str(row[5] or ""),
                 resulted_at=(
-                    datetime.fromisoformat(str(row[8])) if row[8] is not None else None
+                    datetime.fromisoformat(str(row[6])) if row[6] is not None else None
                 ),
                 approved_at=(
-                    datetime.fromisoformat(str(row[9])) if row[9] is not None else None
+                    datetime.fromisoformat(str(row[7])) if row[7] is not None else None
                 ),
             )
             for row in analysis_rows
@@ -247,7 +240,7 @@ def generate_search_workbook(
     *,
     analysis_row_limit: int = 900_000,
 ) -> None:
-    """Generate the four-sheet, macro-free registry search workbook."""
+    """Generate the macro-free registry workbook with multi-value search."""
 
     path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -269,54 +262,44 @@ def generate_search_workbook(
             sheet.hide_gridlines(2)
 
         search.write("A2", "Prøvesøk", formats["title"])
-        search.write("A4", "Prøvenummer eller MolStat-ID", formats["body"])
-        search.write_blank("B4", None, formats["input"])
-        search.write("A5", "Søketype", formats["body"])
-        search.write("B5", "Eksakt", formats["input"])
-        search.data_validation("B5", {"validate": "list", "source": ["Eksakt", "Prefiks"]})
-        search.write("A6", "Valgt MolStat-ID", formats["body"])
+        search.write(
+            "A4",
+            "Lim inn prøvenummer eller MolStat-ID – ett søk per rad",
+            formats["body"],
+        )
+        for input_row in range(4, 54):
+            search.write_blank(input_row, 0, None, formats["input"])
+        search.write("A56", "Søketype", formats["body"])
+        search.write("B56", "Eksakt", formats["input"])
+        search.data_validation(
+            "B56",
+            {"validate": "list", "source": ["Eksakt", "Prefiks"]},
+        )
+        search.write("A57", "Status", formats["body"])
         search.write_row(
-            "A8",
+            "D4",
             ["MolStat-ID", "Prøvenummer", "Først sett", "Sist sett", "Analyser", "I RESTANSE nå"],
             formats["header"],
         )
         search.write_row(
-            "H8",
-            ["Analyse", "Bestilt", "WorkItem", "Identitetsstatus", "I RESTANSE nå", "Kilder", "Resultat", "Godkjent"],
+            "K4",
+            ["MolStat-ID", "Prøvenummer", "Analyse", "Bestilt", "I RESTANSE nå", "Kilder", "Resultat", "Godkjent"],
             formats["header"],
         )
         sample_end_row = max(2, len(snapshot.samples) + 1)
-        sample_keys = f"'Prøver'!$A$2:$A${sample_end_row}"
-        sample_numbers = f"'Prøver'!$B$2:$B${sample_end_row}"
         sample_output = f"'Prøver'!$A$2:$F${sample_end_row}"
-        exact_match = (
-            f"({sample_numbers}=TRIM($B$4))"
-            f"+({sample_keys}=UPPER(TRIM($B$4)))"
-        )
-        prefix_match = (
-            f"(LEFT({sample_numbers},LEN(TRIM($B$4)))=TRIM($B$4))"
-            f"+(LEFT({sample_keys},LEN(UPPER(TRIM($B$4))))=UPPER(TRIM($B$4)))"
-        )
-        match_expression = f'IF($B$5="Eksakt",{exact_match},{prefix_match})'
+        match_flags = f"'Prøver'!$H$2:$H${sample_end_row}"
         search.write_dynamic_array_formula(
-            "A9",
-            f'=IF(TRIM($B$4)="","",FILTER({sample_output},'
-            f'{match_expression},"Ingen treff"))',
+            "D5",
+            f'=IF(COUNTA($A$5:$A$54)=0,"",FILTER({sample_output},'
+            f'{match_flags},"Ingen treff"))',
         )
         search.write_formula(
-            "B6",
-            '=IF($A$7="1 treff – detaljer vises",$A$9,"")',
-            formats["body"],
-            "",
-        )
-        search.write_formula(
-            "A7",
-            '=IF(TRIM($B$4)="","Skriv inn prøvenummer eller MolStat-ID",'
-            f'IF(SUM(--({match_expression}))=0,"Ingen treff",'
-            f'IF(SUM(--({match_expression}))=1,"1 treff – detaljer vises",'
-            f'SUM(--({match_expression}))&" treff – avgrens søket")))',
+            "B57",
+            '=IF(COUNTA($A$5:$A$54)=0,"Lim inn minst ett søk",'
+            f'IFERROR(ROWS(FILTER({sample_output},{match_flags})),0)&" prøver funnet")',
             formats["note"],
-            "Skriv inn prøvenummer eller MolStat-ID",
+            "Lim inn minst ett søk",
         )
         table_names = [
             "tbl" + name.replace(" ", "").replace("-", "")
@@ -324,33 +307,38 @@ def generate_search_workbook(
         ]
         detail_ranges = [
             (
-                f"'{name}'!$A$2:$J${max(2, len(rows) + 1)}",
+                f"'{name}'!$A$2:$H${max(2, len(rows) + 1)}",
                 f"'{name}'!$A$2:$A${max(2, len(rows) + 1)}",
             )
             for name, rows in analysis_partitions.items()
         ]
         if len(detail_ranges) == 1:
             detail_data, detail_keys = detail_ranges[0]
-            detail_condition = f"{detail_keys}=$B$6"
+            detail_condition = (
+                f"COUNTIF(INDEX($D$5#,0,1),{detail_keys})>0"
+            )
         else:
             detail_data = "VSTACK(" + ",".join(item[0] for item in detail_ranges) + ")"
-            detail_keys = "VSTACK(" + ",".join(item[1] for item in detail_ranges) + ")"
-            detail_condition = f"{detail_keys}=$B$6"
+            detail_keys = (
+                "VSTACK(" + ",".join(item[1] for item in detail_ranges) + ")"
+            )
+            detail_condition = f"COUNTIF(INDEX($D$5#,0,1),{detail_keys})>0"
         search.write_dynamic_array_formula(
-            "H9",
-            f'=IF($B$6="","",FILTER({detail_data},{detail_condition},"Ingen analyser"))',
+            "K5",
+            f'=IF(COUNTA($A$5:$A$54)=0,"",FILTER({detail_data},'
+            f'{detail_condition},"Ingen analyser"))',
         )
-        search.set_column("A:A", 24)
-        search.set_column("B:B", 26)
-        search.set_column("C:D", 18)
-        search.set_column("E:E", 16)
-        search.set_column("F:F", 18)
-        search.set_column("G:G", 3)
-        search.set_column("H:Q", 20)
+        search.freeze_panes(4, 3)
+        search.set_column("A:A", 28)
+        search.set_column("B:B", 16)
+        search.set_column("C:C", 3)
+        search.set_column("D:I", 18)
+        search.set_column("J:J", 3)
+        search.set_column("K:R", 19)
 
         sample_headers = [
             "MolStat-ID", "Prøvenummer", "Først sett", "Sist sett",
-            "Analyser", "I RESTANSE nå", "Restanser",
+            "Analyser", "I RESTANSE nå", "Restanser", "Søketreff",
         ]
         samples.write_row(0, 0, sample_headers, formats["header"])
         for row_index, row in enumerate(snapshot.samples, start=1):
@@ -361,6 +349,28 @@ def generate_search_workbook(
             samples.write_number(row_index, 4, row.occurrence_count, formats["body"])
             samples.write_string(row_index, 5, "Ja" if row.backlog_count else "Nei", formats["body"])
             samples.write_number(row_index, 6, row.backlog_count, formats["body"])
+            excel_row = row_index + 1
+            inputs = "'Prøvesøk'!$A$5:$A$54"
+            exact = (
+                f"(SUMPRODUCT(--(UPPER(TRIM({inputs}))=UPPER(A{excel_row})))+"
+                f"SUMPRODUCT(--(UPPER(TRIM({inputs}))=UPPER(B{excel_row})))>0)"
+            )
+            prefix = (
+                f"(SUMPRODUCT(--({inputs}<>\"\"),"
+                f"--(LEFT(UPPER(A{excel_row}),LEN(TRIM({inputs})))="
+                f"UPPER(TRIM({inputs}))))"
+                f"+SUMPRODUCT(--({inputs}<>\"\"),"
+                f"--(LEFT(UPPER(B{excel_row}),LEN(TRIM({inputs})))="
+                f"UPPER(TRIM({inputs}))))>0)"
+            )
+            samples.write_formula(
+                row_index,
+                7,
+                f'=IF(COUNTA({inputs})=0,FALSE,IF('
+                f"'Prøvesøk'!$B$56=\"Eksakt\",{exact},{prefix}))",
+                formats["body"],
+                False,
+            )
         sample_last_row = max(1, len(snapshot.samples))
         samples.add_table(
             0, 0, sample_last_row, len(sample_headers) - 1,
@@ -370,10 +380,11 @@ def generate_search_workbook(
         samples.set_column("A:B", 26)
         samples.set_column("C:D", 18)
         samples.set_column("E:G", 15)
+        samples.set_column("H:H", None, None, {"hidden": True})
 
         analysis_headers = [
-            "MolStat-ID", "Prøvenummer", "Analyse", "Bestilt", "WorkItem",
-            "Identitetsstatus", "I RESTANSE nå", "Kilder", "Resultat", "Godkjent",
+            "MolStat-ID", "Prøvenummer", "Analyse", "Bestilt",
+            "I RESTANSE nå", "Kilder", "Resultat", "Godkjent",
         ]
         for (sheet_name, partition_rows), table_name in zip(
             analysis_partitions.items(), table_names, strict=True
@@ -385,14 +396,12 @@ def generate_search_workbook(
                 analysis_sheet.write_string(row_index, 1, row.sample_number, formats["text"])
                 analysis_sheet.write_string(row_index, 2, row.analysis_code, formats["text"])
                 analysis_sheet.write_datetime(row_index, 3, row.ordered_at, formats["date"])
-                analysis_sheet.write_string(row_index, 4, row.source_occurrence_id or "", formats["text"])
-                analysis_sheet.write_string(row_index, 5, row.identity_status, formats["body"])
-                analysis_sheet.write_string(row_index, 6, "Ja" if row.in_backlog else "Nei", formats["body"])
-                analysis_sheet.write_string(row_index, 7, row.source_kinds, formats["body"])
+                analysis_sheet.write_string(row_index, 4, "Ja" if row.in_backlog else "Nei", formats["body"])
+                analysis_sheet.write_string(row_index, 5, row.source_kinds, formats["body"])
                 if row.resulted_at is not None:
-                    analysis_sheet.write_datetime(row_index, 8, row.resulted_at, formats["date"])
+                    analysis_sheet.write_datetime(row_index, 6, row.resulted_at, formats["date"])
                 if row.approved_at is not None:
-                    analysis_sheet.write_datetime(row_index, 9, row.approved_at, formats["date"])
+                    analysis_sheet.write_datetime(row_index, 7, row.approved_at, formats["date"])
             analysis_last_row = max(1, len(partition_rows))
             analysis_sheet.add_table(
                 0, 0, analysis_last_row, len(analysis_headers) - 1,
@@ -402,8 +411,8 @@ def generate_search_workbook(
             analysis_sheet.set_column("A:B", 26)
             analysis_sheet.set_column("C:C", 22)
             analysis_sheet.set_column("D:D", 18)
-            analysis_sheet.set_column("E:H", 24)
-            analysis_sheet.set_column("I:J", 18)
+            analysis_sheet.set_column("E:F", 24)
+            analysis_sheet.set_column("G:H", 18)
 
         about.write("A2", "Om Prøvesøk", formats["title"])
         about.write("A4", "Sist generert", formats["body"])
@@ -413,7 +422,7 @@ def generate_search_workbook(
         about.write("A8", "Bruk", formats["body"])
         about.write(
             "B8",
-            "Skriv prøvenummer eller MolStat-ID i det gule feltet på Prøvesøk. Arbeidsboken er en lesekopi og skriver ikke til databasen.",
+            "Lim inn ett eller flere prøvenumre eller MolStat-ID-er i de gule radene på Prøvesøk. Arbeidsboken er en lesekopi og skriver ikke til databasen.",
             formats["body"],
         )
         about.set_column("A:A", 18)
@@ -522,11 +531,11 @@ def generate_compatibility_workbook(destination: Path) -> None:
         sheet.write_string("A5", "Prøvenummer", text)
         sheet.write_string("B5", "00123456789012345678", text)
         sheet.write_string("A6", "MolStat-ID", text)
-        sheet.write_string("B6", "MS-0000000000000001", text)
+        sheet.write_string("B6", "M-000001", text)
         sheet.write_string("A7", "Tidspunkt", text)
         sheet.write_datetime("B7", datetime(2026, 9, 10, 8, 15), timestamp)
         sheet.write_string("A8", "Formel", text)
-        sheet.write_formula("B8", "=B6", text, "MS-0000000000000001")
+        sheet.write_formula("B8", "=B6", text, "M-000001")
         sheet.set_column("A:A", 18)
         sheet.set_column("B:B", 26)
         sheet.freeze_panes(4, 0)

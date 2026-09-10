@@ -1,4 +1,5 @@
 import csv
+from typing import Mapping
 from datetime import date, datetime
 from pathlib import Path
 import re
@@ -202,8 +203,9 @@ def test_second_statistics_run_publishes_complete_deduplicated_history(
         output_dir: Path,
         *,
         profile: str,
+        molstat_ids: Mapping[str, str],
     ) -> dict[str, int]:
-        del extraction, lookup_path, profile
+        del extraction, lookup_path, profile, molstat_ids
         output_dir.mkdir(parents=True, exist_ok=True)
         row_counts: dict[str, int] = {}
         for name, source in (("antall", ordered), ("resultater", answered)):

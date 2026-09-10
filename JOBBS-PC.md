@@ -3,7 +3,8 @@
 ## Første oppsett
 
 - Bruk en fast mappe på K-sensitiv som MolStat alene skriver til.
-- Velg en synkronisert SharePoint-mappe for ferdige, identifikatorfrie filer.
+- Velg en synkronisert SharePoint-mappe som er godkjent for pseudonyme
+  MolStat-ID-er i detaljfilene.
 - Angi LVMS-adressen, og velg mapper og lookup-filer med «Bla gjennom …».
 - Velg «Valider og lagre». Eventuelle oppstartsfeil vises i Diagnostikk.
 
@@ -21,9 +22,13 @@ har i tillegg en lease som hindrer samtidige skrivere.
 
 ## Sikkerhetsgrense
 
-Råfiler, identifikatorer, database og arbeidsfiler skal bli på K-sensitiv.
+Råfiler, råidentifikatorer, database og arbeidsfiler skal bli på K-sensitiv.
 SharePoint-publisering bruker eksplisitte kolonnelister og atomisk filbytte.
 Ved avvik stoppes publisering uten delvis Power BI-oppdatering.
+
+`MolStat-ID` publiseres i `resultater.csv` og Prøveflyt-historikken. ID-en er
+pseudonym og gjør detaljrader koblingsbare over tid. `antall.csv` inneholder
+ikke MolStat-ID.
 
 `Analyseresultat` og `Ekstern analysekommentar` i Prøveflyt eksporteres ordrett.
 Disse LVMS-feltene må derfor aldri inneholde prøve- eller pasientidentifikatorer.
@@ -38,9 +43,11 @@ bootstraplogger ligger under `%LOCALAPPDATA%\MolStat`.
 ## Prøvesøk.xlsx
 
 `Prøvesøk.xlsx` ligger direkte i den valgte K-sensitive roten. Filen inneholder
-prøvenummer og skal ikke flyttes til den identifikatorfrie SharePoint-mappen.
-Søk i den gule cellen på arket `Prøvesøk`, og velg `Eksakt` eller `Prefiks`.
-Ved ett treff vises alle analyseforekomster automatisk. `I RESTANSE nå` betyr
+prøvenummer og skal ikke flyttes til SharePoint-mappen. De publiserte
+detaljfilene inneholder bare pseudonym MolStat-ID, aldri rått prøvenummer.
+Lim inn opptil 50 prøvenumre eller MolStat-ID-er i de gule radene på arket
+`Prøvesøk`, ett søk per rad, og velg `Eksakt` eller `Prefiks`. Alle tilhørende
+analyseforekomster vises automatisk. `I RESTANSE nå` betyr
 at forekomsten fantes i siste komplette og vellykkede RESTANSE-import.
 
 Hvis arbeidsboken er åpen under en oppdatering, fortsetter databaseimporten.

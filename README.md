@@ -27,7 +27,7 @@ LVMS
   ├─ Statistikk -> K-sensitiv/raw/statistics -> permanent SQLite-register
   └─ RESTANSE 01.01.2024–i dag -> avgrenset arbeidsfil -> SQLite-register
                                            ├─ Prøvesøk.xlsx på K-sensitiv
-                                           └─ identifikatorfri historikk -> SharePoint/MolStat
+                                           └─ pseudonym historikk -> SharePoint/MolStat
 ```
 
 Statistikkråfiler, SampleID, PID, Workitem, database, kildefingeravtrykk og
@@ -46,10 +46,15 @@ tilbake til SQLite.
 
 På arket `Prøvesøk`:
 
-1. Skriv prøvenummer eller MolStat-ID i den gule cellen.
+1. Lim inn ett eller flere prøvenumre eller MolStat-ID-er i de gule radene,
+   ett søk per rad.
 2. Velg `Eksakt` eller `Prefiks`.
-3. Når søket gir ett treff, vises alle analyseforekomstene til høyre, også når
+3. Alle prøvetreff og tilhørende analyseforekomster vises til høyre, også når
    samme analysekode er bestilt flere ganger.
+
+MolStat-ID tildeles som en kort, permanent serie (`M-000001`, `M-000002`, …).
+`WorkItem` og intern identitetsstatus brukes fortsatt til sikker kobling i
+databasen, men vises ikke i arbeidsboken.
 
 `Prøver` og `Analyser` har vanlige Excel-tabeller med autofilter. `Om` viser
 når lesekopien sist ble generert. Hvis filen er åpen og låst i Excel, beholdes
@@ -154,8 +159,11 @@ Kolonnene er, i fast rekkefølge:
 17. `Analyseresultat`
 18. `Ekstern.analysekommentar`
 19. `Klassifikatorversjon`
+20. `MolStat-ID`
 
-`Rapportgruppe` er ikke med; `Analysegruppe_kode` og `Analysegruppe` er den
+`MolStat-ID` finnes også i statistikkfilen `resultater.csv`, men ikke i den
+aggregerte `antall.csv`. `Rapportgruppe` er ikke med i Prøveflyt-filen;
+`Analysegruppe_kode` og `Analysegruppe` er den
 autoritative inndelingen. `Nukleinsyre` og `Svarfrist` hentes fra
 Hemato-lookup-filen.
 
@@ -166,6 +174,11 @@ etter at teknisk `=T("...")`-innpakning er fjernet. MolStat maskerer eller
 tolker ikke disse feltene. Operatørene må derfor aldri skrive prøve-, pasient-
 eller andre identifikatorer i dem. Friteksten skal ikke betraktes som
 automatisk anonymisert.
+
+`MolStat-ID` er pseudonym, ikke anonym. Det gjør detaljrader koblingsbare over
+tid, og de publiserte detaljfilene må derfor bare brukes i et SharePoint- og
+Power BI-område som er godkjent for dette. Rått SampleID, PID og WorkItem
+publiseres fortsatt aldri.
 
 ## Utvikling og test
 

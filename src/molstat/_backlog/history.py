@@ -97,7 +97,7 @@ def build_detail_history_rows(
     analysis_lookup: Mapping[str, Mapping[str, str]],
     classifier_version: int,
 ) -> tuple[BacklogDetailHistoryRow, ...]:
-    """Bygg detaljsnapshot uten å føre prøveidentifikator over grensen."""
+    """Bygg detaljsnapshot uten å føre rått prøvenummer over grensen."""
     slot = hour_slot(observed_at)
     rows: list[BacklogDetailHistoryRow] = []
     for detail in details:

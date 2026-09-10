@@ -126,8 +126,9 @@ def test_statistics_processor_merges_complete_archive_before_processing(
         output_dir: Path,
         *,
         profile: str,
+        molstat_ids: Mapping[str, str],
     ) -> dict[str, int]:
-        del lookup_path, profile
+        del lookup_path, profile, molstat_ids
         for marker, path in zip(
             ("ANTALL", "RESULTATER", "EKSTRAKSJON"),
             (ordered, answered, extraction),
@@ -240,7 +241,12 @@ def test_process_reports_golden_flow(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "prosessert"
     counts = process_reports(
-        antall_csv, resultater_csv, ekstraksjon_csv, lookup_path, out_dir
+        antall_csv,
+        resultater_csv,
+        ekstraksjon_csv,
+        lookup_path,
+        out_dir,
+        molstat_ids={"S1": "M-000001"},
     )
     assert counts == {"antall": 2, "resultater": 1}
 
@@ -256,12 +262,14 @@ def test_process_reports_golden_flow(tmp_path: Path) -> None:
         csv.DictReader(open(out_dir / "resultater.csv", encoding="utf-8-sig"), delimiter=";")
     )
     row = res_rows[0]
+    assert row["MolStat-ID"] == "M-000001"
     assert row["Ekstraksjon.ferdig"] == "2024/01/06 09:00:00"
     assert row["Svarfrist"] == "21"
 
     # BOM present (write_excel_csv2 behaviour)
     raw_bytes = (out_dir / "resultater.csv").read_bytes()
     assert raw_bytes.startswith(b"\xef\xbb\xbf")
+    assert "MolStat-ID" not in antall_rows[0]
 
 
 def test_read_lvms_csv_normalises_headers_and_wrappers(tmp_path: Path) -> None:
@@ -323,6 +331,19 @@ def test_build_resultater_solide_picks_latest_finished_before_approval() -> None
     assert row["Svarfrist"] == "7"
 
 
+def test_result_export_fails_closed_when_registry_mapping_is_missing() -> None:
+    results = [
+        {
+            "Sample.ID": "S1",
+            "Analyse": "CALR-OU",
+            "Tidspunkt.godkjenning": "08.01.2024 08:00",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="MolStat-ID"):
+        build_resultater(results, (), {}, molstat_ids={})
+
+
 def test_build_antall_solide_has_no_nucleic_acid_column() -> None:
     rows = [
         {
@@ -338,7 +359,7 @@ def test_build_antall_solide_has_no_nucleic_acid_column() -> None:
     assert antall[0]["Svarfrist"] == "7"
 
 
-def test_process_reports_solide_writes_13_column_export(tmp_path: Path) -> None:
+def test_process_reports_solide_writes_result_export_contract(tmp_path: Path) -> None:
     def raw_rows(header: list[str], data: list[list[str]]) -> Path:
         p = tmp_path / f"{header[0]}.csv"
         write_raw(p, [header, *data])

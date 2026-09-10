@@ -36,7 +36,10 @@ def test_statistics_links_all_sources_idempotently_without_changing_exports(
         'S-1;W-EXT;EKSTRAAPKOL-H-OU;08.09.2026 08:15;08.09.2026 10:00;08.09.2026 10:30',
     )
 
+    export_mappings: list[dict[str, str]] = []
+
     def deterministic_exports(*args, **kwargs):
+        export_mappings.append(dict(kwargs["molstat_ids"]))
         output_dir = args[4]
         output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "antall.csv").write_bytes(b"Analyse\r\nCALR-OU\r\n")
@@ -86,3 +89,7 @@ def test_statistics_links_all_sources_idempotently_without_changing_exports(
     assert event_count == 6
     assert observation_count == 4
     assert statistics_runs == 2
+    assert export_mappings == [
+        {"S-1": "M-000001"},
+        {"S-1": "M-000001"},
+    ]

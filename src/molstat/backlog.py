@@ -270,8 +270,8 @@ class BacklogProcessor:
                             analysis_priority, request_priority, analysis_status,
                             preliminary_status, workflow_stage, response_deadline,
                             analysis_result, external_analysis_comment,
-                            classifier_version, source_fingerprint
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            classifier_version, source_fingerprint, molstat_key
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             (
@@ -297,8 +297,15 @@ class BacklogProcessor:
                                 row.external_analysis_comment,
                                 row.classifier_version,
                                 imported.fingerprint,
+                                registered.molstat_key,
                             )
-                            for row_number, row in enumerate(detail_rows, start=1)
+                            for row_number, (
+                                row,
+                                (_detail, registered),
+                            ) in enumerate(
+                                zip(detail_rows, registered_details, strict=True),
+                                start=1,
+                            )
                         ),
                     )
                 connection.execute("COMMIT")

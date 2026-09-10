@@ -1,4 +1,4 @@
-"""Deterministisk, identifikatorfri detaljeksport av restansehistorikk."""
+"""Deterministisk, pseudonym detaljeksport av restansehistorikk."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ BACKLOG_PUBLIC_COLUMNS = (
     "Analyseresultat",
     "Ekstern.analysekommentar",
     "Klassifikatorversjon",
+    "MolStat-ID",
 )
 
 
@@ -60,7 +61,8 @@ def export_backlog_history(
                    response_deadline,
                    analysis_result,
                    external_analysis_comment,
-                   classifier_version
+                   classifier_version,
+                   molstat_key
             FROM backlog_detail_snapshot
             WHERE unit_key = ?
             ORDER BY observed_at, row_number

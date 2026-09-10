@@ -35,7 +35,7 @@ def test_v4_migration_preserves_existing_backlog_rows(tmp_path: Path) -> None:
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 5
+    assert database.schema_version() == 6
     with database._connect() as connection:
         row = connection.execute(
             "SELECT sample_key, analysis_group FROM backlog_sample"

@@ -34,24 +34,25 @@ python -m compileall -q src tests
 
 Fysisk arkorden er:
 
-1. `Prøvesøk`: én tydelig gul inndatacelle, treffliste og analysedetaljer.
+1. `Prøvesøk`: 50 gule inndatarader, treffliste og analysedetaljer.
 2. `Prøver`: skrivebeskyttet Excel-tabell med én rad per prøve.
 3. `Analyser`: skrivebeskyttet Excel-tabell med én rad per analyseforekomst.
 4. `Om`: kort forklaring av oppdateringstid, datakilde og bruk.
 
 Identifikatorer lagres som tekst. Datoer lagres som ekte Excel-datoer. Arkene
 med data får autofilter, fryste overskrifter og ingen redigeringsmarkering.
-Formlene skal gi tydelig «Ingen treff» og kunne vise flere treff ved prefikssøk.
+Formlene skal gi tydelig «Ingen treff» og kunne kombinere flere eksakte søk
+eller prefikssøk. `WorkItem` og intern identitetsstatus skal ikke vises.
 
 Foreslått søkemønster:
 
 ```excel
-=LET(s;TRIM(B4);FILTER(tblPrøver;(tblPrøver[Prøvenummer]=s)+(tblPrøver[MolStat-ID]=s);"Ingen treff"))
+=FILTER(tblPrøver;COUNTIF($A$5:$A$54;tblPrøver[Prøvenummer])+COUNTIF($A$5:$A$54;tblPrøver[MolStat-ID])>0;"Ingen treff")
 ```
 
 Den faktiske OOXML-formelen lagres med engelske funksjonsnavn og komma som
-argumentseparator. Excel lokaliserer visningen. Detaljer filtreres på valgt
-MolStat-ID. Datamodellen skal senere kunne deles på årsark før en tabell nærmer
+argumentseparator. Excel lokaliserer visningen. Detaljer filtreres på alle
+MolStat-ID-er i trefflisten. Datamodellen skal kunne deles på årsark før en tabell nærmer
 seg Excels radgrense.
 
 ## Code Style
@@ -77,7 +78,7 @@ formler rekalkulerer etter endring av søkecellen.
 
 - Always: generer fra én konsistent database-snapshot, verifiser før filbytte og vis sist oppdatert-tid.
 - Ask first: nye sensitive kolonner, ekstern deling eller avhengighet som må installeres på jobb-PC.
-- Never: makroer, databasepassord i arbeidsboken, SQLite-skriving fra Excel eller publisering til dagens identifikatorfrie SharePoint-område.
+- Never: makroer, databasepassord i arbeidsboken eller SQLite-skriving fra Excel.
 
 ## Success Criteria
 

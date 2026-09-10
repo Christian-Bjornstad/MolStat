@@ -32,10 +32,10 @@ class Sample:
 
 @dataclass(frozen=True)
 class BacklogDetail:
-    """Én restanseanalyse med bare feltene som trengs i offentlig eksport.
+    """Én restanseanalyse før den pseudonyme eksporten bygges.
 
     ``sample_id`` brukes kun til intern deduplisering og skjules fra repr/logg.
-    Det lagres aldri i den identifikatorfrie detaljhistorikken.
+    Råverdien lagres aldri i detaljhistorikken; den erstattes med MolStat-ID.
     """
 
     sample_id: str = field(repr=False)

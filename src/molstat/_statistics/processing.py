@@ -42,10 +42,10 @@ RESULTATER_COLUMNS = (
     "Ekstraksjon.analysebestilling",
     "Ekstraksjon.ferdig",
     "Svarfrist",
+    "MolStat-ID",
 )
 
-# Solide export (Solide_Statistikk.R -> resultater_super2): 13 columns,
-# no Nukleinsyre, keeps Ekstraksjon.Analyse and Starttid.svartid.
+# Solide export retains the 13 legacy columns and appends MolStat-ID.
 SOLIDE_RESULTATER_COLUMNS = (
     "Materiale",
     "Analyse",
@@ -60,6 +60,7 @@ SOLIDE_RESULTATER_COLUMNS = (
     "Ekstraksjon.ferdig",
     "Starttid.svartid",
     "Svarfrist",
+    "MolStat-ID",
 )
 
 ANTALL_COLUMNS = (
@@ -286,7 +287,11 @@ def build_resultater(
     result_rows: Iterable[Mapping[str, str]],
     extraction_rows: Iterable[Mapping[str, str]],
     lookup: Mapping[str, Mapping[str, str]],
+    *,
+    molstat_ids: Mapping[str, str] | None = None,
 ) -> list[dict[str, str]]:
+    require_molstat_id = molstat_ids is not None
+    resolved_ids = molstat_ids or {}
     extraction_index: dict[str, list[dict[str, object]]] = {}
     for row in extraction_rows:
         sample_id = clean_text(row.get("Sample.ID"))
@@ -336,6 +341,9 @@ def build_resultater(
             continue
         entry = lookup.get(analyse, {})
         sample_id = clean_text(row.get("Sample.ID"))
+        molstat_id = resolved_ids.get(sample_id.upper(), "")
+        if require_molstat_id and not molstat_id:
+            raise ValueError("En resultatlinje kunne ikke kobles til MolStat-ID.")
         materiale = clean_text(row.get("Materiale"))
         nukleinsyre = entry.get("Nukleinsyre", "")
         provetakining = parse_tidspunkt(row.get("Tidspunkt.prøvetaking"))
@@ -410,6 +418,7 @@ def build_resultater(
                 "Ekstraksjon.analysebestilling": _fmt(ekstr_bestilling),
                 "Ekstraksjon.ferdig": _fmt(ekstr_ferdig),
                 "Svarfrist": entry.get("Svarfrist", ""),
+                "MolStat-ID": molstat_id,
                 "_svartid_status": svartid_status,
                 "_startgrunnlag": startgrunnlag,
             }
@@ -441,8 +450,12 @@ def build_resultater_solide(
     result_rows: Iterable[Mapping[str, str]],
     extraction_rows: Iterable[Mapping[str, str]],
     lookup: Mapping[str, Mapping[str, str]],
+    *,
+    molstat_ids: Mapping[str, str] | None = None,
 ) -> list[dict[str, str]]:
-    """Solide resultater: 13-column export with Starttid.svartid."""
+    """Solide resultater with Starttid.svartid and appended MolStat-ID."""
+    require_molstat_id = molstat_ids is not None
+    resolved_ids = molstat_ids or {}
     by_sample: dict[str, list[dict[str, object]]] = {}
     for row in extraction_rows:
         sample_id = clean_text(row.get("Sample.ID"))
@@ -466,6 +479,9 @@ def build_resultater_solide(
         analyse = clean_text(row.get("Analyse"))
         entry = lookup.get(analyse, {})
         sample_id = clean_text(row.get("Sample.ID"))
+        molstat_id = resolved_ids.get(sample_id.upper(), "")
+        if require_molstat_id and not molstat_id:
+            raise ValueError("En resultatlinje kunne ikke kobles til MolStat-ID.")
         materiale = clean_text(row.get("Materiale"))
         bestilling = parse_tidspunkt(row.get("Tidspunkt.analysebestilling"))
         godkjenning = parse_tidspunkt(row.get("Tidspunkt.godkjenning"))
@@ -512,6 +528,7 @@ def build_resultater_solide(
                 "Ekstraksjon.ferdig": _fmt(ekstr_ferdig),
                 "Starttid.svartid": _fmt(starttid),
                 "Svarfrist": entry.get("Svarfrist", ""),
+                "MolStat-ID": molstat_id,
             }
         )
     return out
@@ -539,6 +556,7 @@ def process_reports(
     output_dir: Path,
     *,
     profile: str = "hemato",
+    molstat_ids: Mapping[str, str] | None = None,
 ) -> dict[str, int]:
     """Full pipeline over one unit's reports; returns exported row counts.
 
@@ -554,6 +572,7 @@ def process_reports(
             read_lvms_csv(resultater_path),
             read_lvms_csv(ekstraksjon_path),
             lookup,
+            molstat_ids=molstat_ids,
         )
         antall_columns = SOLIDE_ANTALL_COLUMNS
         resultater_columns = SOLIDE_RESULTATER_COLUMNS
@@ -562,6 +581,7 @@ def process_reports(
             read_lvms_csv(resultater_path),
             read_lvms_csv(ekstraksjon_path),
             lookup,
+            molstat_ids=molstat_ids,
         )
         antall_columns = ANTALL_COLUMNS
         resultater_columns = RESULTATER_COLUMNS

@@ -36,7 +36,8 @@ python -m compileall -q src tests
 - `source_observation`: første/siste gang forekomsten ble sett per rapporttype.
 - `import_run`: status, intervall, radantall, kildefingeravtrykk og feilklasse uten identifikatorer.
 
-`sample_identifier` er unik på `(source_system, identifier_type,
+Den visbare MolStat-ID-en er en kort, permanent serie (`M-000001`, …) basert
+på en ikke-gjenbrukt database-ID. `sample_identifier` er unik på `(source_system, identifier_type,
 normalized_value)`. `analysis_occurrence` bruker WorkItem-/ordrelinje-ID når
 LVMS tilbyr det. En dokumentert sammensatt nøkkel brukes bare som reserve.
 
@@ -69,7 +70,7 @@ med alle eksisterende tabeller og rader bevart.
 
 1. Samme prøvenummer gir samme MolStat-nøkkel ved gjentatt import.
 2. Ulike analyseforekomster blir aldri kollapset på bare prøvenummer og analysekode.
-3. Eksakt søk på prøvenummer eller MolStat-nøkkel bruker indeks.
+3. Eksakt søk på prøvenummer eller kort MolStat-ID bruker indeks.
 4. Dagens database migreres additivt og kan åpnes etter omstart.
 
 ## Open Questions

@@ -15,8 +15,9 @@ SQLite-historikk og erstatter atomisk i den konfigurerte SharePoint-roten under
 - `MolStatProveflyt.Report/MolStatProveflyt.pbip`: ferdig PBIR-rapportskall med
   tre 16:9-sider, 18 bundne visualer og det godkjente temaet.
 
-Ingen filer inneholder prøvenummer, pasientdata, WorkItem, resultattekst,
-kommentarer, kildefilstier eller interne fingeravtrykk.
+Eksempelfilen inneholder syntetiske MolStat-ID-er. MolStat-ID er en pseudonym
+koblingsnøkkel; rått prøvenummer, pasientdata, WorkItem, kildefilstier og
+interne fingeravtrykk er fortsatt utelatt.
 
 ## 1. Opprett filparameteren
 

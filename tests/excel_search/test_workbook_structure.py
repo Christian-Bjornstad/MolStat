@@ -39,5 +39,7 @@ def test_workbook_has_expected_sheets_tables_and_typed_values(tmp_path: Path) ->
     assert 'name="tblProver"' in table_xml
     assert 'name="tblAnalyser"' in table_xml
     assert "00123456789012345678" in shared_strings
+    assert "WorkItem" not in shared_strings
+    assert "Identitetsstatus" not in shared_strings
     assert "2026-09-08T08:00:00" not in shared_strings
     assert "<pane" in all_sheets

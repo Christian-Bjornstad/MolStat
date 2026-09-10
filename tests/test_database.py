@@ -21,7 +21,7 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
     database.migrate()
     database.migrate()
 
-    assert database.schema_version() == 5
+    assert database.schema_version() == 6
     assert database.table_names() == {
         "analysis_event",
         "analysis_occurrence",
@@ -72,7 +72,7 @@ def test_v1_migration_adds_history_without_rewriting_current_samples(
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 5
+    assert database.schema_version() == 6
     assert "backlog_snapshot" in database.table_names()
     assert "backlog_detail_snapshot" in database.table_names()
     with database._connect() as connection:
@@ -128,7 +128,7 @@ def test_v3_migration_adds_approved_text_columns_with_empty_history(
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 5
+    assert database.schema_version() == 6
     with database._connect() as connection:
         columns = {
             str(row[1])
@@ -138,12 +138,12 @@ def test_v3_migration_adds_approved_text_columns_with_empty_history(
         }
         text_fields = connection.execute(
             """
-            SELECT analysis_result, external_analysis_comment
+            SELECT analysis_result, external_analysis_comment, molstat_key
             FROM backlog_detail_snapshot
             """
         ).fetchone()
-    assert {"analysis_result", "external_analysis_comment"} <= columns
-    assert text_fields == ("", "")
+    assert {"analysis_result", "external_analysis_comment", "molstat_key"} <= columns
+    assert text_fields == ("", "", "")
 
 
 def test_second_writer_is_rejected_while_lease_is_active(tmp_path: Path) -> None:

@@ -125,7 +125,7 @@ def test_processor_retains_one_aggregate_row_per_group_and_hour(
     assert detail_rows == [("2026-09-07T11:00:00", "IGH-OU")]
 
 
-def test_processor_persists_identifier_free_detail_with_statistics_metadata(
+def test_processor_persists_pseudonymous_detail_with_statistics_metadata(
     tmp_path: Path,
 ) -> None:
     csv_path = tmp_path / "restanse.csv"
@@ -158,7 +158,7 @@ def test_processor_persists_identifier_free_detail_with_statistics_metadata(
             """
             SELECT analysis_code, nucleic_acid, report_group,
                    analysis_group_code, analysis_group_label, response_deadline,
-                   analysis_result, external_analysis_comment
+                   analysis_result, external_analysis_comment, molstat_key
             FROM backlog_detail_snapshot
             """
         ).fetchone()
@@ -177,6 +177,7 @@ def test_processor_persists_identifier_free_detail_with_statistics_metadata(
         "14",
         "Påvist – test",
         "Ordrett vurdering",
+        "M-000001",
     )
     assert "sample_id" not in columns
     assert "pid" not in columns

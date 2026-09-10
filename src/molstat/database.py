@@ -12,7 +12,7 @@ class WriterLeaseBusy(RuntimeError):
     """Raised when another MolStat writer still owns the database lease."""
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _SCHEMA = (
     """
@@ -89,7 +89,7 @@ _SCHEMA = (
     """,
     """
     CREATE TABLE IF NOT EXISTS sample (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         molstat_key TEXT NOT NULL UNIQUE,
         first_seen_at TEXT NOT NULL,
         last_seen_at TEXT NOT NULL
@@ -210,6 +210,7 @@ _SCHEMA = (
         external_analysis_comment TEXT NOT NULL DEFAULT '',
         classifier_version INTEGER NOT NULL,
         source_fingerprint TEXT NOT NULL,
+        molstat_key TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (observed_at, unit_key, row_number, classifier_version)
     )
     """,
@@ -286,6 +287,13 @@ class MolStatDatabase:
                         TEXT NOT NULL DEFAULT ''
                         """
                     )
+                if "molstat_key" not in detail_columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE backlog_detail_snapshot
+                        ADD COLUMN molstat_key TEXT NOT NULL DEFAULT ''
+                        """
+                    )
                 row = connection.execute(
                     "SELECT version FROM schema_info LIMIT 1"
                 ).fetchone()
@@ -294,7 +302,7 @@ class MolStatDatabase:
                         "INSERT INTO schema_info(version) VALUES (?)",
                         (SCHEMA_VERSION,),
                     )
-                elif row[0] in (1, 2, 3, 4):
+                elif row[0] in (1, 2, 3, 4, 5):
                     connection.execute(
                         "UPDATE schema_info SET version = ?", (SCHEMA_VERSION,)
                     )

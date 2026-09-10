@@ -35,7 +35,56 @@ def test_repeated_import_reuses_sample_and_occurrence(tmp_path: Path) -> None:
     assert first.sample_id == second.sample_id
     assert first.occurrence_id == second.occurrence_id
     assert first.molstat_key == second.molstat_key
+    assert first.molstat_key == "M-000001"
     assert store.counts() == (1, 1)
+
+
+def test_new_samples_receive_short_monotonic_molstat_ids(tmp_path: Path) -> None:
+    store = registry(tmp_path)
+    observed = datetime(2026, 9, 10, 10, 0)
+
+    created = [
+        store.register_occurrence(
+            OccurrenceInput(
+                source_system="LVMS",
+                sample_number=f"S-{number}",
+                analysis_code="CALR-OU",
+                ordered_at=datetime(2026, 9, 10, 8, number),
+                source_occurrence_id=f"WORK-{number}",
+                source_kind="backlog",
+            ),
+            observed_at=observed,
+        ).molstat_key
+        for number in range(1, 4)
+    ]
+
+    assert created == ["M-000001", "M-000002", "M-000003"]
+
+
+def test_deleted_unlinked_sample_id_is_not_reused(tmp_path: Path) -> None:
+    store = registry(tmp_path)
+    with store.database._connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO sample(molstat_key, first_seen_at, last_seen_at)
+            VALUES ('M-000001', '2026-09-10T08:00:00', '2026-09-10T08:00:00')
+            """
+        )
+        connection.execute("DELETE FROM sample WHERE molstat_key = 'M-000001'")
+
+    registered = store.register_occurrence(
+        OccurrenceInput(
+            source_system="LVMS",
+            sample_number="S-2",
+            analysis_code="CALR-OU",
+            ordered_at=datetime(2026, 9, 10, 9, 0),
+            source_occurrence_id="WORK-2",
+            source_kind="backlog",
+        ),
+        observed_at=datetime(2026, 9, 10, 10, 0),
+    )
+
+    assert registered.molstat_key == "M-000002"
 
 
 def test_same_sample_can_have_repeated_analysis_occurrences(tmp_path: Path) -> None:

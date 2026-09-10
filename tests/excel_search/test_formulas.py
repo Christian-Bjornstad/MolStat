@@ -40,10 +40,17 @@ def test_workbook_contains_dynamic_search_and_detail_formulas(tmp_path: Path) ->
 
     with zipfile.ZipFile(destination) as archive:
         search_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        formula_xml = "\n".join(
+            archive.read(name).decode("utf-8")
+            for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet")
+        )
     assert "FILTER" in search_xml
     assert "Prøver" in search_xml
     assert "Analyser" in search_xml
     assert "Ingen treff" in search_xml or "Ingen analyser" in search_xml
     assert "dataValidation" in search_xml
-    assert 'ref="A9"' in search_xml
-    assert 'ref="H9"' in search_xml
+    assert 'ref="D5"' in search_xml
+    assert 'ref="K5"' in search_xml
+    assert "$A$5:$A$54" in search_xml
+    assert "COUNTIF" in formula_xml

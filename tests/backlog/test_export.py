@@ -29,6 +29,7 @@ EXPECTED_COLUMNS = (
     "Analyseresultat",
     "Ekstern.analysekommentar",
     "Klassifikatorversjon",
+    "MolStat-ID",
 )
 
 
@@ -48,13 +49,13 @@ def _insert_detail(
              analysis_priority, request_priority, analysis_status,
              preliminary_status, workflow_stage, response_deadline,
              analysis_result, external_analysis_comment, classifier_version,
-             source_fingerprint
+             source_fingerprint, molstat_key
             ) VALUES
             (?, ?, 1, 'Blod', ?, 'DNA', 'lymfom', 'KLONALITET',
              'Klonalitet', '2026-09-06T07:30:00', '2026-09-06T08:00:00',
              '2026-09-06T08:15:00', 'Høy', 'Vanlig', 'Initial', 'Initial',
              'ready', '14', 'Påvist – behold æøå', 'Ordrett kommentar',
-             2, 'internal-secret-fingerprint')
+             2, 'internal-secret-fingerprint', 'M-000001')
             """,
             (
                 observed_at,
@@ -106,6 +107,7 @@ def test_export_is_deterministic_and_contains_only_public_columns(
     assert rows[0]["Svarfrist"] == "14"
     assert rows[0]["Analyseresultat"] == "Påvist – behold æøå"
     assert rows[0]["Ekstern.analysekommentar"] == "Ordrett kommentar"
+    assert rows[0]["MolStat-ID"] == "M-000001"
     serialized = repr(rows)
     for forbidden in (
         "SampleID",

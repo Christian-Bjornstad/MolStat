@@ -280,6 +280,23 @@ class SampleRegistry:
             )
         return samples, occurrences
 
+    def molstat_ids(self, *, source_system: str = "LVMS") -> dict[str, str]:
+        """Return normalized sample numbers mapped to stable MolStat IDs."""
+
+        source = normalize_identifier(source_system)
+        with self.database._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT si.normalized_value, s.molstat_key
+                FROM sample_identifier AS si
+                JOIN sample AS s ON s.id = si.sample_id
+                WHERE si.source_system = ?
+                  AND si.identifier_type = 'sample_number'
+                """,
+                (source,),
+            ).fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
+
     def search(self, query: str, *, prefix: bool = False) -> tuple[SampleSearchRow, ...]:
         normalized = normalize_identifier(query)
         if not normalized:
@@ -351,15 +368,19 @@ class SampleRegistry:
                 (observed_at, row[0]),
             )
             return int(row[0]), str(row[1])
-        molstat_key = f"MS-{uuid4().hex[:16].upper()}"
         cursor = connection.execute(
             """
             INSERT INTO sample(molstat_key, first_seen_at, last_seen_at)
             VALUES (?, ?, ?)
             """,
-            (molstat_key, observed_at, observed_at),
+            (f"PENDING-{uuid4().hex}", observed_at, observed_at),
         )
         sample_id = int(cursor.lastrowid)
+        molstat_key = f"M-{sample_id:06d}"
+        connection.execute(
+            "UPDATE sample SET molstat_key = ? WHERE id = ?",
+            (molstat_key, sample_id),
+        )
         connection.execute(
             """
             INSERT INTO sample_identifier(

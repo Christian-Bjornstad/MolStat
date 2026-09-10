@@ -101,18 +101,12 @@ class StatisticsProcessor:
         extraction = _merge_archives(
             _one_report(raw_files, "EKSTRAKSJON"), merged_dir
         )
-        counts = process_reports(
-            ordered,
-            answered,
-            extraction,
-            self.lookup_path,
-            output_dir,
-            profile=self.profile,
-        )
+        molstat_ids: Mapping[str, str] | None = None
         if self.database is not None:
             interval_from, interval_to = _archive_interval(raw_files)
             records = _registry_records(ordered, answered, extraction)
-            SampleRegistry(self.database).import_batch(
+            registry = SampleRegistry(self.database)
+            registry.import_batch(
                 records,
                 kind="statistics",
                 unit_key=unit,
@@ -123,6 +117,16 @@ class StatisticsProcessor:
                     (ordered, answered, extraction)
                 ),
             )
+            molstat_ids = registry.molstat_ids()
+        counts = process_reports(
+            ordered,
+            answered,
+            extraction,
+            self.lookup_path,
+            output_dir,
+            profile=self.profile,
+            molstat_ids=molstat_ids,
+        )
         return StatisticsResult(
             antall=output_dir / "antall.csv",
             resultater=output_dir / "resultater.csv",
