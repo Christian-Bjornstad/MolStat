@@ -34,21 +34,41 @@ def verify_database_file(path: Path) -> str:
     candidate = Path(path).resolve()
     if not candidate.is_file():
         raise BackupIntegrityError("Databasefilen finnes ikke.")
+    # Backup candidates are closed, stable files.  ``immutable`` keeps the
+    # read-only integrity check independent of advisory locks and journal
+    # discovery, which are unreliable on some enterprise network shares.
+    uri = candidate.as_uri() + "?mode=ro&immutable=1"
     try:
-        # Backup candidates are closed, stable files.  ``immutable`` keeps the
-        # read-only integrity check independent of advisory locks and journal
-        # discovery, which are unreliable on some enterprise network shares.
-        uri = candidate.as_uri() + "?mode=ro&immutable=1"
         with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
             rows = connection.execute("PRAGMA integrity_check").fetchall()
-            foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
     except sqlite3.Error as exc:
         error_code = getattr(exc, "sqlite_errorname", "SQLITE_ERROR")
         raise BackupIntegrityError(
             f"Databasefilen kunne ikke valideres ({error_code})."
         ) from exc
     messages = tuple(str(row[0]) for row in rows)
-    if messages != ("ok",) or foreign_keys:
+    if messages != ("ok",):
+        raise BackupIntegrityError("Databasens integritetskontroll feilet.")
+
+    try:
+        with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
+            foreign_keys = connection.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+    except sqlite3.OperationalError as exc:
+        # Some legacy schemas contain foreign-key declarations SQLite cannot
+        # evaluate ("foreign key mismatch").  The file is still a complete,
+        # restorable backup when the physical integrity check above passed.
+        is_legacy_mismatch = (
+            getattr(exc, "sqlite_errorname", None) == "SQLITE_ERROR"
+            and "foreign key mismatch" in str(exc).casefold()
+        )
+        if not is_legacy_mismatch:
+            raise BackupIntegrityError(
+                "Databasens relasjonskontroll kunne ikke kjøres."
+            ) from exc
+        foreign_keys = []
+    if foreign_keys:
         raise BackupIntegrityError("Databasens integritetskontroll feilet.")
     return "ok"
 

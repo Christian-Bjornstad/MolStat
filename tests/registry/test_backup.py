@@ -134,6 +134,34 @@ def test_validation_error_exposes_safe_sqlite_error_code(
         verify_database_file(corrupt)
 
 
+def test_valid_legacy_database_with_uncheckable_foreign_key_can_be_backed_up(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE legacy_parent(id TEXT)")
+        connection.execute(
+            "CREATE TABLE legacy_child("
+            "parent_id TEXT REFERENCES legacy_parent(id))"
+        )
+
+    assert verify_database_file(database_path) == "ok"
+
+
+def test_actual_foreign_key_violations_are_still_rejected(tmp_path: Path) -> None:
+    database_path = tmp_path / "invalid-relationship.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute("CREATE TABLE parent(id INTEGER PRIMARY KEY)")
+        connection.execute(
+            "CREATE TABLE child(parent_id INTEGER REFERENCES parent(id))"
+        )
+        connection.execute("INSERT INTO child VALUES (42)")
+
+    with pytest.raises(BackupIntegrityError, match="integritetskontroll feilet"):
+        verify_database_file(database_path)
+
+
 def test_backup_before_migration_runs_once_for_an_older_schema(tmp_path: Path) -> None:
     database_path = tmp_path / "data" / "molstat.sqlite3"
     database_path.parent.mkdir(parents=True)
