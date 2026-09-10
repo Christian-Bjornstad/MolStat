@@ -155,13 +155,13 @@
 **Description:** Ta konsistent, verifisert backup før migrering og innfør avgrenset helsesjekk. Rotasjon aktiveres først etter at retensjonen er godkjent.
 
 **Acceptance criteria:**
-- [ ] Backup bruker SQLite backup-API og ligger i eksplisitt K-sensitiv undermappe.
-- [ ] Backup åpnes og består `PRAGMA integrity_check` før den regnes som gyldig.
-- [ ] Restore-test gjenskaper register, hendelser og nåtilstand.
+- [x] Backup bruker SQLite backup-API og ligger i eksplisitt K-sensitiv undermappe.
+- [x] Backup åpnes og består `PRAGMA integrity_check` før den regnes som gyldig.
+- [x] Restore-test gjenskaper register, hendelser og nåtilstand.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/registry/test_backup.py tests/test_database.py -q`.
-- [ ] Kjør syntetisk restore-rehearsal i midlertidig mappe.
+- [x] Kjør `python -m pytest tests/registry/test_backup.py tests/test_database.py -q`.
+- [x] Kjør syntetisk restore-rehearsal i midlertidig mappe.
 
 **Dependencies:** Tasks 2, 5, 6
 

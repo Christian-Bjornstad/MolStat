@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from .archive import RawArchive
 from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restanse_columns
+from .backup import backup_before_migration
 from .config import MolStatSettings
 from .database import MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
@@ -128,6 +129,10 @@ class DefaultServices:
     def _database(self) -> MolStatDatabase:
         database = MolStatDatabase(
             self.settings.sensitive_root / "data" / "molstat.sqlite3"
+        )
+        backup_before_migration(
+            database,
+            self.settings.sensitive_root / "data" / "backups",
         )
         database.migrate()
         return database
