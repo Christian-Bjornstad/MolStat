@@ -50,13 +50,13 @@
 **Description:** Bygg domenetyper og databaseoperasjoner som oppretter stabil MolStat-ID, gjenbruker prøveidentitet og bevarer flere analyseforekomster. Legg til eksakte og prefiksbaserte søk.
 
 **Acceptance criteria:**
-- [ ] Gjentatt import gir samme MolStat-ID og ingen duplikatforekomster.
-- [ ] Samme prøvenummer kan ha flere analyser og samme analysekode flere ganger.
-- [ ] Tvetydige koblinger blir avvik og slås ikke sammen automatisk.
+- [x] Gjentatt import gir samme MolStat-ID og ingen duplikatforekomster.
+- [x] Samme prøvenummer kan ha flere analyser og samme analysekode flere ganger.
+- [x] Tvetydige koblinger blir avvik og slås ikke sammen automatisk.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/registry/test_registry.py tests/registry/test_search.py -q`.
-- [ ] Kontroller `EXPLAIN QUERY PLAN` for de sentrale søkene.
+- [x] Kjør `python -m pytest tests/registry/test_registry.py tests/registry/test_search.py -q`.
+- [x] Kontroller `EXPLAIN QUERY PLAN` for de sentrale søkene.
 
 **Dependencies:** Task 2
 
