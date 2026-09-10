@@ -1,0 +1,9 @@
+EVALUATE
+ROW (
+    "Resultatrader", COUNTROWS ( resultater ),
+    "Gyldig pasient", COUNTROWS ( FILTER ( resultater, NOT ISBLANK ( resultater[Svartid pasient dager] ) ) ),
+    "Gyldig seksjon", COUNTROWS ( FILTER ( resultater, NOT ISBLANK ( resultater[Svartid seksjon dager] ) ) ),
+    "Gyldig enhet", COUNTROWS ( FILTER ( resultater, NOT ISBLANK ( resultater[Svartid enhet dager] ) ) ),
+    "Datakvalitetsavvik", [Datakvalitet avvik],
+    "Ekskludert valgt perspektiv", [Antall ekskludert datakvalitet]
+)

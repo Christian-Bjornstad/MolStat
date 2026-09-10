@@ -9,3 +9,6 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Midlertidig live-uttrekk; den ferdige, versjonerte leveransen ligger ved siden av.
+powerbi/Hemato_Statistikk_Optimert.PbixProj/

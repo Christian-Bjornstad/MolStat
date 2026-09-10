@@ -1,0 +1,40 @@
+{
+  "name": "Hemato OUS",
+  "dataColors": [
+    "#0B4F7A",
+    "#007A78",
+    "#3E7EA6",
+    "#6BA5C8",
+    "#A15C00",
+    "#0F766E",
+    "#B42318"
+  ],
+  "good": "#0F766E",
+  "neutral": "#A15C00",
+  "bad": "#B42318",
+  "background": "#F4F7FA",
+  "foreground": "#172B3A",
+  "tableAccent": "#0B4F7A",
+  "textClasses": {
+    "callout": {
+      "fontSize": 24,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#172B3A"
+    },
+    "title": {
+      "fontSize": 13,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#172B3A"
+    },
+    "header": {
+      "fontSize": 11,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#0B4F7A"
+    },
+    "label": {
+      "fontSize": 10,
+      "fontFace": "Segoe UI",
+      "color": "#526579"
+    }
+  }
+}

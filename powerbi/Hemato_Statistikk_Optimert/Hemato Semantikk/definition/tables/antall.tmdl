@@ -1,0 +1,89 @@
+table antall
+
+	measure 'Antall analyser' = COUNTROWS ( antall )
+		formatString: #,0
+
+	measure 'Antall analyser forrige periode' = CALCULATE ( [Antall analyser], DATEADD ( Dato[Date], -1, MONTH ) )
+		formatString: #,0
+
+	measure 'Endring analyser prosent' = DIVIDE ( [Antall analyser] - [Antall analyser forrige periode], [Antall analyser forrige periode] )
+		formatString: 0.0%
+
+	column Analyse
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Analyse
+
+	column 'Tidspunkt.analysebestilling'
+		dataType: dateTime
+		formatString: dd.MM.yyyy HH:mm
+		summarizeBy: none
+		sourceColumn: Tidspunkt.analysebestilling
+
+	column Nukleinsyre
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Nukleinsyre
+
+	column Rapportgruppe
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Rapportgruppe
+
+	column Maaned
+		dataType: int64
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: Maaned
+
+	column 'Analysebestilling dato' = IF ( ISBLANK ( antall[Tidspunkt.analysebestilling] ), BLANK (), DATE ( YEAR ( antall[Tidspunkt.analysebestilling] ), MONTH ( antall[Tidspunkt.analysebestilling] ), DAY ( antall[Tidspunkt.analysebestilling] ) ) )
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	partition antall = m
+		mode: import
+		source =
+				let
+				    Kilde =
+				        Csv.Document(
+				            Web.Contents(
+				                "https://hsorhf.sharepoint.com/sites/OUSHF-O-PATXJSeksjonmolekylrpatologi/Shared%20Documents/5_IKT/Bioinformatikk/PowerBI/MolStat/Hemato/antall.csv"
+				            ),
+				            [
+				                Delimiter = ";",
+				                Columns = 5,
+				                Encoding = 65001,
+				                QuoteStyle = QuoteStyle.None
+				            ]
+				        ),
+				
+				    #"Forfremmede overskrifter" =
+				        Table.PromoteHeaders(
+				            Kilde,
+				            [PromoteAllScalars = true]
+				        ),
+				
+				    #"Endret kolonnetype" =
+				        Table.TransformColumnTypes(
+				            #"Forfremmede overskrifter",
+				            {
+				                {"Analyse", type text},
+				                {"Tidspunkt.analysebestilling", type datetime},
+				                {"Nukleinsyre", type text},
+				                {"Rapportgruppe", type text},
+				                {"Maaned", Int64.Type}
+				            },
+				            "no"
+				        ),
+				
+				    #"Filtrerte rader" =
+				        Table.SelectRows(
+				            #"Endret kolonnetype",
+				            each [Analyse] <> "EKSTRAKSJON-H-OU"
+				        )
+				in
+				    #"Filtrerte rader"
+
+	annotation PBI_NavigationStepName = Navigasjon
+
+	annotation PBI_ResultType = Table
