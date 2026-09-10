@@ -6,6 +6,7 @@ sample numbers remain inside the protected database and must never be logged.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sized
 from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
@@ -190,8 +191,9 @@ class SampleRegistry:
 
     def import_batch(
         self,
-        items: tuple[RegistryImportItem, ...],
+        items: Iterable[RegistryImportItem],
         *,
+        row_count: int | None = None,
         kind: str,
         unit_key: str,
         date_from: date,
@@ -201,6 +203,12 @@ class SampleRegistry:
     ) -> int:
         """Atomically import a complete source batch and its events."""
 
+        if row_count is None:
+            if not isinstance(items, Sized):
+                items = tuple(items)
+            row_count = len(items)
+        if row_count < 0:
+            raise ValueError("Radantall kan ikke være negativt.")
         observed_text = observed_at.isoformat(timespec="seconds")
         with self.database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -221,11 +229,13 @@ class SampleRegistry:
                         observed_text,
                         observed_text,
                         source_fingerprint,
-                        len(items),
+                        row_count,
                     ),
                 )
                 import_run_id = int(cursor.lastrowid)
+                processed_count = 0
                 for item in items:
+                    processed_count += 1
                     registered = self.register_occurrence_in_transaction(
                         connection,
                         item.occurrence,
@@ -251,6 +261,10 @@ class SampleRegistry:
                             )
                             for event in item.events
                         ),
+                    )
+                if processed_count != row_count:
+                    raise ValueError(
+                        "Radantallet stemmer ikke med den strømmede importen."
                     )
                 connection.execute("COMMIT")
             except BaseException:

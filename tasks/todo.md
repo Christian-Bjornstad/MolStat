@@ -177,13 +177,13 @@
 **Description:** Generer syntetiske data tilsvarende minst ti år, mål import/søk og juster bare dokumenterte flaskehalser og indekser.
 
 **Acceptance criteria:**
-- [ ] Volumtesten dekker minst 300 000 prøver og flere analyseforekomster per prøve.
-- [ ] Eksakt prøve-/MolStat-ID-søk bruker indeks og gir korrekt treff.
-- [ ] Ingen unikhetsbrudd, datatap eller ubegrenset minnevekst oppstår.
+- [x] Volumtesten dekker minst 300 000 prøver og flere analyseforekomster per prøve.
+- [x] Eksakt prøve-/MolStat-ID-søk bruker indeks og gir korrekt treff.
+- [x] Ingen unikhetsbrudd, datatap eller ubegrenset minnevekst oppstår.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/registry/test_volume.py -q`.
-- [ ] Registrer målt import- og søketid uten produksjonsdata.
+- [x] Kjør `python -m pytest tests/registry/test_volume.py -q`.
+- [x] Registrer målt import- og søketid uten produksjonsdata: 39,814 s import og 0,060446 s eksakt søk for 300 000 prøver / 600 000 forekomster.
 
 **Dependencies:** Tasks 3, 5, 6
 
@@ -196,9 +196,9 @@
 
 ## Checkpoint: Data safety
 
-- [ ] Tasks 7–8 er fullført.
-- [ ] Backup- og restore-test består.
-- [ ] Belastningstesten består med dokumenterte målinger.
+- [x] Tasks 7–8 er fullført.
+- [x] Backup- og restore-test består.
+- [x] Belastningstesten består med dokumenterte målinger.
 - [ ] Retensjon og K-sensitiv målmappe er bekreftet før produksjon.
 
 ## Task 9: Verifiser XLSX-generator i målmiljøet

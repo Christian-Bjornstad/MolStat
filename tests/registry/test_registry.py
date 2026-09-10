@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -7,6 +7,7 @@ from molstat.database import MolStatDatabase
 from molstat.registry import (
     AmbiguousOccurrenceError,
     OccurrenceInput,
+    RegistryImportItem,
     SampleRegistry,
 )
 
@@ -116,3 +117,29 @@ def test_fallback_occurrence_is_flagged_for_quality_review(tmp_path: Path) -> No
     )
 
     assert registered.identity_status == "fallback_review"
+
+
+def test_streamed_batch_row_count_mismatch_rolls_back(tmp_path: Path) -> None:
+    store = registry(tmp_path)
+    item = OccurrenceInput(
+        source_system="LVMS",
+        sample_number="S-1",
+        analysis_code="CALR-OU",
+        ordered_at=datetime(2026, 9, 10, 8, 0),
+        source_occurrence_id="WORK-1",
+        source_kind="statistics_ordered",
+    )
+
+    with pytest.raises(ValueError, match="Radantallet"):
+        store.import_batch(
+            iter((RegistryImportItem(item),)),
+            row_count=2,
+            kind="statistics",
+            unit_key="hemato",
+            date_from=date(2026, 9, 1),
+            date_to=date(2026, 9, 10),
+            observed_at=datetime(2026, 9, 10, 10, 0),
+            source_fingerprint="synthetic",
+        )
+
+    assert store.counts() == (0, 0)
