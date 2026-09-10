@@ -105,6 +105,35 @@ def test_corrupt_backup_is_rejected_before_restore(tmp_path: Path) -> None:
     assert not (tmp_path / "restore.sqlite3").exists()
 
 
+def test_validation_of_stable_backup_does_not_depend_on_sqlite_file_locks(
+    tmp_path: Path,
+) -> None:
+    """A completed backup must remain readable on shares with stale locks."""
+
+    database_path = tmp_path / "molstat.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE sentinel(value TEXT NOT NULL)")
+        connection.execute("INSERT INTO sentinel VALUES ('preserved')")
+
+    lock = sqlite3.connect(database_path)
+    lock.execute("BEGIN EXCLUSIVE")
+    try:
+        assert verify_database_file(database_path) == "ok"
+    finally:
+        lock.rollback()
+        lock.close()
+
+
+def test_validation_error_exposes_safe_sqlite_error_code(
+    tmp_path: Path,
+) -> None:
+    corrupt = tmp_path / "corrupt.sqlite3"
+    corrupt.write_bytes(b"not a sqlite database")
+
+    with pytest.raises(BackupIntegrityError, match="SQLITE_NOTADB"):
+        verify_database_file(corrupt)
+
+
 def test_backup_before_migration_runs_once_for_an_older_schema(tmp_path: Path) -> None:
     database_path = tmp_path / "data" / "molstat.sqlite3"
     database_path.parent.mkdir(parents=True)

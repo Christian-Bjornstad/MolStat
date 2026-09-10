@@ -29,18 +29,24 @@ def _utc_now() -> datetime:
 
 
 def verify_database_file(path: Path) -> str:
-    """Open a database read-only and require SQLite's full integrity check."""
+    """Validate a stable database copy without depending on share locking."""
 
     candidate = Path(path).resolve()
     if not candidate.is_file():
         raise BackupIntegrityError("Databasefilen finnes ikke.")
     try:
-        uri = candidate.as_uri() + "?mode=ro"
+        # Backup candidates are closed, stable files.  ``immutable`` keeps the
+        # read-only integrity check independent of advisory locks and journal
+        # discovery, which are unreliable on some enterprise network shares.
+        uri = candidate.as_uri() + "?mode=ro&immutable=1"
         with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
             rows = connection.execute("PRAGMA integrity_check").fetchall()
             foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
     except sqlite3.Error as exc:
-        raise BackupIntegrityError("Databasefilen kunne ikke valideres.") from exc
+        error_code = getattr(exc, "sqlite_errorname", "SQLITE_ERROR")
+        raise BackupIntegrityError(
+            f"Databasefilen kunne ikke valideres ({error_code})."
+        ) from exc
     messages = tuple(str(row[0]) for row in rows)
     if messages != ("ok",) or foreign_keys:
         raise BackupIntegrityError("Databasens integritetskontroll feilet.")
