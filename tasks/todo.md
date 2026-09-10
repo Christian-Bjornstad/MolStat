@@ -228,13 +228,13 @@
 **Description:** Les én konsistent database-snapshot og bygg `Prøvesøk`, `Prøver`, `Analyser` og `Om` med avtalte felt, tabeller, formater og oppdateringstid.
 
 **Acceptance criteria:**
-- [ ] Prøve- og analyseantall avstemmes mot database-snapshotet.
-- [ ] Identifikatorer er tekst og datoer er ekte Excel-datoer.
-- [ ] Datatabeller har autofilter, fryste overskrifter og avtalte kolonner.
+- [x] Prøve- og analyseantall avstemmes mot database-snapshotet.
+- [x] Identifikatorer er tekst og datoer er ekte Excel-datoer.
+- [x] Datatabeller har autofilter, fryste overskrifter og avtalte kolonner.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/excel_search/test_read_model.py tests/excel_search/test_workbook_structure.py -q`.
-- [ ] Inspiser verdier, typer og tabellnavn i generert syntetisk fil.
+- [x] Kjør `python -m pytest tests/excel_search/test_read_model.py tests/excel_search/test_workbook_structure.py -q`.
+- [x] Inspiser verdier, typer og tabellnavn i generert syntetisk fil.
 
 **Dependencies:** Task 9
 
