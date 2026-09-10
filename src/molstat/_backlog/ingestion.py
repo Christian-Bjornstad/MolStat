@@ -130,7 +130,7 @@ def read_restanse_csv(
         for code in codes
     }
     samples_by_key: dict[tuple[str, str], Sample] = {}
-    details_by_key: dict[tuple[str, str], BacklogDetail] = {}
+    details_by_key: dict[tuple[str, str, str], BacklogDetail] = {}
     rows_read = duplicate_rows = invalid_rows = excluded_rows = 0
     with stream:
         reader = csv.DictReader(stream, delimiter=contract.delimiter)
@@ -164,6 +164,7 @@ def read_restanse_csv(
                 external_comment = _optional_value(row, contract, "external_comment")
                 arrival_text = _optional_value(row, contract, "arrival_at")
                 collected_text = _optional_value(row, contract, "collected_at")
+                source_occurrence_id = _optional_value(row, contract, "occurrence_id")
                 workflow_arrival = arrival_text or created_text
                 stage = classify_workflow(
                     status_text,
@@ -229,6 +230,7 @@ def read_restanse_csv(
                     stage=stage,
                     analysis_result=result_text,
                     external_analysis_comment=external_comment,
+                    source_occurrence_id=source_occurrence_id,
                 )
             except (KeyError, ValueError, TypeError):
                 invalid_rows += 1
@@ -237,7 +239,8 @@ def read_restanse_csv(
             if key in samples_by_key:
                 duplicate_rows += 1
             samples_by_key[key] = sample
-            details_by_key[(sample_id, source_analysis_code)] = detail
+            detail_identity = source_occurrence_id or sample.ordered_at.isoformat()
+            details_by_key[(sample_id, source_analysis_code, detail_identity)] = detail
 
     return CsvImportResult(
         samples=tuple(samples_by_key.values()),

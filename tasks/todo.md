@@ -102,13 +102,13 @@
 **Description:** Importer alle gyldige forekomster til registeret og erstatt `backlog_current` først når hele rapporten er validert. Forsvunne rader mister bare nåtilstandsmarkeringen.
 
 **Acceptance criteria:**
-- [ ] Registeroppdatering og ny `backlog_current` committes sammen.
-- [ ] Tom, korrupt eller avkortet fil beholder forrige komplette nåtilstand.
-- [ ] En forsvunnet rad finnes fortsatt i permanent prøve-/analysehistorikk.
+- [x] Registeroppdatering og ny `backlog_current` committes sammen.
+- [x] Tom, korrupt eller avkortet fil beholder forrige komplette nåtilstand.
+- [x] En forsvunnet rad finnes fortsatt i permanent prøve-/analysehistorikk.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/backlog tests/registry/test_backlog_linking.py -q`.
-- [ ] Injiser feil før commit og sammenlign databasen byte-/radmessig etter rollback.
+- [x] Kjør `python -m pytest tests/backlog tests/registry/test_backlog_linking.py -q`.
+- [x] Injiser feil før commit og sammenlign relevante rader etter rollback.
 
 **Dependencies:** Task 4
 

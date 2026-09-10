@@ -5,6 +5,7 @@
   "encoding": "windows-1252",
   "columns": {
     "sample_id": "SampleID",
+    "occurrence_id": "WorkItem",
     "analysis_code": "Analyse",
     "material": "Materiale",
     "collected_at": "Tidspunkt prøvetaking",

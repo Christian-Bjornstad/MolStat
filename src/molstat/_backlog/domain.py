@@ -52,6 +52,7 @@ class BacklogDetail:
     stage: WorkflowStage
     analysis_result: str
     external_analysis_comment: str
+    source_occurrence_id: str = field(default="", repr=False)
 
 
 def parse_lvms_datetime(text: str) -> datetime:

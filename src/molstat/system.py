@@ -116,7 +116,12 @@ class MolStatSystem:
         if request.kind != "backlog" or request.unit != unit_key:
             raise ValueError("Restanserapporten har feil type eller enhet.")
         try:
-            imported = self.backlog_processor.import_snapshot(source, self.database)
+            imported = self.backlog_processor.import_snapshot(
+                source,
+                self.database,
+                date_from=request.date_from,
+                date_to=request.date_to,
+            )
         finally:
             source.unlink(missing_ok=True)
         published_rows = 0

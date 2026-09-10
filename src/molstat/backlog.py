@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from ._backlog.config import (
@@ -34,6 +34,7 @@ from ._backlog.history import (
     hour_slot,
 )
 from .database import MolStatDatabase
+from .registry import OccurrenceInput, SampleRegistry
 
 ImportResult = CsvImportResult
 
@@ -58,12 +59,17 @@ class BacklogProcessor:
         self,
         csv_path: Path,
         database: MolStatDatabase,
+        *,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> ImportResult:
         imported = read_restanse_csv(
             csv_path,
             self.contract,
             analysis_groups=self.config.source_groups,
         )
+        if imported.rows_read == 0:
+            raise CsvImportError("RESTANSE-filen inneholder ingen datarader.")
         observed_at = self._now()
         history_rows = build_history_rows(
             self.config,
@@ -84,6 +90,51 @@ class BacklogProcessor:
         with database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                interval_from = date_from or observed_at.date()
+                interval_to = date_to or observed_at.date()
+                run_cursor = connection.execute(
+                    """
+                    INSERT INTO import_run(
+                        kind, unit_key, date_from, date_to, started_at,
+                        finished_at, status, source_fingerprint, row_count,
+                        invalid_rows, excluded_rows
+                    ) VALUES ('backlog', ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?)
+                    """,
+                    (
+                        self.config.unit.key,
+                        interval_from.isoformat(),
+                        interval_to.isoformat(),
+                        observed_at_text,
+                        observed_at_text,
+                        imported.fingerprint,
+                        imported.rows_read,
+                        imported.invalid_rows,
+                        imported.excluded_rows,
+                    ),
+                )
+                import_run_id = int(run_cursor.lastrowid)
+                registry = SampleRegistry(database)
+                registered_details = [
+                    (
+                        detail,
+                        registry.register_occurrence_in_transaction(
+                            connection,
+                            OccurrenceInput(
+                                source_system="LVMS",
+                                sample_number=detail.sample_id,
+                                analysis_code=detail.analysis_code,
+                                ordered_at=detail.ordered_at,
+                                source_occurrence_id=(
+                                    detail.source_occurrence_id or None
+                                ),
+                                source_kind="backlog",
+                            ),
+                            observed_at=observed_at,
+                            import_run_id=import_run_id,
+                        ),
+                    )
+                    for detail in imported.details
+                ]
                 detail_slot_exists = connection.execute(
                     """
                     SELECT 1
@@ -100,6 +151,42 @@ class BacklogProcessor:
                         self.contract.classifier_version,
                     ),
                 ).fetchone() is not None
+                connection.execute(
+                    "DELETE FROM backlog_current WHERE unit_key = ?",
+                    (self.config.unit.key,),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO backlog_current(
+                        occurrence_id, import_run_id, unit_key, analysis_group,
+                        workflow_stage, collected_at, arrived_at,
+                        analysis_status, preliminary_status, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            registered.occurrence_id,
+                            import_run_id,
+                            self.config.unit.key,
+                            detail.analysis_group,
+                            detail.stage.value,
+                            (
+                                detail.collected_at.isoformat()
+                                if detail.collected_at is not None
+                                else None
+                            ),
+                            (
+                                detail.arrived_at.isoformat()
+                                if detail.arrived_at is not None
+                                else None
+                            ),
+                            detail.analysis_status,
+                            detail.preliminary_status,
+                            observed_at_text,
+                        )
+                        for detail, registered in registered_details
+                    ),
+                )
                 connection.execute("DELETE FROM backlog_sample")
                 connection.executemany(
                     """

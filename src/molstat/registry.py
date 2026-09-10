@@ -93,6 +93,30 @@ class SampleRegistry:
         *,
         observed_at: datetime,
     ) -> RegisteredOccurrence:
+        with self.database._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                registered = self.register_occurrence_in_transaction(
+                    connection,
+                    item,
+                    observed_at=observed_at,
+                )
+                connection.execute("COMMIT")
+            except BaseException:
+                connection.execute("ROLLBACK")
+                raise
+        return registered
+
+    def register_occurrence_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        item: OccurrenceInput,
+        *,
+        observed_at: datetime,
+        import_run_id: int | None = None,
+    ) -> RegisteredOccurrence:
+        """Register one occurrence inside a caller-owned transaction."""
+
         source_system = normalize_identifier(item.source_system)
         sample_value = _clean_identifier(item.sample_number)
         sample_number = normalize_identifier(sample_value)
@@ -110,40 +134,41 @@ class SampleRegistry:
         )
         observed_text = observed_at.isoformat(timespec="seconds")
         ordered_text = item.ordered_at.isoformat(timespec="seconds")
-        with self.database._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                sample_id, molstat_key = self._resolve_sample(
-                    connection,
-                    source_system=source_system,
-                    sample_value=sample_value,
-                    sample_number=sample_number,
-                    observed_at=observed_text,
-                )
-                occurrence_id, identity_status = self._resolve_occurrence(
-                    connection,
-                    sample_id=sample_id,
-                    identity=identity,
-                    source_system=source_system,
-                    source_occurrence_id=source_occurrence_id,
-                    analysis_code=analysis_code,
-                    ordered_at=ordered_text,
-                    observed_at=observed_text,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO source_observation(
-                        occurrence_id, source_kind, first_seen_at, last_seen_at
-                    ) VALUES (?, ?, ?, ?)
-                    ON CONFLICT(occurrence_id, source_kind) DO UPDATE SET
-                        last_seen_at = excluded.last_seen_at
-                    """,
-                    (occurrence_id, source_kind, observed_text, observed_text),
-                )
-                connection.execute("COMMIT")
-            except BaseException:
-                connection.execute("ROLLBACK")
-                raise
+        sample_id, molstat_key = self._resolve_sample(
+            connection,
+            source_system=source_system,
+            sample_value=sample_value,
+            sample_number=sample_number,
+            observed_at=observed_text,
+        )
+        occurrence_id, identity_status = self._resolve_occurrence(
+            connection,
+            sample_id=sample_id,
+            identity=identity,
+            source_system=source_system,
+            source_occurrence_id=source_occurrence_id,
+            analysis_code=analysis_code,
+            ordered_at=ordered_text,
+            observed_at=observed_text,
+        )
+        connection.execute(
+            """
+            INSERT INTO source_observation(
+                occurrence_id, source_kind, first_seen_at, last_seen_at,
+                last_import_run_id
+            ) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(occurrence_id, source_kind) DO UPDATE SET
+                last_seen_at = excluded.last_seen_at,
+                last_import_run_id = excluded.last_import_run_id
+            """,
+            (
+                occurrence_id,
+                source_kind,
+                observed_text,
+                observed_text,
+                import_run_id,
+            ),
+        )
         return RegisteredOccurrence(
             sample_id=sample_id,
             occurrence_id=occurrence_id,
