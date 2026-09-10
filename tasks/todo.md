@@ -79,13 +79,13 @@
 **Description:** Erstatt den inkrementelle RESTANSE-planleggingen med fast 01.01.2024–dagens dato. Behandle nedlastingen som en avgrenset arbeidsfil og behold Statistikkens råarkiv uendret.
 
 **Acceptance criteria:**
-- [ ] Alle RESTANSE-jobber bruker 01.01.2024–dagens dato uavhengig av arkivfiler.
-- [ ] Vellykket RESTANSE-kjøring oppretter ingen ny fil i `raw/backlog`.
-- [ ] Midlertidige filer ryddes avgrenset uten å slette eksisterende arkivfiler.
+- [x] Alle RESTANSE-jobber bruker 01.01.2024–dagens dato uavhengig av arkivfiler.
+- [x] Vellykket RESTANSE-kjøring oppretter ingen ny fil i `raw/backlog`.
+- [x] Midlertidige filer ryddes avgrenset uten å slette eksisterende arkivfiler.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/test_fetching.py tests/test_archive.py tests/test_end_to_end.py -q`.
-- [ ] Verifiser med syntetiske røtter at Statistikk fortsatt arkiverer.
+- [x] Kjør `python -m pytest tests/test_fetching.py tests/test_archive.py tests/test_end_to_end.py -q`.
+- [x] Verifiser med syntetiske røtter at Statistikk fortsatt arkiverer.
 
 **Dependencies:** Task 3
 

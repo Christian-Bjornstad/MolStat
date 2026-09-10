@@ -112,9 +112,13 @@ class MolStatSystem:
         capability = self.units.require(unit_key).capability("backlog")
         if unit_key != "hemato":
             raise ValueError(f"Restansehenting er ikke konfigurert for {unit_key}.")
-        report = self.backlog_fetch()
-        archived = self._archive_and_remove(report)
-        imported = self.backlog_processor.import_snapshot(archived, self.database)
+        request, source = self.backlog_fetch()
+        if request.kind != "backlog" or request.unit != unit_key:
+            raise ValueError("Restanserapporten har feil type eller enhet.")
+        try:
+            imported = self.backlog_processor.import_snapshot(source, self.database)
+        finally:
+            source.unlink(missing_ok=True)
         published_rows = 0
         if self.backlog_publisher is not None:
             filename = capability.publication_files[0][0]

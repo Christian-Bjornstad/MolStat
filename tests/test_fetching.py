@@ -102,7 +102,7 @@ def test_fetcher_runs_statistics_and_backlog_through_one_runtime(
     assert len(statistics["hemato"]) == 1
     assert statistics["hemato"][0][0].date_from == date(2024, 1, 1)
     assert statistics["hemato"][0][1].is_file()
-    assert backlog_request.date_from == date(2026, 1, 1)
+    assert backlog_request.date_from == date(2024, 1, 1)
     assert backlog_source.is_file()
     assert runner.jobs[-1].report_groups == ("OU-HEM", "OU-MOTTAKMOLPAT")
 
@@ -157,3 +157,26 @@ def test_plan_window_uses_three_day_overlap_from_last_archive(tmp_path: Path) ->
         baseline=date(2024, 1, 1),
         today=date(2026, 9, 2),
     ) == (date(2026, 8, 29), date(2026, 9, 2))
+
+
+def test_backlog_window_ignores_existing_raw_archives(tmp_path: Path) -> None:
+    archive = tmp_path / "raw" / "backlog" / "hemato"
+    archive.mkdir(parents=True)
+    (archive / "PAT-DIT-RESTANSE-OU__2026-09-01__2026-09-09.csv").write_text("x")
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms-config.json",
+        sensitive_root=tmp_path,
+        work_root=tmp_path / "work",
+        units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog-report.json"),
+        run_batch=runner,
+        today=lambda: date(2026, 9, 10),
+    )
+
+    request, _ = fetcher.fetch_backlog()
+
+    assert (request.date_from, request.date_to) == (
+        date(2024, 1, 1),
+        date(2026, 9, 10),
+    )

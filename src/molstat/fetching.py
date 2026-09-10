@@ -17,6 +17,7 @@ from .statistics import Unit, load_units
 _WINDOW = re.compile(
     r"__(\d{4}-\d{2}-\d{2})__(\d{4}-\d{2}-\d{2})(?:__r\d+)?\.csv$"
 )
+BACKLOG_FROM = date(2024, 1, 1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,13 +95,7 @@ class UnifiedLvmsFetcher:
     def fetch_backlog(self) -> tuple[ReportRequest, Path]:
         today = self._today()
         definition = load_report_definition(self.backlog_report_path)
-        created_from, created_to = plan_window(
-            self.sensitive_root,
-            kind="backlog",
-            unit="hemato",
-            baseline=date(2026, 1, 1),
-            today=today,
-        )
+        created_from, created_to = BACKLOG_FROM, today
         job = ReportJob(
             job_key="backlog",
             report_type=definition.report_type,

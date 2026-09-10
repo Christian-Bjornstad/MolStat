@@ -148,7 +148,8 @@ def test_complete_flow_keeps_identifiers_out_of_public_outputs(tmp_path: Path) -
         for path in (sensitive / "raw").rglob("*.csv")
     )
     assert "SECRET-STAT-RAW" in archived_text
-    assert "SECRET-BACKLOG-42" in archived_text
+    assert "SECRET-BACKLOG-42" not in archived_text
+    assert not (sensitive / "raw" / "backlog").exists()
     public_text = repr(snapshot) + " ".join(
         path.read_text(encoding="utf-8-sig")
         for path in sharepoint.rglob("*.csv")
