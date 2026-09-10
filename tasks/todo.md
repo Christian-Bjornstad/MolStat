@@ -325,15 +325,15 @@
 **Description:** Bevis hele flyten med syntetiske identifikatorer, gjentatte analyser, forsvunnet restanse, overlappende statistikk og låst Excel-fil. Kontroller at eksisterende SharePoint-output ikke endres.
 
 **Acceptance criteria:**
-- [ ] Én prøve kobles korrekt på tvers av alle rapporter og vises riktig i Excel.
-- [ ] SharePoint-output beholder eksakt eksisterende kolonnekontrakt og personverngrense.
-- [ ] Full testpakke, bytekodekompilering og diff-kontroll består.
+- [x] Én prøve kobles korrekt på tvers av alle rapporter og vises riktig i Excel.
+- [x] SharePoint-output beholder eksakt eksisterende kolonnekontrakt og personverngrense.
+- [x] Full testpakke, bytekodekompilering og diff-kontroll består.
 
 **Verification:**
-- [ ] Kjør `python -m pytest -q`.
-- [ ] Kjør `python -m compileall -q src tests`.
-- [ ] Kjør `git diff --check`.
-- [ ] Gjennomfør syntetisk volum-, personvern- og restore-rehearsal.
+- [x] Kjør `python -m pytest -q`.
+- [x] Kjør `python -m compileall -q src tests`.
+- [x] Kjør `git diff --check`.
+- [x] Gjennomfør syntetisk volum-, personvern- og restore-rehearsal.
 
 **Dependencies:** Task 13
 
@@ -349,14 +349,14 @@
 **Description:** Dokumenter hvor `Prøvesøk.xlsx` ligger, hvordan brukeren søker, hva «sist oppdatert» betyr, hva som skjer ved låst fil, og hvordan backup/restore håndteres. Pilotér i separat K-sensitiv mappe før automatisk produksjon.
 
 **Acceptance criteria:**
-- [ ] Operatørguiden beskriver søk, oppdatering, låst fil og gjenoppretting.
-- [ ] Ingen reelle stier, identifikatorer eller skjermbilder med sensitivt innhold finnes i Git.
+- [x] Operatørguiden beskriver søk, oppdatering, låst fil og gjenoppretting.
+- [x] Ingen reelle stier, identifikatorer eller skjermbilder med sensitivt innhold finnes i Git.
 - [ ] Pilot er verifisert før produksjonsmålet aktiveres.
 
 **Verification:**
-- [ ] Skann dokumentasjonen for brukernavn, lokale stier og syntetiske hemmelighetsmarkører.
+- [x] Skann dokumentasjonen for brukernavn, lokale stier og syntetiske hemmelighetsmarkører.
 - [ ] Gjennomfør manuell akseptansetest med godkjent testprøve på jobb-PC.
-- [ ] Kjør `git status --short` og bekreft bare forventede endringer.
+- [x] Kjør `git status --short` og bekreft bare forventede endringer; eksisterende urelaterte `artifacts/` og `tools/` er urørt.
 
 **Dependencies:** Task 14
 

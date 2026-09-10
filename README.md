@@ -24,16 +24,41 @@ fullført. Knappene `Hemato` og `Solide` kjører bare den valgte enheten.
 
 ```text
 LVMS
-  └─ rå CSV -> K-sensitiv/raw
-                 ├─ permanent SQLite-historikk
-                 └─ midlertidig prosessering
-                        └─ atomisk publisering -> SharePoint/MolStat
+  ├─ Statistikk -> K-sensitiv/raw/statistics -> permanent SQLite-register
+  └─ RESTANSE 01.01.2024–i dag -> avgrenset arbeidsfil -> SQLite-register
+                                           ├─ Prøvesøk.xlsx på K-sensitiv
+                                           └─ identifikatorfri historikk -> SharePoint/MolStat
 ```
 
-Råfiler, SampleID, PID, Workitem, database, kildefingeravtrykk og arbeidsfiler
-forblir på K-sensitiv. Publisering bruker eksakte kolonnelister og atomisk
+Statistikkråfiler, SampleID, PID, Workitem, database, kildefingeravtrykk og
+arbeidsfiler forblir på K-sensitiv. RESTANSE hentes alltid for hele perioden
+fra 01.01.2024 til dagens dato og råfilen fjernes etter import; den bygges ikke
+opp som et filarkiv. Publisering bruker eksakte kolonnelister og atomisk
 filbytte. Hvis import, databaseoppdatering, personvernkontroll eller publisering
-feiler, beholdes forrige gyldige SharePoint-fil.
+feiler, beholdes forrige gyldige fil.
+
+## Prøvesøk i Excel
+
+Etter en vellykket RESTANSE- eller Statistikk-import oppdaterer MolStat
+`Prøvesøk.xlsx` direkte i roten av den valgte K-sensitive mappen. Arbeidsboken
+er makrofri og en ren lesekopi; den har ingen databasekobling og kan ikke skrive
+tilbake til SQLite.
+
+På arket `Prøvesøk`:
+
+1. Skriv prøvenummer eller MolStat-ID i den gule cellen.
+2. Velg `Eksakt` eller `Prefiks`.
+3. Når søket gir ett treff, vises alle analyseforekomstene til høyre, også når
+   samme analysekode er bestilt flere ganger.
+
+`Prøver` og `Analyser` har vanlige Excel-tabeller med autofilter. `Om` viser
+når lesekopien sist ble generert. Hvis filen er åpen og låst i Excel, beholdes
+forrige gyldige arbeidsbok og MolStat prøver igjen ved neste kjøring.
+
+Databasen er fasit. Den ligger under `data` i K-sensitiv rot. Før migrering av
+et eldre databaseskjema opprettes en verifisert SQLite-backup under
+`data/backups`. Automatisk sletting eller rotasjon av backupfiler er ikke
+aktivert før lokal retensjonspolicy er godkjent.
 
 ## Mappestruktur i SharePoint
 
@@ -152,7 +177,8 @@ python -m pytest
 ```
 
 Prosjektet krever Python 3.11 eller nyere. Jobb-PC-skriptene kontrollerer det
-konkrete Python FELLES-miljøet som organisasjonen bruker.
+konkrete Python FELLES-miljøet som organisasjonen bruker. Excel-eksporten bruker
+`XlsxWriter` og krever ikke at Excel kjører under genereringen.
 
 ## Mer dokumentasjon
 

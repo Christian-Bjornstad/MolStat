@@ -45,3 +45,5 @@ def test_workbook_contains_dynamic_search_and_detail_formulas(tmp_path: Path) ->
     assert "Analyser" in search_xml
     assert "Ingen treff" in search_xml or "Ingen analyser" in search_xml
     assert "dataValidation" in search_xml
+    assert 'ref="A9"' in search_xml
+    assert 'ref="H9"' in search_xml

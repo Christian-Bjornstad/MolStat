@@ -299,7 +299,7 @@ def generate_search_workbook(
         )
         match_expression = f'IF($B$5="Eksakt",{exact_match},{prefix_match})'
         search.write_dynamic_array_formula(
-            "A9:F9",
+            "A9",
             f'=IF(TRIM($B$4)="","",FILTER({sample_output},'
             f'{match_expression},"Ingen treff"))',
         )
@@ -337,7 +337,7 @@ def generate_search_workbook(
             detail_keys = "VSTACK(" + ",".join(item[1] for item in detail_ranges) + ")"
             detail_condition = f"{detail_keys}=$B$6"
         search.write_dynamic_array_formula(
-            "H9:Q9",
+            "H9",
             f'=IF($B$6="","",FILTER({detail_data},{detail_condition},"Ingen analyser"))',
         )
         search.set_column("A:A", 24)

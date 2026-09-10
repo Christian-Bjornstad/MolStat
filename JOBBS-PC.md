@@ -34,3 +34,39 @@ Kjør `MOLSTAT_INSTALL.cmd` første gang. Åpne deretter `MOLSTAT_START.cmd` for
 kontrollsenteret. Begge åpner Python FELLES gjennom Ivanti PowerGate og legger
 en kommando på utklippstavlen som limes inn med Ctrl+V. Automatikk- og
 bootstraplogger ligger under `%LOCALAPPDATA%\MolStat`.
+
+## Prøvesøk.xlsx
+
+`Prøvesøk.xlsx` ligger direkte i den valgte K-sensitive roten. Filen inneholder
+prøvenummer og skal ikke flyttes til den identifikatorfrie SharePoint-mappen.
+Søk i den gule cellen på arket `Prøvesøk`, og velg `Eksakt` eller `Prefiks`.
+Ved ett treff vises alle analyseforekomster automatisk. `I RESTANSE nå` betyr
+at forekomsten fantes i siste komplette og vellykkede RESTANSE-import.
+
+Hvis arbeidsboken er åpen under en oppdatering, fortsetter databaseimporten.
+Lukk filen før neste kjøring; MolStat beholder den forrige gyldige filen frem
+til den kan erstattes atomisk. Ikke rediger arkene `Prøver` eller `Analyser` som
+en datakilde—endringer der blir erstattet ved neste generering og skrives aldri
+til databasen.
+
+## Backup og gjenoppretting
+
+Før et eldre databaseskjema migreres, lager MolStat en kontrollert backup under
+`data/backups` i K-sensitiv rot og godkjenner den bare når SQLite-integriteten
+er `ok`. Backupfiler roteres ikke automatisk. Gjenoppretting skal gjøres som en
+planlagt driftsoperasjon mens MolStat og planlagte oppgaver er stoppet, og den
+gjenopprettede kopien skal integritetskontrolleres før kjøring aktiveres igjen.
+
+## Pilot før produksjonsaktivering
+
+- Bekreft faktisk WorkItem-/ordrelinjeheader i RESTANSE, ANTALL, RESULTATER og
+  ekstraksjonsrapporten. Uten feltet brukes en markert reserveidentitet.
+- Åpne en syntetisk `Prøvesøk.xlsx` i jobb-PC-ens Excel og kontroller at filen
+  åpnes uten reparasjonsvarsel.
+- Skriv et langt prøvenummer med ledende nuller i søkecellen og kontroller at
+  nullene beholdes.
+- Test eksakt søk, prefikssøk, flere treff og gjentatt analysekode.
+- Hold arbeidsboken åpen under én testkjøring, og bekreft at databasen oppdateres
+  mens forrige Excel-fil beholdes.
+- Godkjenn backupretensjon og den endelige K-sensitive pilotmappen før
+  automatisk produksjonskjøring aktiveres.
