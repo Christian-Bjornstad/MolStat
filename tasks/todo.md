@@ -250,13 +250,13 @@
 **Description:** Legg inn eksakt søk, prefikssøk, entydig valgt prøve og analysefilter. Innfør en testet radgrensevakt som deler analysene på årsark før Excel-grensen nærmes.
 
 **Acceptance criteria:**
-- [ ] Tomt, eksakt og prefiksbasert søk gir avtalte resultater.
-- [ ] Gjentatt analysekode vises som flere forekomster.
-- [ ] Radgrensevakten oppretter deterministiske årsark og formlene søker i alle aktive år.
+- [x] Tomt, eksakt og prefiksbasert søk gir avtalte resultater.
+- [x] Gjentatt analysekode vises som flere forekomster.
+- [x] Radgrensevakten oppretter deterministiske årsark og formlene søker i alle aktive år.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/excel_search/test_formulas.py tests/excel_search/test_partitioning.py -q`.
-- [ ] Rekalkuler og skann etter `#REF!`, `#VALUE!`, `#NAME?`, `#SPILL!` og `#CALC!`.
+- [x] Kjør `python -m pytest tests/excel_search/test_formulas.py tests/excel_search/test_partitioning.py -q`.
+- [x] Rekalkuler i uavhengig motor og skann etter `#REF!`, `#VALUE!`, `#NAME?`, `#SPILL!` og `#CALC!`.
 
 **Dependencies:** Task 10
 
@@ -272,13 +272,13 @@
 **Description:** Skriv først til en unik stagingfil, valider den, flush til disk og erstatt `Prøvesøk.xlsx` atomisk. Håndter låst målfil som en egen, ikke-destruktiv status.
 
 **Acceptance criteria:**
-- [ ] Ugyldig kandidat erstatter aldri forrige gyldige arbeidsbok.
-- [ ] Låst målfil påvirker ikke databasejobben og gir en trygg retry-status.
-- [ ] Midlertidige filer ryddes uten brede globs eller sletting utenfor eksportmappen.
+- [x] Ugyldig kandidat erstatter aldri forrige gyldige arbeidsbok.
+- [x] Låst målfil påvirker ikke databasejobben og gir en trygg retry-status.
+- [x] Midlertidige filer ryddes uten brede globs eller sletting utenfor eksportmappen.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/excel_search/test_publication.py -q`.
-- [ ] Simuler valideringsfeil, låst fil og avbrudd mellom skriving og bytte.
+- [x] Kjør `python -m pytest tests/excel_search/test_publication.py -q`.
+- [x] Simuler valideringsfeil, låst fil og avbrudd mellom skriving og bytte.
 
 **Dependencies:** Tasks 10–11
 
@@ -290,11 +290,11 @@
 
 ## Checkpoint: Excel
 
-- [ ] Tasks 9–12 er fullført.
-- [ ] Alle workbook-tester består.
-- [ ] Alle ark er rendret og visuelt kontrollert.
+- [ ] Tasks 9–12 er fullført; Task 9 venter bare på mål-Excel-piloten.
+- [x] Alle workbook-tester består.
+- [x] Alle ark er rendret og visuelt kontrollert; alternativ renderer har dokumentert begrensning for lange numeriske tekst-ID-er.
 - [ ] Mål-Excel åpner filen uten varsel og rekalkulerer søk.
-- [ ] En låst fil beholder forrige gyldige arbeidsbok.
+- [x] En låst fil beholder forrige gyldige arbeidsbok.
 
 ## Task 13: Koble Excel-eksport til MolStat-kjøringer
 
