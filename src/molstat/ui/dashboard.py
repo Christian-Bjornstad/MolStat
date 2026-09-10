@@ -6,7 +6,9 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -111,7 +113,15 @@ class OverviewPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("overview-page")
-        layout = QVBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setObjectName("overview-scroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(18)
 
@@ -153,6 +163,8 @@ class OverviewPage(QWidget):
         system_grid.addWidget(self.cards["sharepoint"], 0, 1)
         layout.addLayout(system_grid)
         layout.addStretch(1)
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
 
 
 def _button(text: str, name: str, *, primary: bool = False) -> QPushButton:

@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.orchestrator = orchestrator
         self.settings_store = settings_store
+        self._configuration_error = configuration_error
         self._workers: set[_JobWorker] = set()
         self.setWindowTitle("MolStat")
         self.setWindowIcon(QIcon(str(asset_path("molstat.ico"))))
@@ -220,13 +221,18 @@ class MainWindow(QMainWindow):
             if card.unit.status == "active" and key not in enabled:
                 card.set_status("Deaktivert", "Aktiver enheten i Innstillinger")
         self._refresh_run_button_states()
-        if self.settings_store is None or not hasattr(
+        if self.settings_store is not None and hasattr(
             self.settings_store, "overview_status_fields"
         ):
-            return
-        for key, status in self.settings_store.overview_status_fields().items():
-            if key in self.overview.cards:
-                self.overview.cards[key].set_status(*status)
+            for key, status in self.settings_store.overview_status_fields().items():
+                if key in self.overview.cards:
+                    self.overview.cards[key].set_status(*status)
+        if self._configuration_error and "BackupIntegrityError" in (
+            self._configuration_error
+        ):
+            self.overview.cards["database"].set_status(
+                "Feil", "Databasekontrollen feilet. Se Diagnostikk"
+            )
 
     def _refresh_run_button_states(self) -> None:
         running = {worker.target for worker in self._workers}
@@ -293,6 +299,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.settings_store, "refresh_gui_runtime"):
             orchestrator, error = self.settings_store.refresh_gui_runtime()
             self.orchestrator = orchestrator
+            self._configuration_error = error
             self.diagnostics.set_configuration_error(error)
             self._refresh_overview_status()
             if error:
@@ -355,6 +362,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.settings_store, "refresh_gui_runtime"):
             orchestrator, error = self.settings_store.refresh_gui_runtime()
             self.orchestrator = orchestrator
+            self._configuration_error = error
             self.diagnostics.set_configuration_error(error)
             self._refresh_overview_status()
         if warnings:

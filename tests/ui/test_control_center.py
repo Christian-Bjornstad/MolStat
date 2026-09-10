@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFileDialog, QPushButton, QStackedWidget
+from PyQt6.QtWidgets import QFileDialog, QPushButton, QScrollArea, QStackedWidget
 
 from molstat.orchestrator import JobResult
 from molstat.ui.app import MainWindow
@@ -339,6 +339,47 @@ def test_configuration_error_is_visible_in_diagnostics(qtbot) -> None:
     qtbot.addWidget(window)
 
     assert "Lookup-fil mangler" in window.diagnostics.log.toPlainText()
+
+
+def test_database_backup_error_is_visible_on_overview(qtbot) -> None:
+    window = MainWindow(
+        None,
+        FakeSettingsStore(),
+        configuration_error=(
+            "BackupIntegrityError: Databasefilen kunne ikke valideres "
+            "(SQLITE_CANTOPEN)."
+        ),
+    )
+    qtbot.addWidget(window)
+
+    database = window.overview.cards["database"]
+    assert database.state_label.text() == "Feil"
+    assert "Diagnostikk" in database.detail_label.text()
+
+
+def test_overview_and_settings_scroll_in_citrix_sized_window(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+    window.resize(1100, 720)
+    window.show()
+
+    overview_scroll = window.findChild(QScrollArea, "overview-scroll")
+    settings_scroll = window.findChild(QScrollArea, "settings-scroll")
+    assert overview_scroll is not None
+    assert settings_scroll is not None
+
+    qtbot.mouseClick(
+        window.findChild(QPushButton, "nav-settings"), Qt.MouseButton.LeftButton
+    )
+    assert settings_scroll.verticalScrollBar().maximum() > 0
+    settings_scroll.verticalScrollBar().setValue(
+        settings_scroll.verticalScrollBar().maximum()
+    )
+    qtbot.wait(10)
+    button_top = window.settings_page.save_button.mapTo(
+        settings_scroll.viewport(), window.settings_page.save_button.rect().topLeft()
+    ).y()
+    assert 0 <= button_top < settings_scroll.viewport().height()
 
 
 def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:

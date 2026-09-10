@@ -3,12 +3,15 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -20,7 +23,15 @@ class SettingsPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("settings-page")
-        layout = QVBoxLayout(self)
+        page_layout = QVBoxLayout(self)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setObjectName("settings-scroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(16)
         title = QLabel("Innstillinger")
@@ -108,6 +119,8 @@ class SettingsPage(QWidget):
         self.save_button.setProperty("primary", True)
         layout.addWidget(self.save_button, 0)
         layout.addStretch(1)
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
 
     def _directory_row(
         self, field: QLineEdit, button_name: str, accessible_name: str
