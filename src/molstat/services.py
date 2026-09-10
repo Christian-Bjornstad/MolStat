@@ -224,6 +224,8 @@ class DefaultServices:
             ),
             publisher=publishers,
             backlog_publisher=backlog_publisher,
+            excel_search_path=self.settings.sensitive_root / "Prøvesøk.xlsx",
+            excel_failure_reporter=self._record_job_failure,
             sharepoint_root=self.settings.sharepoint_root,
             work_root=self.settings.sensitive_root / "work" / "processing",
             statistics_fetch=fetcher.fetch_statistics,

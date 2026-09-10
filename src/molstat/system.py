@@ -11,6 +11,7 @@ from .archive import RawArchive
 from ._backlog.export import export_backlog_history
 from .backlog import BacklogProcessor
 from .database import MolStatDatabase
+from .excel_search import publish_search_workbook, read_excel_snapshot
 from .lvms.report import ReportRequest
 from .modules import DEFAULT_UNITS, JobKind, UnitRegistry
 from .publisher import SharePointPublisher
@@ -25,6 +26,13 @@ class CapabilityRun:
     job_kind: JobKind
     summary: Mapping[str, object]
     error: BaseException | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ExcelRefreshStatus:
+    status: str
+    generated_at: datetime
+    error_type: str | None = None
 
 
 class MolStatSystem:
@@ -44,6 +52,9 @@ class MolStatSystem:
         ],
         backlog_fetch: Callable[[], FetchedReport],
         backlog_publisher: SharePointPublisher | None = None,
+        excel_search_path: Path | None = None,
+        excel_now: Callable[[], datetime] = datetime.now,
+        excel_failure_reporter: Callable[[str, BaseException], None] | None = None,
         units: UnitRegistry = DEFAULT_UNITS,
     ) -> None:
         self.database = database
@@ -56,6 +67,10 @@ class MolStatSystem:
         self.statistics_fetch = statistics_fetch
         self.backlog_fetch = backlog_fetch
         self.backlog_publisher = backlog_publisher
+        self.excel_search_path = excel_search_path
+        self._excel_now = excel_now
+        self._excel_failure_reporter = excel_failure_reporter
+        self.excel_status: ExcelRefreshStatus | None = None
         self.units = units
 
     def run_statistics(self) -> dict[str, int]:
@@ -100,9 +115,11 @@ class MolStatSystem:
             },
             self.sharepoint_root / capability.sharepoint_folder,
         )
+        excel_published = self._refresh_excel_search()
         return {
             "rows": sum(int(value) for value in result.row_counts.values()),
             "units": 1,
+            "excel_published": excel_published,
         }
 
     def run_backlog(self) -> dict[str, int]:
@@ -149,13 +166,40 @@ class MolStatSystem:
                     (unit_key,),
                 ).fetchone()[0]
             )
+        excel_published = self._refresh_excel_search()
         return {
             "rows": imported.rows_read,
             "invalid": imported.invalid_rows,
             "excluded": imported.excluded_rows,
             "snapshots": snapshots,
             "published_rows": published_rows,
+            "excel_published": excel_published,
         }
+
+    def _refresh_excel_search(self) -> bool:
+        if self.excel_search_path is None:
+            return False
+        generated_at = self._excel_now()
+        try:
+            snapshot = read_excel_snapshot(
+                self.database,
+                generated_at=generated_at,
+            )
+            result = publish_search_workbook(snapshot, self.excel_search_path)
+        except Exception as exc:
+            self.excel_status = ExcelRefreshStatus(
+                "failed",
+                generated_at,
+                type(exc).__name__,
+            )
+            if self._excel_failure_reporter is not None:
+                try:
+                    self._excel_failure_reporter("excel_search_refresh_failed", exc)
+                except Exception:
+                    pass
+            return False
+        self.excel_status = ExcelRefreshStatus(result.status, generated_at)
+        return result.status == "published"
 
     def _run_capability(
         self,

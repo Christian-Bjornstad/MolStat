@@ -146,6 +146,7 @@ def test_system_build_wires_exact_backlog_publication_policy(
         "restansehistorikk_hemato.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
     }
     assert system.sharepoint_root == sharepoint
+    assert system.excel_search_path == sensitive / "Prøvesøk.xlsx"
 
 
 def test_settings_transfer_imports_unavailable_paths_with_safe_labels(

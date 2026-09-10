@@ -301,13 +301,13 @@
 **Description:** Generer arbeidsboken etter vellykket registeroppdatering, og vis sist generert-/eventuelt låst-status uten identifikatorer eller sensitive stier i diagnostikken.
 
 **Acceptance criteria:**
-- [ ] Vellykket RESTANSE eller Statistikk oppdaterer arbeidsboken fra siste konsistente database.
-- [ ] Excel-feil gjør ikke datainnhentingen mislykket eller korrupt.
-- [ ] Status viser tidspunkt og handlingsrettet feil uten prøveverdier eller full K-sti.
+- [x] Vellykket RESTANSE eller Statistikk oppdaterer arbeidsboken fra siste konsistente database.
+- [x] Excel-feil gjør ikke datainnhentingen mislykket eller korrupt.
+- [x] Status viser tidspunkt og handlingsrettet feiltype uten prøveverdier eller full K-sti.
 
 **Verification:**
-- [ ] Kjør `python -m pytest tests/test_services.py tests/test_orchestrator.py tests/excel_search -q`.
-- [ ] Kjør syntetisk manuell og tidsstyrt flyt.
+- [x] Kjør `python -m pytest tests/test_services.py tests/test_orchestrator.py tests/excel_search -q`.
+- [x] Kjør syntetisk manuell/tidsstyrt systemflyt; operativ jobb-PC-pilot gjenstår.
 
 **Dependencies:** Task 12
 
