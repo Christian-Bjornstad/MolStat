@@ -24,6 +24,18 @@ def test_project_is_a_portable_pbip_with_linked_semantic_model() -> None:
     assert (SEMANTIC / "definition.pbism").is_file()
 
 
+def test_all_pbip_text_files_are_utf8_without_bom() -> None:
+    text_suffixes = {".tmdl", ".json", ".pbip", ".pbir", ".pbism", ".md", ".dax"}
+    files_with_bom = [
+        path.relative_to(PROJECT)
+        for path in PROJECT.rglob("*")
+        if path.is_file()
+        and path.suffix.lower() in text_suffixes
+        and path.read_bytes().startswith(b"\xef\xbb\xbf")
+    ]
+    assert files_with_bom == []
+
+
 def test_calendar_is_controlled_and_auto_date_tables_are_removed() -> None:
     tables = SEMANTIC / "definition" / "tables"
     calendar = read_text(tables / "Dato.tmdl")

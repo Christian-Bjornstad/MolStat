@@ -25,9 +25,11 @@ Tallene er kontrollreferanser, ikke hardkodede mål. De skal variere med oppdate
 
 - PBIR-validering: gyldig, ingen feil, 5 sider og 86 visualer.
 - Alle sider er 1280 × 720.
-- Testpakke: 7 tester bestått.
+- Testpakke: 9 tester bestått.
 - TMDL ble konvertert til rå modell og kompilert til PBIT med `pbi-tools.core`.
 - Modellen ble importert i en tom lokal Power BI-instans: 5 tabeller, 51 kolonner, 26 mål og 7 relasjoner.
+- PBIP-filen ble åpnet uten formatfeil i Power BI Desktop August 2026 (2.157.1354.0). Motoren lastet alle 5 tabeller, 26 mål og 7 relasjoner.
+- Alle PBIP-, PBIR-, JSON- og TMDL-tekstfiler kontrolleres som UTF-8 uten BOM, som kreves av Power BI Desktop.
 - Full testoppdatering i den tomme instansen stoppet ved manglende SharePoint-legitimasjon; derfor skal sluttbruker kjøre oppdatering i sin vanlige, autentiserte Desktop-kontekst.
 
 ## Kontroll ved hver publisering

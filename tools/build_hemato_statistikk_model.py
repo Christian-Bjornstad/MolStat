@@ -26,7 +26,18 @@ def remove_variations(text: str) -> str:
 
 def write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content.rstrip() + "\n", encoding="utf-8")
+    path.write_text(content.lstrip("\ufeff").rstrip() + "\n", encoding="utf-8")
+
+
+def normalize_project_text_encoding() -> None:
+    """Power BI Desktop rejects every PBIP/TMDL text file containing a BOM."""
+    text_suffixes = {".tmdl", ".json", ".pbip", ".pbir", ".pbism", ".md", ".dax"}
+    for path in PROJECT.rglob("*"):
+        if not path.is_file() or path.suffix.lower() not in text_suffixes:
+            continue
+        raw = path.read_bytes()
+        if raw.startswith(b"\xef\xbb\xbf"):
+            path.write_bytes(raw[3:])
 
 
 def build_calendar() -> None:
@@ -513,6 +524,7 @@ def main() -> None:
     build_fact_tables()
     build_relationships()
     clean_model()
+    normalize_project_text_encoding()
     print(f"Bygget semantisk modell i {DEFINITION}")
 
 
