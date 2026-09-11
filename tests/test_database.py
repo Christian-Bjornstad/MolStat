@@ -41,6 +41,29 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
     }
 
 
+def test_schema_probe_does_not_create_a_database(tmp_path: Path) -> None:
+    path = tmp_path / "molstat.sqlite3"
+
+    assert MolStatDatabase(path).schema_version_if_present() is None
+    assert not path.exists()
+
+
+def test_second_pc_can_probe_schema_while_first_pc_has_write_reservation(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "molstat.sqlite3"
+    first = MolStatDatabase(path)
+    second = MolStatDatabase(path)
+    first.migrate()
+
+    with first._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            assert second.schema_version_if_present() == 6
+        finally:
+            connection.execute("ROLLBACK")
+
+
 def test_v1_migration_adds_history_without_rewriting_current_samples(
     tmp_path: Path,
 ) -> None:

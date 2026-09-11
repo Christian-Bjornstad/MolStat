@@ -254,14 +254,38 @@ class MolStatDatabase:
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        connection.execute("PRAGMA busy_timeout = 30000")
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = DELETE")
-        connection.execute("PRAGMA synchronous = FULL")
+        try:
+            connection.execute("PRAGMA busy_timeout = 30000")
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA synchronous = FULL")
+        except BaseException:
+            connection.close()
+            raise
         return connection
+
+    def schema_version_if_present(self) -> int | None:
+        """Read the schema marker without creating or modifying the database."""
+
+        candidate = self.path.resolve()
+        if not candidate.is_file():
+            return None
+        uri = candidate.as_uri() + "?mode=ro"
+        with sqlite3.connect(uri, uri=True, timeout=30) as connection:
+            connection.execute("PRAGMA busy_timeout = 30000")
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'schema_info'"
+            ).fetchone()
+            if table is None:
+                return None
+            row = connection.execute(
+                "SELECT version FROM schema_info LIMIT 1"
+            ).fetchone()
+        return int(row[0]) if row is not None else None
 
     def migrate(self) -> None:
         with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode = DELETE")
             connection.execute("BEGIN IMMEDIATE")
             try:
                 for statement in _SCHEMA:

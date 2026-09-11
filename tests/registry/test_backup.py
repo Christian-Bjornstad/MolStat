@@ -181,3 +181,21 @@ def test_backup_before_migration_runs_once_for_an_older_schema(tmp_path: Path) -
 
     database.migrate()
     assert backup_before_migration(database, tmp_path / "data" / "backups") is None
+
+
+def test_schema_probe_error_is_not_misreported_as_backup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_path = tmp_path / "molstat.sqlite3"
+    database_path.write_bytes(b"present")
+    database = MolStatDatabase(database_path)
+    monkeypatch.setattr(
+        database,
+        "schema_version_if_present",
+        lambda: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")),
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+        backup_before_migration(database, tmp_path / "backups")
+
+    assert not (tmp_path / "backups").exists()

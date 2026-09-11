@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -19,6 +20,33 @@ def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
         "enabled_hemato": "true",
         "enabled_solide": "true",
     }
+
+
+def test_second_pc_opens_current_shared_database_without_migrating(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A current shared database must be read-only during app startup."""
+
+    sensitive = tmp_path / "shared-sensitive"
+    database_path = sensitive / "data" / "molstat.sqlite3"
+    database_path.parent.mkdir(parents=True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("CREATE TABLE schema_info(version INTEGER NOT NULL)")
+        connection.execute("INSERT INTO schema_info VALUES (6)")
+
+    services = DefaultServices(tmp_path / "pc-b-settings.json")
+    services.settings = services.settings.__class__(sensitive_root=sensitive)
+    migrate_calls: list[Path] = []
+    monkeypatch.setattr(
+        "molstat.services.MolStatDatabase.migrate",
+        lambda database: migrate_calls.append(database.path),
+    )
+
+    database = services._database()
+
+    assert database.path == database_path
+    assert migrate_calls == []
+    assert not (sensitive / "data" / "backups").exists()
 
 
 def test_refresh_gui_runtime_reports_and_logs_configuration_failure(

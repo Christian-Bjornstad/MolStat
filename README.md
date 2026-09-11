@@ -131,6 +131,14 @@ CDP-port, database eller rådata.
 PC-spesifikke stier som ikke finnes lokalt blir importert og merket `Må velges
 på denne PC-en`. Kjøring forblir sperret til nødvendige stier er tilgjengelige.
 
+Begge PC-er skal velge den samme eksisterende K-sensitive roten. MolStat finner
+da databasen relativt som `data/molstat.sqlite3`; det skal ikke opprettes en ny
+undermappe eller database for hver PC. En database med gjeldende skjema åpnes
+uten migrering eller backup ved vanlig oppstart, slik at en annen PC kan koble
+seg til uten en unødvendig skriveoperasjon. Installer planlagte skrivejobber på
+bare én fast drifts-PC. Andre PC-er kan åpne kontrollsenteret og overta manuell
+kjøring når ingen annen MolStat-kjøring pågår.
+
 ## Prøveflyt-data
 
 `restansehistorikk_hemato.csv` bygges på nytt fra hele den permanente

@@ -110,17 +110,7 @@ def backup_before_migration(
     source = database.path.resolve()
     if not source.is_file():
         return None
-    version: int | None = None
-    try:
-        uri = source.as_uri() + "?mode=ro"
-        with closing(sqlite3.connect(uri, uri=True)) as connection:
-            row = connection.execute(
-                "SELECT version FROM schema_info LIMIT 1"
-            ).fetchone()
-            if row is not None:
-                version = int(row[0])
-    except sqlite3.OperationalError:
-        version = None
+    version = database.schema_version_if_present()
     if version == SCHEMA_VERSION:
         return None
     return create_verified_backup(database, backup_dir)

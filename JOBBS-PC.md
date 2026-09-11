@@ -3,6 +3,9 @@
 ## Første oppsett
 
 - Bruk en fast mappe på K-sensitiv som MolStat alene skriver til.
+- Velg nøyaktig den samme eksisterende K-sensitive roten på alle PC-er. Ikke
+  lag en egen MolStat-mappe per PC; databasen ligger alltid relativt under
+  `data/molstat.sqlite3`.
 - Velg en synkronisert SharePoint-mappe som er godkjent for pseudonyme
   MolStat-ID-er i detaljfilene.
 - Angi LVMS-adressen, og velg mapper og lookup-filer med «Bla gjennom …».
@@ -19,6 +22,9 @@ importert. En eventuell gammel `MolStat - tavleserver` fjernes automatisk.
 
 Windows ignorerer en ny start dersom samme oppgave allerede kjører. Databasen
 har i tillegg en lease som hindrer samtidige skrivere.
+Installer de planlagte oppgavene på bare én fast drifts-PC. Kontrollsenteret kan
+åpnes fra andre PC-er mot samme database, men to manuelle kjøringer skal ikke
+startes samtidig.
 
 ## Sikkerhetsgrense
 
