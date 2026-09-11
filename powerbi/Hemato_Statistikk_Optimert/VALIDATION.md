@@ -1,6 +1,6 @@
 # Valideringsnotat
 
-Kontrollene ble gjort 10. september 2026 mot den åpne originalmodellen på Power BI Desktops lokale Analysis Services-instans. Kilde-PBIX-en ble bare lest.
+Baseline ble etablert 10. september 2026 mot den åpne originalmodellen. Sluttkontrollen ble kjørt 11. september 2026 mot den lagrede og gjenåpnede `Hemato_Statistikk_2_0.pbix`. Kilde-PBIX-en ble bare lest.
 
 ## Baseline fra rå tidsstempler
 
@@ -14,6 +14,14 @@ Kontrollene ble gjort 10. september 2026 mot den åpne originalmodellen på Powe
 | Seksjonstid, P90 | ca. 21,12 dager |
 | Enhetstid, median | ca. 5,83 dager |
 | Enhetstid, P90 | ca. 19,95 dager |
+| Enhetstid, gyldige observasjoner | 48 099 |
+| Enhetstid, innen individuell frist | 38 455 (79,95 %) |
+| Fireukers nivå ved siste dato med data | 395,25 analyser/uke |
+| Datakvalitet OK | 47 933 |
+| Datakvalitetsavvik totalt | 2 016 |
+| Negativ analysetid | 1 852 |
+| Ekstrem prøvetakingsdato | 146 |
+| Godkjenning før analyseresultat | 18 |
 | Pasientintervaller som er negative eller over 365 dager | 154 |
 | Negative intervaller bestilling → resultat | 121 |
 | Median ukevolum siste 52 uker | ca. 379,5 |
@@ -23,12 +31,13 @@ Tallene er kontrollreferanser, ikke hardkodede mål. De skal variere med oppdate
 
 ## Teknisk verifikasjon
 
-- PBIR-validering: gyldig, ingen feil, 5 sider og 86 visualer.
+- PBIR-validering: gyldig, ingen feil, 114 filer kontrollert, 5 sider og 106 visualer.
 - Alle sider er 1280 × 720.
-- Testpakke: 9 tester bestått.
+- Testpakke: 18 tester bestått.
 - TMDL ble konvertert til rå modell og kompilert til PBIT med `pbi-tools.core`.
-- Modellen ble importert i en tom lokal Power BI-instans: 5 tabeller, 51 kolonner, 26 mål og 7 relasjoner.
-- PBIP-filen ble åpnet uten formatfeil i Power BI Desktop August 2026 (2.157.1354.0). Motoren lastet alle 5 tabeller, 26 mål og 7 relasjoner.
+- Den lagrede sluttfilen lastet 5 tabeller, 63 kolonner, 39 mål og 7 relasjoner i Power BI Desktop August 2026 (2.157.1354.0).
+- Sluttfilen ble lukket, åpnet på nytt og DAX-kontrollert mot den persistente modellen.
+- `SecurityBindings` ble regenerert av Power BI Desktop ved lagring, og PBIX-en inneholder både `DataModel` og PBIR-definisjonen.
 - Alle PBIP-, PBIR-, JSON- og TMDL-tekstfiler kontrolleres som UTF-8 uten BOM, som kreves av Power BI Desktop.
 - Full testoppdatering i den tomme instansen stoppet ved manglende SharePoint-legitimasjon; derfor skal sluttbruker kjøre oppdatering i sin vanlige, autentiserte Desktop-kontekst.
 

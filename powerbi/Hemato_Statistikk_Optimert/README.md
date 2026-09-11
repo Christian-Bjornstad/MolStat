@@ -1,6 +1,6 @@
 # Hemato Statistikk – optimert Power BI-rapport
 
-Dette er en versjonert PBIP-kopi av `C:\Users\molpa\Downloads\Hemato_Statistikk.pbix`. Originalfilen er ikke endret. Åpne [Hemato_Statistikk_Optimert.pbip](./Hemato_Statistikk_Optimert.pbip) i Power BI Desktop og logg inn mot de samme SharePoint-kildene som originalrapporten bruker.
+Dette er en versjonert videreutvikling av `C:\Users\molpa\Downloads\Hemato_Statistikk.pbix`. Originalfilen er ikke endret. Den ferdige, selvstendige filen er `C:\Users\molpa\Documents\MolStat\powerbi\Hemato_Statistikk_2_0.pbix`; den åpner med cachede data uten SharePoint-innlogging. PBIP-kilden ligger i [Hemato_Statistikk_Optimert.pbip](./Hemato_Statistikk_Optimert.pbip).
 
 ## Rapportstruktur
 
@@ -45,11 +45,11 @@ Kontrollgrunnlaget mot den åpne originalmodellen er dokumentert i [VALIDATION.m
 
 ## Oppdatering og videre arbeid
 
-1. Åpne PBIP-filen i Power BI Desktop.
+1. Åpne `C:\Users\molpa\Documents\MolStat\powerbi\Hemato_Statistikk_2_0.pbix` for vanlig bruk og kontroll. Bruk PBIP-filen når selve rapport-/modellkilden skal videreutvikles.
 2. Godkjenn personvern-/datakildenivå og logg inn mot SharePoint-kildene ved behov.
 3. Kjør full oppdatering og kontroller tallene med DAX-filene i `validation`.
 4. Kontroller font, etiketter, tabellbredder og betinget formatering i 1280 × 720 før publisering.
-5. Konfigurer eventuell drillthrough fra oppfølgings- og rangeringsvisualene i Desktop. Navigasjon og detaljside finnes allerede, men pbi CLI kan ikke opprette selve drillthrough-bindingen pålitelig.
+5. Vurder eventuell drillthrough-binding etter at rapporten er testet med oppdaterte data. Navigasjon og detaljside finnes allerede.
 6. Følg [WRITEBACK.md](./WRITEBACK.md) før kommentarflyt aktiveres. Rapporten later ikke som Power BI-tabellen er en skriveflate.
 
 Modellen kan regenereres med `py -3 tools/build_hemato_statistikk_model.py`, og rapportdefinisjonen med `py -3 tools/build_hemato_statistikk_report.py`. Kjør deretter `py -3 -m pytest tests/powerbi/test_hemato_statistikk_optimert.py -q` og `pbi --json report --path "powerbi\Hemato_Statistikk_Optimert\Hemato Statistikk Rapport.Report" validate`.

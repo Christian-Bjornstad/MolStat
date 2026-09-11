@@ -80,7 +80,10 @@ def sum_column(entity: str, prop: str) -> dict[str, Any]:
 
 
 def position(x: int, y: int, w: int, h: int, z: int) -> dict[str, Any]:
-    return {"x": x, "y": y, "z": z, "height": h, "width": w, "tabOrder": z}
+    # Desktop writes PBIR stacking/tab order in 1000-point steps. Keeping that
+    # convention avoids the navigation hit area falling through to nav-bg.
+    layer = z * 1000
+    return {"x": x, "y": y, "z": layer, "height": h, "width": w, "tabOrder": layer}
 
 
 def container(title: str = "", subtitle: str = "") -> dict[str, Any]:
@@ -121,12 +124,12 @@ class Page:
                 "height": 720,
                 "width": 1280,
                 "objects": {
-                    "background": [{"properties": {"color": solid(C["canvas"]), "transparency": lit("0D")}}],
+                    "background": [{"properties": {"color": solid(C["nav"]), "transparency": lit("0D")}}],
                     "outspace": [{"properties": {"color": solid(C["canvas"]), "transparency": lit("0D")}}],
                 },
             },
         )
-        self.shape("nav-bg", 0, 0, 184, 720, C["nav"])
+        self.shape("main-bg", 184, 0, 1096, 720, C["canvas"])
         self.textbox("brand", 18, 18, 150, 72, [("OUS", 24, "#FFFFFF", True), ("Hematologi", 11, "#CFE3F2", False)])
         self.navigator("navigation", 14, 130, 156, 360)
         self.textbox("nav-help", 18, 620, 148, 72, [("Dato i visningen", 10, "#CFE3F2", True), (event_date, 9, "#FFFFFF", False)])
@@ -181,27 +184,36 @@ class Page:
         )
 
     def navigator(self, visual_id: str, x: int, y: int, w: int, h: int) -> None:
-        self.write_visual(
-            visual_id,
-            {
-                "visualType": "pageNavigator",
-                "objects": {
-                    "pages": [{"properties": {"showByDefault": lit("true")}}],
-                    "shape": [{"properties": {"tileShape": lit("'rectangleRounded'")}, "selector": {"id": "default"}}],
-                    "fill": [
-                        {"properties": {"show": lit("true"), "fillColor": solid(C["nav"]), "transparency": lit("100D")}, "selector": {"id": "default"}},
-                        {"properties": {"show": lit("true"), "fillColor": solid(C["nav_selected"]), "transparency": lit("0D")}, "selector": {"id": "selected"}},
-                    ],
-                    "outline": [{"properties": {"show": lit("false")}}],
-                    "text": [
-                        {"properties": {"fontFamily": lit("'Segoe UI'"), "fontSize": lit("11D"), "fontColor": solid("#FFFFFF")}, "selector": {"id": "default"}},
-                        {"properties": {"fontFamily": lit("'Segoe UI Semibold'"), "fontSize": lit("11D"), "fontColor": solid("#FFFFFF")}, "selector": {"id": "selected"}},
-                    ],
+        for index, (target_page_id, _) in enumerate(PAGE_DEFS):
+            page_visibility = [{"properties": {"showByDefault": lit("false")}}]
+            page_visibility.extend(
+                {
+                    "properties": {"showPage": lit("true" if page_id == target_page_id else "false")},
+                    "selector": {"id": page_id},
+                }
+                for page_id, _ in PAGE_DEFS
+            )
+            self.write_visual(
+                f"{visual_id}-{index + 1}",
+                {
+                    "visualType": "pageNavigator",
+                    "objects": {
+                        "pages": page_visibility,
+                        "shape": [{"properties": {"tileShape": lit("'rectangleRounded'")}, "selector": {"id": "default"}}],
+                        "fill": [
+                            {"properties": {"show": lit("true"), "fillColor": solid(C["nav"]), "transparency": lit("0D")}, "selector": {"id": "default"}},
+                            {"properties": {"show": lit("true"), "fillColor": solid(C["nav_selected"]), "transparency": lit("0D")}, "selector": {"id": "selected"}},
+                        ],
+                        "outline": [{"properties": {"show": lit("false")}}],
+                        "text": [
+                            {"properties": {"fontFamily": lit("'Segoe UI'"), "fontSize": lit("10D"), "fontColor": solid("#FFFFFF")}, "selector": {"id": "default"}},
+                            {"properties": {"fontFamily": lit("'Segoe UI Semibold'"), "fontSize": lit("10D"), "fontColor": solid("#FFFFFF")}, "selector": {"id": "selected"}},
+                        ],
+                    },
+                    "drillFilterOtherVisuals": True,
                 },
-                "drillFilterOtherVisuals": True,
-            },
-            x, y, w, h,
-        )
+                x, y + index * 64, w, 52,
+            )
 
     def slicer(self, visual_id: str, x: int, y: int, w: int, h: int, entity: str, field: str, title: str) -> None:
         self.write_visual(
@@ -310,8 +322,8 @@ def build_volume(page: Page) -> None:
 
 
 def build_turnaround(page: Page) -> None:
-    page.slicer("perspective", 208, 96, 412, 68, "Svartidsperspektiv", "Perspektiv", "Velg svartidsperspektiv")
-    page.textbox("perspective-help", 636, 96, 620, 68, [("Alle mål under bruker samme sluttpunkt: analyseresultat", 11, C["blue"], True), ("Frist vurderes rad for rad. Stiplet målverdi brukes bare når én frist er entydig.", 9, C["muted"], False)], panel=True)
+    page.slicer("perspective", 208, 96, 412, 84, "Svartidsperspektiv", "Perspektiv", "Velg svartidsperspektiv")
+    page.textbox("perspective-help", 636, 96, 620, 84, [("Alle mål under bruker samme sluttpunkt: analyseresultat", 11, C["blue"], True), ("Frist vurderes rad for rad. Stiplet målverdi brukes bare når én frist er entydig.", 9, C["muted"], False)], panel=True)
     cards = [
         ("median", "Median svartid dager", "Median", C["teal"], "50 % er raskere"),
         ("p75", "P75 svartid dager", "P75", C["green"], "75 % er raskere"),
@@ -320,17 +332,17 @@ def build_turnaround(page: Page) -> None:
         ("valid", "Antall gyldige svartider", "Gyldige n", C["blue"], "Ekskluderer ugyldige intervaller"),
     ]
     for idx, (vid, metric, label, accent, note) in enumerate(cards):
-        page.card(f"kpi-{vid}", 208 + idx * 210, 180, 198, 108, "resultater", metric, label, accent, note)
+        page.card(f"kpi-{vid}", 208 + idx * 210, 196, 198, 108, "resultater", metric, label, accent, note)
     tips = [measure("resultater", "Antall gyldige svartider"), measure("resultater", "Andel innen individuell frist"), measure("resultater", "Antall over individuell frist"), measure("resultater", "Antall ekskludert datakvalitet"), measure("resultater", "Entydig svarfrist dager")]
-    page.chart("analysis-turnaround", "lineClusteredColumnComboChart", 208, 310, 650, 286, "Svartid per analyse", "Stolpe = median • linje = P90 • frist vises bare når entydig", {"Category": [column("resultater", "Analyse")], "Y": [measure("resultater", "Median svartid dager")], "Y2": [measure("resultater", "P90 svartid dager"), measure("resultater", "Entydig svarfrist dager")], "Tooltips": tips})
-    page.chart("turnaround-trend", "lineChart", 874, 310, 382, 286, "Utvikling over tid", "Median og P90 per måned", {"Category": [column("Dato", "ÅrMåned")], "Y": [measure("resultater", "Median svartid dager"), measure("resultater", "P90 svartid dager")], "Tooltips": tips})
+    page.chart("analysis-turnaround", "lineClusteredColumnComboChart", 208, 326, 650, 270, "Svartid per analyse", "Stolpe = median • linje = P90 • frist vises bare når entydig", {"Category": [column("resultater", "Analyse")], "Y": [measure("resultater", "Median svartid dager")], "Y2": [measure("resultater", "P90 svartid dager"), measure("resultater", "Entydig svarfrist dager")], "Tooltips": tips})
+    page.chart("turnaround-trend", "lineChart", 874, 326, 382, 270, "Utvikling over tid", "Median og P90 per måned", {"Category": [column("Dato", "ÅrMåned")], "Y": [measure("resultater", "Median svartid dager"), measure("resultater", "P90 svartid dager")], "Tooltips": tips})
     page.textbox("turnaround-note", 208, 614, 1048, 70, [("Lesing av status", 11, C["blue"], True), ("På mål / Følg med / Krever oppfølging vises med både tekst og farge. Gjennomsnitt finnes kun som sekundær informasjon i tooltip.", 9, C["text"], False)], panel=True)
 
 
 def build_followup(page: Page) -> None:
-    page.slicer("filter-group", 208, 96, 260, 64, "resultater", "Rapportgruppe", "Rapportgruppe")
-    page.slicer("filter-quality", 484, 96, 260, 64, "resultater", "Datakvalitet status", "Datakvalitet")
-    page.textbox("writeback-note", 760, 96, 496, 64, [("Oppfølging uten falsk writeback", 11, C["blue"], True), ("Kommentarer krever stabil saksnøkkel og godkjent lagringskilde.", 9, C["muted"], False)], panel=True)
+    page.slicer("filter-group", 208, 96, 260, 84, "resultater", "Rapportgruppe", "Rapportgruppe")
+    page.slicer("filter-quality", 484, 96, 260, 84, "resultater", "Datakvalitet status", "Datakvalitet")
+    page.textbox("writeback-note", 760, 96, 496, 84, [("Oppfølging uten falsk writeback", 11, C["blue"], True), ("Kommentarer krever stabil saksnøkkel og godkjent lagringskilde.", 9, C["muted"], False)], panel=True)
     cards = [
         ("valid", "Antall gyldige svartider", "Gyldige", C["green"]),
         ("excluded", "Antall ekskludert datakvalitet", "Ekskludert", C["red"]),
@@ -338,7 +350,7 @@ def build_followup(page: Page) -> None:
         ("over", "Antall over individuell frist", "Over frist", C["amber"]),
     ]
     for idx, (vid, metric, label, accent) in enumerate(cards):
-        page.card(f"kpi-{vid}", 208 + idx * 262, 180, 246, 100, "resultater", metric, label, accent, "Valgt perspektiv")
+        page.card(f"kpi-{vid}", 208 + idx * 262, 196, 246, 96, "resultater", metric, label, accent, "Valgt perspektiv")
     fields = [
         column("resultater", "Rapportgruppe"), column("resultater", "Analyse"), column("resultater", "Tidspunkt.prøvetaking"),
         column("resultater", "Tidspunkt.analysebestilling"), column("resultater", "Ekstraksjon.ferdig"), column("resultater", "Enhet starttid"),
@@ -346,7 +358,7 @@ def build_followup(page: Page) -> None:
         column("resultater", "Svartid pasient dager"), column("resultater", "Svartid seksjon dager"), column("resultater", "Svartid enhet dager"),
         column("resultater", "Svarfrist"), column("resultater", "Datakvalitet status"),
     ]
-    page.table("followup-table", 208, 300, 1048, 384, "Detaljer • sorter og filtrer før faglig oppfølging", fields)
+    page.table("followup-table", 208, 308, 1048, 376, "Detaljer • sorter og filtrer før faglig oppfølging", fields)
 
 
 def build_quality(page: Page) -> None:
@@ -358,7 +370,7 @@ def build_quality(page: Page) -> None:
     ]
     for idx, (vid, metric, label, accent) in enumerate(cards):
         page.card(f"kpi-{vid}", 208 + idx * 262, 100, 246, 116, "resultater", metric, label, accent, "Valgt periode og filter")
-    page.chart("quality-status", "clusteredBarChart", 208, 240, 506, 238, "Avvik etter type", "Negative, manglende og ekstreme verdier vises – aldri som null", {"Category": [column("resultater", "Datakvalitet status")], "Y": [measure("resultater", "Antall resultater")], "Tooltips": [measure("resultater", "Andel ekskludert datakvalitet")]})
+    page.chart("quality-status", "clusteredBarChart", 208, 240, 506, 238, "Avvik etter type", "Kun avvikskategorier; OK-totalen vises i KPI-kortet", {"Category": [column("resultater", "Datakvalitet status")], "Y": [measure("resultater", "Antall avvik etter type")], "Tooltips": [measure("resultater", "Andel ekskludert datakvalitet")]})
     page.chart("quality-source", "clusteredBarChart", 730, 240, 526, 238, "Valgt enhetsstart", "Viser om bestilling eller ekstraksjon var seneste operative start", {"Category": [column("resultater", "Enhet startkilde")], "Y": [measure("resultater", "Antall resultater")], "Tooltips": [measure("resultater", "Median enhetstid dager")]})
     page.textbox("quality-rules", 208, 500, 1048, 184, [("Datakvalitetsregler", 13, C["blue"], True), ("• Manglende start eller analyseresultat ekskluderes fra relevante svartidsmål.", 10, C["text"], False), ("• Negative intervaller og intervaller over 365 dager returnerer BLANK – aldri 0.", 10, C["text"], False), ("• Godkjenning før analyseresultat flagges separat.", 10, C["text"], False), ("• Alle prosentmål bruker kun gyldige observasjoner og viser antall i tooltip.", 10, C["text"], False)], panel=True)
 

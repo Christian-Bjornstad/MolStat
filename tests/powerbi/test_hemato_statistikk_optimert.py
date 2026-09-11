@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "powerbi" / "Hemato_Statistikk_Optimert"
 SEMANTIC = PROJECT / "Hemato Semantikk"
 REPORT = PROJECT / "Hemato Statistikk Rapport.Report"
-PBIX = ROOT / "powerbi" / "Hemato_Statistikk_Optimert.pbix"
+PBIX = ROOT / "powerbi" / "Hemato_Statistikk_2_0.pbix"
 
 
 def read_text(path: Path) -> str:
@@ -33,6 +33,25 @@ def test_deliverable_pbix_contains_report_and_embedded_data_model() -> None:
         entries = set(package.namelist())
     assert "DataModel" in entries
     assert "Report/Layout" in entries or "Report/definition/report.json" in entries
+
+
+def test_deliverable_pbix_contains_the_five_page_optimized_report() -> None:
+    with zipfile.ZipFile(PBIX) as package:
+        pages = json.loads(package.read("Report/definition/pages/pages.json"))
+        page_order = pages["pageOrder"]
+        names = [
+            json.loads(
+                package.read(f"Report/definition/pages/{page_id}/page.json")
+            )["displayName"]
+            for page_id in page_order
+        ]
+    assert names == [
+        "Ledelsesoversikt",
+        "Volum og kapasitet",
+        "Svartid",
+        "Oppfølging",
+        "Datakvalitet",
+    ]
 
 
 def test_all_pbip_text_files_are_utf8_without_bom() -> None:
@@ -87,6 +106,14 @@ def test_turnaround_columns_reject_invalid_intervals_instead_of_zeroing_them() -
 
     assert "timer < 0,\n\t\tBLANK" in resultater or "varighet < 0" in resultater
     assert '"Negativ analysetid - sjekk data"' in resultater
+
+
+def test_dax_variable_names_are_ascii_for_engine_compatibility() -> None:
+    resultater = read_text(
+        SEMANTIC / "definition" / "tables" / "resultater.tmdl"
+    )
+    assert "VAR Prøve" not in resultater
+    assert "VAR Proeve" in resultater
 
 
 def test_turnaround_calculated_columns_have_explicit_numeric_types() -> None:
@@ -163,12 +190,27 @@ def test_robust_measures_and_individual_deadlines_are_present() -> None:
         "Andel ekskludert datakvalitet",
         "Entydig svarfrist dager",
         "Fireukers glidende volum",
+        "Antall avvik etter type",
     )
     for measure in required_measures:
         assert f"measure '{measure}'" in resultater
 
     assert "SELECTEDVALUE ( resultater[Svarfrist] )" in resultater
     assert "PERCENTILEX.INC" in resultater
+    assert "MAX ( resultater[Tidspunkt.analysebestilling] )" in resultater
+    assert "REMOVEFILTERS ( Dato )" in resultater
+    assert 'KEEPFILTERS ( resultater[Datakvalitet status] <> "OK" )' in resultater
+
+    quality_visual = read_text(
+        REPORT
+        / "definition"
+        / "pages"
+        / "5f0a5555555555555555"
+        / "visuals"
+        / "quality-status"
+        / "visual.json"
+    )
+    assert "Antall avvik etter type" in quality_visual
 
 
 def test_report_has_five_accessible_1280_by_720_pages() -> None:
@@ -188,6 +230,60 @@ def test_report_has_five_accessible_1280_by_720_pages() -> None:
         "Oppfølging",
         "Datakvalitet",
     ]
+
+
+def test_each_page_has_five_readable_navigation_buttons() -> None:
+    pages_root = REPORT / "definition" / "pages"
+    page_ids = json.loads(read_text(pages_root / "pages.json"))["pageOrder"]
+    for page_id in page_ids:
+        navigation = sorted((pages_root / page_id / "visuals").glob("navigation-*/visual.json"))
+        assert len(navigation) == 5
+        for path in navigation:
+            visual = json.loads(read_text(path))
+            assert visual["position"]["width"] >= 140
+            assert visual["position"]["height"] >= 44
+            assert visual["position"]["z"] >= 3000
+            default_fill = next(
+                item
+                for item in visual["visual"]["objects"]["fill"]
+                if item.get("selector", {}).get("id") == "default"
+            )
+            assert default_fill["properties"]["transparency"]["expr"]["Literal"]["Value"] != "100D"
+
+
+def test_turnaround_perspective_selector_is_not_clipped() -> None:
+    visual = json.loads(
+        read_text(
+            REPORT
+            / "definition"
+            / "pages"
+            / "3f0a3333333333333333"
+            / "visuals"
+            / "perspective"
+            / "visual.json"
+        )
+    )
+    assert visual["position"]["height"] >= 84
+
+
+def test_followup_filter_selectors_are_not_clipped() -> None:
+    visuals = (
+        REPORT
+        / "definition"
+        / "pages"
+        / "4f0a4444444444444444"
+        / "visuals"
+    )
+    for visual_id in ("filter-group", "filter-quality"):
+        visual = json.loads(read_text(visuals / visual_id / "visual.json"))
+        assert visual["position"]["height"] >= 84
+
+
+def test_navigation_has_no_full_height_shape_intercepting_clicks() -> None:
+    pages_root = REPORT / "definition" / "pages"
+    page_ids = json.loads(read_text(pages_root / "pages.json"))["pageOrder"]
+    for page_id in page_ids:
+        assert not (pages_root / page_id / "visuals" / "nav-bg").exists()
 
 
 def test_report_uses_custom_theme_and_documents_definitions() -> None:

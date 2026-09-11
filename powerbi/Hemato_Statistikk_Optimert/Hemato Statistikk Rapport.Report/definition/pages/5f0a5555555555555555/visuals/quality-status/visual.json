@@ -4,10 +4,10 @@
   "position": {
     "x": 208,
     "y": 240,
-    "z": 14,
+    "z": 18000,
     "height": 238,
     "width": 506,
-    "tabOrder": 14
+    "tabOrder": 18000
   },
   "visual": {
     "visualType": "clusteredBarChart",
@@ -41,11 +41,11 @@
                       "Entity": "resultater"
                     }
                   },
-                  "Property": "Antall resultater"
+                  "Property": "Antall avvik etter type"
                 }
               },
-              "queryRef": "resultater.Antall resultater",
-              "nativeQueryRef": "Antall resultater"
+              "queryRef": "resultater.Antall avvik etter type",
+              "nativeQueryRef": "Antall avvik etter type"
             }
           ]
         },
@@ -340,7 +340,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'Negative, manglende og ekstreme verdier vises – aldri som null'"
+                  "Value": "'Kun avvikskategorier; OK-totalen vises i KPI-kortet'"
                 }
               }
             },

@@ -1,0 +1,28 @@
+EVALUATE
+TOPN (
+    3,
+    SELECTCOLUMNS (
+        resultater,
+        "Status",
+            VAR Resultat = resultater[Tidspunkt.analyseresultat]
+            VAR Proeve = resultater[Tidspunkt.prøvetaking]
+            VAR Bestilling = resultater[Tidspunkt.analysebestilling]
+            VAR EnhetStart = resultater[Enhet starttid]
+            VAR Godkjenning = resultater[Tidspunkt.godkjenning]
+            RETURN
+                SWITCH (
+                    TRUE (),
+                    ISBLANK ( Resultat ), "Mangler sluttid",
+                    ISBLANK ( Proeve ), "Mangler prøvetaking",
+                    Proeve > Resultat, "Negativ analysetid - sjekk data",
+                    Resultat - Proeve > 365, "Ekstrem prøvetakingsdato",
+                    ISBLANK ( Bestilling ), "Mangler analysebestilling",
+                    Bestilling > Resultat, "Negativ analysetid - sjekk data",
+                    ISBLANK ( EnhetStart ), "Mangler enhetsstart",
+                    EnhetStart > Resultat, "Negativ analysetid - sjekk data",
+                    NOT ISBLANK ( Godkjenning ) && Godkjenning < Resultat, "Godkjenning før analyseresultat",
+                    ISBLANK ( resultater[Svarfrist] ), "Mangler svarfrist",
+                    "OK"
+                )
+    )
+)

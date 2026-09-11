@@ -3,11 +3,11 @@
   "name": "kpi-valid",
   "position": {
     "x": 208,
-    "y": 180,
-    "z": 13,
-    "height": 100,
+    "y": 196,
+    "z": 17000,
+    "height": 96,
     "width": 246,
-    "tabOrder": 13
+    "tabOrder": 17000
   },
   "visual": {
     "visualType": "cardVisual",

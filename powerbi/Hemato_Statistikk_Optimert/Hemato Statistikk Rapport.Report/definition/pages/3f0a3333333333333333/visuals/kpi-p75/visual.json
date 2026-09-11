@@ -3,11 +3,11 @@
   "name": "kpi-p75",
   "position": {
     "x": 418,
-    "y": 180,
-    "z": 13,
+    "y": 196,
+    "z": 17000,
     "height": 108,
     "width": 198,
-    "tabOrder": 13
+    "tabOrder": 17000
   },
   "visual": {
     "visualType": "cardVisual",

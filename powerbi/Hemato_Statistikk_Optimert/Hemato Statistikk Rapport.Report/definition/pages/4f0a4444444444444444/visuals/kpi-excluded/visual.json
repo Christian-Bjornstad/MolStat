@@ -3,11 +3,11 @@
   "name": "kpi-excluded",
   "position": {
     "x": 470,
-    "y": 180,
-    "z": 14,
-    "height": 100,
+    "y": 196,
+    "z": 18000,
+    "height": 96,
     "width": 246,
-    "tabOrder": 14
+    "tabOrder": 18000
   },
   "visual": {
     "visualType": "cardVisual",

@@ -3,11 +3,11 @@
   "name": "kpi-sla",
   "position": {
     "x": 838,
-    "y": 180,
-    "z": 15,
+    "y": 196,
+    "z": 19000,
     "height": 108,
     "width": 198,
-    "tabOrder": 15
+    "tabOrder": 19000
   },
   "visual": {
     "visualType": "cardVisual",

@@ -3,11 +3,11 @@
   "name": "kpi-within",
   "position": {
     "x": 732,
-    "y": 180,
-    "z": 15,
-    "height": 100,
+    "y": 196,
+    "z": 19000,
+    "height": 96,
     "width": 246,
-    "tabOrder": 15
+    "tabOrder": 19000
   },
   "visual": {
     "visualType": "cardVisual",

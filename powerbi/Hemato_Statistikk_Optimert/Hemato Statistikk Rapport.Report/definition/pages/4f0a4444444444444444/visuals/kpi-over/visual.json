@@ -3,11 +3,11 @@
   "name": "kpi-over",
   "position": {
     "x": 994,
-    "y": 180,
-    "z": 16,
-    "height": 100,
+    "y": 196,
+    "z": 20000,
+    "height": 96,
     "width": 246,
-    "tabOrder": 16
+    "tabOrder": 20000
   },
   "visual": {
     "visualType": "cardVisual",

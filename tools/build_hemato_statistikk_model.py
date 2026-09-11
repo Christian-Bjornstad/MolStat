@@ -247,6 +247,9 @@ RESULTATER_HEADER = r'''table resultater
 	measure 'Datakvalitet avvik' = COUNTROWS ( resultater ) - [Datakvalitet OK]
 		formatString: #,0
 
+	measure 'Antall avvik etter type' = CALCULATE ( [Antall resultater], KEEPFILTERS ( resultater[Datakvalitet status] <> "OK" ) )
+		formatString: #,0
+
 	measure 'Svartid status tekst' =
 			VAR Andel = [Andel innen individuell frist]
 			RETURN SWITCH ( TRUE (), ISBLANK ( Andel ), "Ingen gyldige observasjoner", Andel >= 0.90, "På mål", Andel >= 0.75, "Følg med", "Krever oppfølging" )
@@ -275,7 +278,7 @@ RESULTATER_HEADER = r'''table resultater
 
 	measure 'Farge svartid' = [Svartid status farge]
 
-	measure 'Fireukers glidende volum' = DIVIDE ( CALCULATE ( [Antall analyser], DATESINPERIOD ( Dato[Date], MAX ( Dato[Date] ), -28, DAY ) ), 4 )
+	measure 'Fireukers glidende volum' = VAR SisteTidspunkt = MAX ( resultater[Tidspunkt.analysebestilling] ) VAR SisteDato = DATE ( YEAR ( SisteTidspunkt ), MONTH ( SisteTidspunkt ), DAY ( SisteTidspunkt ) ) RETURN IF ( ISBLANK ( SisteTidspunkt ), BLANK (), DIVIDE ( CALCULATE ( [Antall analyser], REMOVEFILTERS ( Dato ), DATESINPERIOD ( Dato[Date], SisteDato, -28, DAY ) ), 4 ) )
 		formatString: #,0
 
 	measure 'Lavvolumgrense P10' = PERCENTILEX.INC ( ALLSELECTED ( Dato[ÅrUke] ), CALCULATE ( [Antall analyser] ), 0.10 )
@@ -417,7 +420,7 @@ RESULTATER_HEADER = r'''table resultater
 
 	column 'Datakvalitet status' =
 			VAR Resultat = resultater[Tidspunkt.analyseresultat]
-			VAR Prøve = resultater[Tidspunkt.prøvetaking]
+			VAR Proeve = resultater[Tidspunkt.prøvetaking]
 			VAR Bestilling = resultater[Tidspunkt.analysebestilling]
 			VAR EnhetStart = resultater[Enhet starttid]
 			VAR Godkjenning = resultater[Tidspunkt.godkjenning]
@@ -425,9 +428,9 @@ RESULTATER_HEADER = r'''table resultater
 				SWITCH (
 					TRUE (),
 					ISBLANK ( Resultat ), "Mangler sluttid",
-					ISBLANK ( Prøve ), "Mangler prøvetaking",
-					Prøve > Resultat, "Negativ analysetid - sjekk data",
-					Resultat - Prøve > 365, "Ekstrem prøvetakingsdato",
+					ISBLANK ( Proeve ), "Mangler prøvetaking",
+					Proeve > Resultat, "Negativ analysetid - sjekk data",
+					Resultat - Proeve > 365, "Ekstrem prøvetakingsdato",
 					ISBLANK ( Bestilling ), "Mangler analysebestilling",
 					Bestilling > Resultat, "Negativ analysetid - sjekk data",
 					ISBLANK ( EnhetStart ), "Mangler enhetsstart",

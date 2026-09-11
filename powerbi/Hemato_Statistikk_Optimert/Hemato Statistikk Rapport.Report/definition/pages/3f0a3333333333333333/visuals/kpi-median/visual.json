@@ -3,11 +3,11 @@
   "name": "kpi-median",
   "position": {
     "x": 208,
-    "y": 180,
-    "z": 12,
+    "y": 196,
+    "z": 16000,
     "height": 108,
     "width": 198,
-    "tabOrder": 12
+    "tabOrder": 16000
   },
   "visual": {
     "visualType": "cardVisual",

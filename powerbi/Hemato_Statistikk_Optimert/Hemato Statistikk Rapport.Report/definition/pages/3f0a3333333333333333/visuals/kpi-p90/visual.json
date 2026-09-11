@@ -3,11 +3,11 @@
   "name": "kpi-p90",
   "position": {
     "x": 628,
-    "y": 180,
-    "z": 14,
+    "y": 196,
+    "z": 18000,
     "height": 108,
     "width": 198,
-    "tabOrder": 14
+    "tabOrder": 18000
   },
   "visual": {
     "visualType": "cardVisual",
