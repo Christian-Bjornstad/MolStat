@@ -9,6 +9,20 @@ table antall
 	measure 'Endring analyser prosent' = DIVIDE ( [Antall analyser] - [Antall analyser forrige periode], [Antall analyser forrige periode] )
 		formatString: 0.0%
 
+	measure 'Analyser denne måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( TODAY () ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( TODAY () ) )
+		formatString: #,0
+
+	measure Antall = COUNTROWS ( antall )
+		formatString: #,0
+
+	measure Mål = BLANK ()
+
+	measure 'Analyser forrige måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( EDATE ( TODAY (), -1 ) ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( EDATE ( TODAY (), -1 ) ) )
+		formatString: #,0
+
+	measure 'Endring analyser %' = DIVIDE ( [Analyser denne måned] - [Analyser forrige måned], [Analyser forrige måned] )
+		formatString: 0.0%
+
 	column Analyse
 		dataType: string
 		summarizeBy: none
@@ -37,6 +51,16 @@ table antall
 		sourceColumn: Maaned
 
 	column 'Analysebestilling dato' = IF ( ISBLANK ( antall[Tidspunkt.analysebestilling] ), BLANK (), DATE ( YEAR ( antall[Tidspunkt.analysebestilling] ), MONTH ( antall[Tidspunkt.analysebestilling] ), DAY ( antall[Tidspunkt.analysebestilling] ) ) )
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	column DatoOpprettet = antall[Analysebestilling dato]
+		dataType: dateTime
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	column 'Analyse ferdig dato' = antall[Analysebestilling dato]
+		dataType: dateTime
 		formatString: dd.MM.yyyy
 		summarizeBy: none
 

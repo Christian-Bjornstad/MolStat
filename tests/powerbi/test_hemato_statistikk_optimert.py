@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = ROOT / "powerbi" / "Hemato_Statistikk_Optimert"
 SEMANTIC = PROJECT / "Hemato Semantikk"
 REPORT = PROJECT / "Hemato Statistikk Rapport.Report"
+PBIX = ROOT / "powerbi" / "Hemato_Statistikk_Optimert.pbix"
 
 
 def read_text(path: Path) -> str:
@@ -22,6 +24,15 @@ def test_project_is_a_portable_pbip_with_linked_semantic_model() -> None:
     report_ref = json.loads(read_text(REPORT / "definition.pbir"))
     assert report_ref["datasetReference"]["byPath"]["path"] == "../Hemato Semantikk"
     assert (SEMANTIC / "definition.pbism").is_file()
+
+
+def test_deliverable_pbix_contains_report_and_embedded_data_model() -> None:
+    assert PBIX.is_file()
+    assert PBIX.stat().st_size > 1_000_000
+    with zipfile.ZipFile(PBIX) as package:
+        entries = set(package.namelist())
+    assert "DataModel" in entries
+    assert "Report/Layout" in entries or "Report/definition/report.json" in entries
 
 
 def test_all_pbip_text_files_are_utf8_without_bom() -> None:
@@ -76,6 +87,64 @@ def test_turnaround_columns_reject_invalid_intervals_instead_of_zeroing_them() -
 
     assert "timer < 0,\n\t\tBLANK" in resultater or "varighet < 0" in resultater
     assert '"Negativ analysetid - sjekk data"' in resultater
+
+
+def test_turnaround_calculated_columns_have_explicit_numeric_types() -> None:
+    resultater = read_text(
+        SEMANTIC / "definition" / "tables" / "resultater.tmdl"
+    )
+    for column in (
+        "Svartid pasient dager",
+        "Svartid seksjon dager",
+        "Svartid enhet dager",
+        "Godkjenningsetterslep dager",
+    ):
+        block = resultater.split(f"column '{column}'", 1)[1].split("\n\tcolumn ", 1)[0]
+        assert "dataType: double" in block
+
+
+def test_existing_report_fields_remain_backwards_compatible() -> None:
+    resultater = read_text(
+        SEMANTIC / "definition" / "tables" / "resultater.tmdl"
+    )
+    antall = read_text(SEMANTIC / "definition" / "tables" / "antall.tmdl")
+
+    for column in (
+        "DatoGodkjenning",
+        "Prøvetaking tidspunkt",
+        "Analysebestilling",
+        "Tidspunkt ekstraksjon ferdig",
+        "Tidspunkt ferdig analyse",
+        "Starttid analyse",
+        "Starttid analyse kilde",
+        "Analysetid timer",
+        "Analysetid dager",
+        "Analysetid status",
+    ):
+        assert f"column '{column}'" in resultater or f"column {column}" in resultater
+
+    for measure in (
+        "Gjennomsnitt analysetid dager",
+        "Svarfrist mål",
+        "Antall innen frist",
+        "Antall over frist",
+        "Andel innen frist",
+        "Avvik fra svarfrist dager",
+        "Farge svartid",
+    ):
+        assert f"measure '{measure}'" in resultater
+
+    for column in ("DatoOpprettet", "Analyse ferdig dato"):
+        assert f"column '{column}'" in antall or f"column {column}" in antall
+
+    for measure in (
+        "Analyser denne måned",
+        "Antall",
+        "Mål",
+        "Analyser forrige måned",
+        "Endring analyser %",
+    ):
+        assert f"measure '{measure}'" in antall or f"measure {measure}" in antall
 
 
 def test_robust_measures_and_individual_deadlines_are_present() -> None:

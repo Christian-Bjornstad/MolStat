@@ -255,6 +255,26 @@ RESULTATER_HEADER = r'''table resultater
 			VAR Andel = [Andel innen individuell frist]
 			RETURN SWITCH ( TRUE (), ISBLANK ( Andel ), "#64748B", Andel >= 0.90, "#0F766E", Andel >= 0.75, "#B45309", "#B42318" )
 
+	measure 'Gjennomsnitt analysetid dager' = AVERAGE ( resultater[Analysetid dager] )
+		formatString: 0.0
+
+	measure 'Svarfrist mål' = SELECTEDVALUE ( resultater[Svarfrist] )
+		formatString: 0
+
+	measure 'Antall innen frist' = SUMX ( resultater, IF ( NOT ISBLANK ( resultater[Analysetid dager] ) && NOT ISBLANK ( resultater[Svarfrist] ) && resultater[Analysetid dager] <= resultater[Svarfrist], 1, 0 ) )
+		formatString: #,0
+
+	measure 'Antall over frist' = SUMX ( resultater, IF ( NOT ISBLANK ( resultater[Analysetid dager] ) && NOT ISBLANK ( resultater[Svarfrist] ) && resultater[Analysetid dager] > resultater[Svarfrist], 1, 0 ) )
+		formatString: #,0
+
+	measure 'Andel innen frist' = DIVIDE ( [Antall innen frist], [Antall innen frist] + [Antall over frist] )
+		formatString: 0.0%
+
+	measure 'Avvik fra svarfrist dager' = [Gjennomsnitt analysetid dager] - [Svarfrist mål]
+		formatString: 0.0
+
+	measure 'Farge svartid' = [Svartid status farge]
+
 	measure 'Fireukers glidende volum' = DIVIDE ( CALCULATE ( [Antall analyser], DATESINPERIOD ( Dato[Date], MAX ( Dato[Date] ), -28, DAY ) ), 4 )
 		formatString: #,0
 
@@ -356,6 +376,7 @@ RESULTATER_HEADER = r'''table resultater
 			VAR Bestilling = resultater[Tidspunkt.analysebestilling]
 			VAR Ekstraksjon = resultater[Ekstraksjon.ferdig]
 			RETURN SWITCH ( TRUE (), ISBLANK ( Bestilling ) && ISBLANK ( Ekstraksjon ), "Mangler start", ISBLANK ( Ekstraksjon ), "Analysebestilling", ISBLANK ( Bestilling ), "Ekstraksjon ferdig", Bestilling >= Ekstraksjon, "Analysebestilling (senest)", "Ekstraksjon ferdig (senest)" )
+		dataType: string
 		summarizeBy: none
 
 	column 'Svartid pasient dager' =
@@ -363,6 +384,7 @@ RESULTATER_HEADER = r'''table resultater
 			VAR Sluttid = resultater[Tidspunkt.analyseresultat]
 			VAR varighet = Sluttid - Starttid
 			RETURN IF ( ISBLANK ( Starttid ) || ISBLANK ( Sluttid ) || varighet < 0 || varighet > 365, BLANK (), varighet )
+		dataType: double
 		formatString: 0.0
 		summarizeBy: none
 
@@ -371,6 +393,7 @@ RESULTATER_HEADER = r'''table resultater
 			VAR Sluttid = resultater[Tidspunkt.analyseresultat]
 			VAR varighet = Sluttid - Starttid
 			RETURN IF ( ISBLANK ( Starttid ) || ISBLANK ( Sluttid ) || varighet < 0 || varighet > 365, BLANK (), varighet )
+		dataType: double
 		formatString: 0.0
 		summarizeBy: none
 
@@ -379,6 +402,7 @@ RESULTATER_HEADER = r'''table resultater
 			VAR Sluttid = resultater[Tidspunkt.analyseresultat]
 			VAR varighet = Sluttid - Starttid
 			RETURN IF ( ISBLANK ( Starttid ) || ISBLANK ( Sluttid ) || varighet < 0 || varighet > 365, BLANK (), varighet )
+		dataType: double
 		formatString: 0.0
 		summarizeBy: none
 
@@ -387,6 +411,7 @@ RESULTATER_HEADER = r'''table resultater
 			VAR Sluttid = resultater[Tidspunkt.godkjenning]
 			VAR varighet = Sluttid - Starttid
 			RETURN IF ( ISBLANK ( Starttid ) || ISBLANK ( Sluttid ) || varighet < 0 || varighet > 365, BLANK (), varighet )
+		dataType: double
 		formatString: 0.0
 		summarizeBy: none
 
@@ -411,6 +436,55 @@ RESULTATER_HEADER = r'''table resultater
 					ISBLANK ( resultater[Svarfrist] ), "Mangler svarfrist",
 					"OK"
 				)
+		dataType: string
+		summarizeBy: none
+
+	column DatoGodkjenning = resultater[Analyseresultat dato]
+		dataType: dateTime
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	column 'Prøvetaking tidspunkt' = resultater[Tidspunkt.prøvetaking]
+		dataType: dateTime
+		formatString: dd.MM.yyyy HH:mm
+		summarizeBy: none
+
+	column Analysebestilling = resultater[Tidspunkt.analysebestilling]
+		dataType: dateTime
+		formatString: dd.MM.yyyy HH:mm
+		summarizeBy: none
+
+	column 'Tidspunkt ekstraksjon ferdig' = resultater[Ekstraksjon.ferdig]
+		dataType: dateTime
+		formatString: dd.MM.yyyy HH:mm
+		summarizeBy: none
+
+	column 'Tidspunkt ferdig analyse' = resultater[Tidspunkt.analyseresultat]
+		dataType: dateTime
+		formatString: dd.MM.yyyy HH:mm
+		summarizeBy: none
+
+	column 'Starttid analyse' = resultater[Enhet starttid]
+		dataType: dateTime
+		formatString: dd.MM.yyyy HH:mm
+		summarizeBy: none
+
+	column 'Starttid analyse kilde' = resultater[Enhet startkilde]
+		dataType: string
+		summarizeBy: none
+
+	column 'Analysetid timer' = resultater[Svartid enhet dager] * 24
+		dataType: double
+		formatString: 0.0
+		summarizeBy: none
+
+	column 'Analysetid dager' = resultater[Svartid enhet dager]
+		dataType: double
+		formatString: 0.0
+		summarizeBy: none
+
+	column 'Analysetid status' = resultater[Datakvalitet status]
+		dataType: string
 		summarizeBy: none
 '''
 
@@ -424,6 +498,20 @@ ANTALL_HEADER = r'''table antall
 		formatString: #,0
 
 	measure 'Endring analyser prosent' = DIVIDE ( [Antall analyser] - [Antall analyser forrige periode], [Antall analyser forrige periode] )
+		formatString: 0.0%
+
+	measure 'Analyser denne måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( TODAY () ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( TODAY () ) )
+		formatString: #,0
+
+	measure Antall = COUNTROWS ( antall )
+		formatString: #,0
+
+	measure Mål = BLANK ()
+
+	measure 'Analyser forrige måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( EDATE ( TODAY (), -1 ) ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( EDATE ( TODAY (), -1 ) ) )
+		formatString: #,0
+
+	measure 'Endring analyser %' = DIVIDE ( [Analyser denne måned] - [Analyser forrige måned], [Analyser forrige måned] )
 		formatString: 0.0%
 
 	column Analyse
@@ -454,6 +542,16 @@ ANTALL_HEADER = r'''table antall
 		sourceColumn: Maaned
 
 	column 'Analysebestilling dato' = IF ( ISBLANK ( antall[Tidspunkt.analysebestilling] ), BLANK (), DATE ( YEAR ( antall[Tidspunkt.analysebestilling] ), MONTH ( antall[Tidspunkt.analysebestilling] ), DAY ( antall[Tidspunkt.analysebestilling] ) ) )
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	column DatoOpprettet = antall[Analysebestilling dato]
+		dataType: dateTime
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	column 'Analyse ferdig dato' = antall[Analysebestilling dato]
+		dataType: dateTime
 		formatString: dd.MM.yyyy
 		summarizeBy: none
 '''
