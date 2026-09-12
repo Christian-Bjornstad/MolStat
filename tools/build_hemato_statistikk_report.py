@@ -7,7 +7,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "powerbi" / "Hemato_Statistikk_Optimert"
+PROJECT = ROOT / "powerbi" / "Hemato_Statistikk_V3"
 REPORT = PROJECT / "Hemato Statistikk Rapport.Report"
 DEFINITION = REPORT / "definition"
 PAGES = DEFINITION / "pages"
@@ -34,11 +34,14 @@ C = {
 }
 
 PAGE_DEFS = [
-    ("1f0a1111111111111111", "Ledelsesoversikt"),
-    ("2f0a2222222222222222", "Volum og kapasitet"),
+    ("1f0a1111111111111111", "Oversikt"),
+    ("2f0a2222222222222222", "Volum og uker"),
+    ("4f0a4444444444444444", "Volum per analyse"),
     ("3f0a3333333333333333", "Svartid"),
-    ("4f0a4444444444444444", "Oppfølging"),
-    ("5f0a5555555555555555", "Datakvalitet"),
+    ("5f0a5555555555555555", "Svartid per analyse"),
+    ("6f0a6666666666666666", "Oppfølging"),
+    ("7f0a7777777777777777", "Tidslinje"),
+    ("8f0a8888888888888888", "Datakvalitet"),
 ]
 
 
@@ -130,14 +133,11 @@ class Page:
             },
         )
         self.shape("main-bg", 184, 0, 1096, 720, C["canvas"])
-        self.textbox("brand", 18, 18, 150, 72, [("OUS", 24, "#FFFFFF", True), ("Hematologi", 11, "#CFE3F2", False)])
-        self.navigator("navigation", 14, 130, 156, 360)
-        self.textbox("nav-help", 18, 620, 148, 72, [("Dato i visningen", 10, "#CFE3F2", True), (event_date, 9, "#FFFFFF", False)])
-        self.textbox("page-title", 208, 16, 590, 44, [(display_name, 24, C["text"], True)])
-        self.textbox("page-subtitle", 208, 56, 620, 32, [(subtitle, 10, C["muted"], False)])
-        self.slicer("filter-year", 844, 18, 118, 58, "Dato", "År", "År")
-        self.slicer("filter-month", 974, 18, 142, 58, "Dato", "Måned", "Måned")
-        self.slicer("filter-week", 1128, 18, 128, 58, "Dato", "ÅrUke", "Uke")
+        self.textbox("brand", 18, 16, 150, 62, [("OUS", 23, "#FFFFFF", True), ("Hematologi", 10, "#CFE3F2", False)])
+        self.navigator("navigation", 14, 104, 156, 350)
+        self.textbox("page-title", 204, 12, 700, 40, [(display_name, 23, C["text"], True)])
+        self.textbox("page-subtitle", 204, 48, 720, 26, [(subtitle, 9, C["muted"], False)])
+        self.textbox("event-date", 1010, 18, 242, 42, [(event_date, 9, C["muted"], False)])
 
     def write_visual(self, visual_id: str, visual: dict[str, Any], x: int, y: int, w: int, h: int) -> None:
         self.next_z += 1
@@ -167,6 +167,8 @@ class Page:
             for text, size, color, bold in rows
         ]
         objects: dict[str, Any] = {"general": [{"properties": {"paragraphs": paragraphs}}]}
+        padding = "8D" if panel else "0D"
+        side_padding = "10D" if panel else "0D"
         self.write_visual(
             visual_id,
             {
@@ -176,7 +178,7 @@ class Page:
                     "title": [{"properties": {"show": lit("false")}}],
                     "background": [{"properties": {"show": lit("true" if panel else "false"), "color": solid(C["panel"]), "transparency": lit("0D")}}],
                     "border": [{"properties": {"show": lit("true" if panel else "false"), "color": solid(C["border"]), "width": lit("1D"), "radius": lit("10D")}}],
-                    "padding": [{"properties": {"top": lit("8D"), "bottom": lit("8D"), "left": lit("10D"), "right": lit("10D")}}],
+                    "padding": [{"properties": {"top": lit(padding), "bottom": lit(padding), "left": lit(side_padding), "right": lit(side_padding)}}],
                 },
                 "drillFilterOtherVisuals": True,
             },
@@ -212,7 +214,7 @@ class Page:
                     },
                     "drillFilterOtherVisuals": True,
                 },
-                x, y + index * 64, w, 52,
+                x, y + index * 50, w, 44,
             )
 
     def slicer(self, visual_id: str, x: int, y: int, w: int, h: int, entity: str, field: str, title: str) -> None:
@@ -240,7 +242,7 @@ class Page:
                 "query": {"queryState": {"Data": {"projections": [measure(entity, metric)]}}},
                 "objects": {
                     "fillCustom": [{"properties": {"show": lit("true"), "fillColor": solid(C["panel"]), "transparency": lit("0D")}, "selector": {"id": "default"}}],
-                    "accentBar": [{"properties": {"show": lit("true"), "position": lit("'Top'"), "width": lit("5D"), "color": solid(accent)}, "selector": {"id": "default"}}],
+                    "accentBar": [{"properties": {"show": lit("true"), "position": lit("'Top'"), "width": lit("3D"), "color": solid(accent)}, "selector": {"id": "default"}}],
                     "outline": [{"properties": {"show": lit("false")}, "selector": {"id": "default"}}],
                     "shapeCustomRectangle": [{"properties": {"tileShape": lit("'rectangleRoundedByPixel'"), "rectangleRoundedCurve": lit("10L")}}],
                     "value": [{"properties": {"fontFamily": lit("'Segoe UI Semibold'"), "fontSize": lit("24D"), "bold": lit("true"), "fontColor": solid(C["text"]), "horizontalAlignment": lit("'Left'")}, "selector": {"id": "default"}}],
@@ -252,17 +254,20 @@ class Page:
             x, y, w, h,
         )
 
-    def chart(self, visual_id: str, visual_type: str, x: int, y: int, w: int, h: int, title: str, subtitle: str, roles: dict[str, list[dict[str, Any]]]) -> None:
+    def chart(self, visual_id: str, visual_type: str, x: int, y: int, w: int, h: int, title: str, subtitle: str, roles: dict[str, list[dict[str, Any]]], scalar_axis: bool = False, show_legend: bool = True) -> None:
         query_state = {role: {"projections": projections} for role, projections in roles.items()}
+        category_properties = {"show": lit("true"), "showAxisTitle": lit("false"), "concatenateLabels": lit("false")}
+        if scalar_axis:
+            category_properties["axisType"] = lit("'Scalar'")
         self.write_visual(
             visual_id,
             {
                 "visualType": visual_type,
                 "query": {"queryState": query_state},
                 "objects": {
-                    "legend": [{"properties": {"show": lit("true"), "position": lit("'Top'")}}],
+                    "legend": [{"properties": {"show": lit("true" if show_legend else "false"), "position": lit("'Top'")}}],
                     "labels": [{"properties": {"show": lit("false")}}],
-                    "categoryAxis": [{"properties": {"show": lit("true"), "showAxisTitle": lit("false"), "concatenateLabels": lit("false")}}],
+                    "categoryAxis": [{"properties": category_properties}],
                     "valueAxis": [{"properties": {"show": lit("true"), "showAxisTitle": lit("false"), "gridlineStyle": lit("'dotted'")}}],
                 },
                 "visualContainerObjects": container(title, subtitle),
@@ -289,60 +294,92 @@ class Page:
         )
 
 
-def build_leadership(page: Page) -> None:
-    cards = [
-        ("total", "antall", "Antall analyser", "Analyser", C["blue"], "Bestillinger i valgt periode"),
-        ("patient", "resultater", "Median pasientforløp dager", "Pasientforløp", C["teal"], "Prøve → analyseresultat"),
-        ("section", "resultater", "Median seksjonstid dager", "Seksjonstid", C["green"], "Bestilling → analyseresultat"),
-        ("unit", "resultater", "Median enhetstid dager", "Enhetstid", C["amber"], "Seneste operative start"),
-        ("sla", "resultater", "Andel innen individuell frist", "Innen frist", C["blue"], "Valgt perspektiv • individuell frist"),
+def add_filter_row(page: Page, specs: list[tuple[str, str, str, str]], y: int = 82, height: int = 78) -> None:
+    gap = 8
+    total_width = 1048
+    width = (total_width - gap * (len(specs) - 1)) // len(specs)
+    for index, (visual_id, entity, field, title) in enumerate(specs):
+        page.slicer(visual_id, 204 + index * (width + gap), y, width, height, entity, field, title)
+
+
+def date_filters() -> list[tuple[str, str, str, str]]:
+    return [
+        ("filter-year", "Dato", "År", "År"),
+        ("filter-month", "Dato", "Måned", "Måned"),
+        ("filter-week", "Dato", "ÅrUke", "Uke"),
     ]
-    for idx, (vid, entity, metric, label, accent, note) in enumerate(cards):
-        page.card(f"kpi-{vid}", 208 + idx * 210, 100, 198, 120, entity, metric, label, accent, note)
-    tips = [measure("resultater", "Antall gyldige svartider"), measure("resultater", "P90 svartid dager"), measure("resultater", "Antall ekskludert datakvalitet")]
-    page.chart("weekly-volume", "lineChart", 208, 244, 506, 238, "Volum per uke", "Analysebestillingsdato • 4-ukers nivå som kapasitetsreferanse", {"Category": [column("Dato", "ÅrUke")], "Y": [measure("antall", "Antall analyser"), measure("resultater", "Fireukers glidende volum")], "Tooltips": tips})
-    page.chart("group-p90", "clusteredBarChart", 730, 244, 526, 238, "Svartid per rapportgruppe", "P90 og median • velg perspektiv på Svartid-siden", {"Category": [column("resultater", "Rapportgruppe")], "Y": [measure("resultater", "Median svartid dager"), measure("resultater", "P90 svartid dager")], "Tooltips": tips + [measure("resultater", "Andel innen individuell frist")]})
-    page.textbox("definitions", 208, 500, 720, 164, [("Tre perspektiver – samme sluttpunkt", 13, C["blue"], True), ("Pasientforløp: prøvetaking → analyseresultat", 10, C["text"], False), ("Seksjonstid: analysebestilling → analyseresultat", 10, C["text"], False), ("Enhetstid: seneste av bestilling og ekstraksjon → analyseresultat", 10, C["text"], False), ("Godkjenningsetterslep vises separat.", 10, C["muted"], False)], panel=True)
-    page.card("dq-warning", 944, 500, 312, 164, "resultater", "Datakvalitet avvik", "Datakvalitet", C["red"], "Synlige avvik • åpne Datakvalitet for detaljer")
+
+
+def result_filters(*extra: tuple[str, str, str, str]) -> list[tuple[str, str, str, str]]:
+    return date_filters() + [("filter-material", "resultater", "Materiale", "Materiale"), *extra]
+
+
+def build_leadership(page: Page) -> None:
+    add_filter_row(page, result_filters())
+    cards = [
+        ("total", "Antall resultater", "Resultater", C["blue"]),
+        ("unit", "Median enhetstid dager", "Median enhetstid", C["teal"]),
+        ("sla", "Andel innen individuell frist", "Innen frist", C["amber"]),
+        ("dq", "Datakvalitet avvik", "Datakvalitetsavvik", C["red"]),
+    ]
+    for idx, (vid, metric, label, accent) in enumerate(cards):
+        page.card(f"kpi-{vid}", 204 + idx * 266, 176, 254, 96, "resultater", metric, label, accent)
+    tips = [measure("resultater", "Antall gyldige svartider"), measure("resultater", "P90 svartid dager"), measure("resultater", "Antall over individuell frist")]
+    page.chart("weekly-results", "lineChart", 204, 288, 618, 396, "Resultater per uke", "", {"Category": [column("Dato", "UkeStart")], "Y": [measure("resultater", "Antall resultater")], "Tooltips": tips}, scalar_axis=True, show_legend=False)
+    page.chart("group-turnaround", "clusteredBarChart", 838, 288, 414, 396, "Median per rapportgruppe", "", {"Category": [column("resultater", "Rapportgruppe")], "Y": [measure("resultater", "Median svartid dager")], "Tooltips": tips}, show_legend=False)
 
 
 def build_volume(page: Page) -> None:
+    add_filter_row(page, date_filters() + [("filter-group", "antall", "Rapportgruppe", "Rapportgruppe")])
     cards = [
-        ("volume", "antall", "Antall analyser", "Analyser", C["blue"], "Analysebestillinger"),
-        ("previous", "antall", "Antall analyser forrige periode", "Forrige måned", C["teal"], "Samme filterkontekst"),
-        ("change", "antall", "Endring analyser prosent", "Endring", C["amber"], "Mot forrige måned"),
-        ("rolling", "resultater", "Fireukers glidende volum", "4-ukers nivå", C["green"], "Gjennomsnitt per uke"),
+        ("volume", "antall", "Antall analyser", "Analyser", C["blue"]),
+        ("previous", "antall", "Antall analyser forrige periode", "Forrige måned", C["teal"]),
+        ("change", "antall", "Endring analyser prosent", "Endring", C["amber"]),
+        ("rolling", "antall", "Fireukers glidende analyser", "4-ukers nivå", C["green"]),
     ]
-    for idx, (vid, entity, metric, label, accent, note) in enumerate(cards):
-        page.card(f"kpi-{vid}", 208 + idx * 262, 100, 246, 116, entity, metric, label, accent, note)
-    volume_tips = [measure("resultater", "Lavvolumgrense P10"), measure("antall", "Endring analyser prosent")]
-    page.chart("volume-week", "lineChart", 208, 240, 676, 250, "Ukevolum og fireukers trend", "Lave uker identifiseres mot historisk P10 – beslutningsstøtte, ikke bemanningsfasit", {"Category": [column("Dato", "ÅrUke")], "Y": [measure("antall", "Antall analyser"), measure("resultater", "Fireukers glidende volum"), measure("resultater", "Lavvolumgrense P10")], "Tooltips": volume_tips})
-    page.chart("volume-group", "clusteredBarChart", 900, 240, 356, 250, "Volum per rapportgruppe", "Klikk for å filtrere resten av siden", {"Category": [column("antall", "Rapportgruppe")], "Y": [measure("antall", "Antall analyser")], "Tooltips": volume_tips})
-    page.chart("volume-analysis", "clusteredBarChart", 208, 510, 1048, 174, "Analyser med høyest volum", "Bruk rapportgruppefilteret i visualet for detaljering", {"Category": [column("antall", "Analyse")], "Y": [measure("antall", "Antall analyser")], "Tooltips": volume_tips})
+    for idx, (vid, entity, metric, label, accent) in enumerate(cards):
+        page.card(f"kpi-{vid}", 204 + idx * 266, 176, 254, 96, entity, metric, label, accent)
+    tips = [measure("resultater", "Lavvolumgrense P10"), measure("antall", "Endring analyser prosent")]
+    page.chart("volume-week", "lineChart", 204, 288, 682, 396, "Ukevolum", "Volum, 4-ukers nivå og historisk P10", {"Category": [column("Dato", "UkeStart")], "Y": [measure("antall", "Antall analyser"), measure("antall", "Fireukers glidende analyser"), measure("resultater", "Lavvolumgrense P10")], "Tooltips": tips}, scalar_axis=True)
+    page.chart("volume-month", "lineChart", 902, 288, 350, 396, "Månedsvolum", "", {"Category": [column("Dato", "MånedStart")], "Y": [measure("antall", "Antall analyser")], "Tooltips": tips}, scalar_axis=True, show_legend=False)
+
+
+def build_volume_analysis(page: Page) -> None:
+    add_filter_row(page, date_filters() + [("filter-group", "antall", "Rapportgruppe", "Rapportgruppe"), ("filter-analysis", "antall", "Analyse", "Analyse")])
+    page.card("kpi-volume", 204, 176, 254, 96, "antall", "Antall analyser", "Analyser", C["blue"])
+    page.card("kpi-change", 470, 176, 254, 96, "antall", "Endring analyser prosent", "Endring", C["amber"])
+    page.chart("analysis-map", "treemap", 204, 288, 682, 396, "Alle analyser", "Størrelse viser volum", {"Group": [column("antall", "Analyse")], "Values": [measure("antall", "Antall analyser")], "Tooltips": [column("antall", "Rapportgruppe")]}, show_legend=False)
+    page.chart("volume-group", "clusteredBarChart", 902, 176, 350, 508, "Rapportgrupper", "", {"Category": [column("antall", "Rapportgruppe")], "Y": [measure("antall", "Antall analyser")]}, show_legend=False)
 
 
 def build_turnaround(page: Page) -> None:
-    page.slicer("perspective", 208, 96, 412, 84, "Svartidsperspektiv", "Perspektiv", "Velg svartidsperspektiv")
-    page.textbox("perspective-help", 636, 96, 620, 84, [("Alle mål under bruker samme sluttpunkt: analyseresultat", 11, C["blue"], True), ("Frist vurderes rad for rad. Stiplet målverdi brukes bare når én frist er entydig.", 9, C["muted"], False)], panel=True)
+    add_filter_row(page, result_filters(("filter-group", "resultater", "Rapportgruppe", "Rapportgruppe"), ("perspective", "Svartidsperspektiv", "Perspektiv", "Perspektiv")))
     cards = [
-        ("median", "Median svartid dager", "Median", C["teal"], "50 % er raskere"),
-        ("p75", "P75 svartid dager", "P75", C["green"], "75 % er raskere"),
-        ("p90", "P90 svartid dager", "P90", C["amber"], "90 % er raskere"),
-        ("sla", "Andel innen individuell frist", "Innen frist", C["blue"], "Gyldig n i tooltip"),
-        ("valid", "Antall gyldige svartider", "Gyldige n", C["blue"], "Ekskluderer ugyldige intervaller"),
+        ("median", "Median svartid dager", "Median", C["teal"]),
+        ("p90", "P90 svartid dager", "P90", C["amber"]),
+        ("sla", "Andel innen individuell frist", "Innen frist", C["blue"]),
+        ("valid", "Antall gyldige svartider", "Gyldige", C["green"]),
     ]
-    for idx, (vid, metric, label, accent, note) in enumerate(cards):
-        page.card(f"kpi-{vid}", 208 + idx * 210, 196, 198, 108, "resultater", metric, label, accent, note)
-    tips = [measure("resultater", "Antall gyldige svartider"), measure("resultater", "Andel innen individuell frist"), measure("resultater", "Antall over individuell frist"), measure("resultater", "Antall ekskludert datakvalitet"), measure("resultater", "Entydig svarfrist dager")]
-    page.chart("analysis-turnaround", "lineClusteredColumnComboChart", 208, 326, 650, 270, "Svartid per analyse", "Stolpe = median • linje = P90 • frist vises bare når entydig", {"Category": [column("resultater", "Analyse")], "Y": [measure("resultater", "Median svartid dager")], "Y2": [measure("resultater", "P90 svartid dager"), measure("resultater", "Entydig svarfrist dager")], "Tooltips": tips})
-    page.chart("turnaround-trend", "lineChart", 874, 326, 382, 270, "Utvikling over tid", "Median og P90 per måned", {"Category": [column("Dato", "ÅrMåned")], "Y": [measure("resultater", "Median svartid dager"), measure("resultater", "P90 svartid dager")], "Tooltips": tips})
-    page.textbox("turnaround-note", 208, 614, 1048, 70, [("Lesing av status", 11, C["blue"], True), ("På mål / Følg med / Krever oppfølging vises med både tekst og farge. Gjennomsnitt finnes kun som sekundær informasjon i tooltip.", 9, C["text"], False)], panel=True)
+    for idx, (vid, metric, label, accent) in enumerate(cards):
+        page.card(f"kpi-{vid}", 204 + idx * 266, 176, 254, 96, "resultater", metric, label, accent)
+    tips = [measure("resultater", "Antall gyldige svartider"), measure("resultater", "Antall over individuell frist"), measure("resultater", "Antall ekskludert datakvalitet"), measure("resultater", "Entydig svarfrist dager")]
+    page.chart("turnaround-month", "lineChart", 204, 288, 618, 396, "Svartid per måned", "Median og P90", {"Category": [column("Dato", "MånedStart")], "Y": [measure("resultater", "Median svartid dager"), measure("resultater", "P90 svartid dager")], "Tooltips": tips}, scalar_axis=True)
+    page.chart("turnaround-group", "scatterChart", 838, 288, 414, 396, "Rapportgrupper", "Median mot P90", {"Category": [column("resultater", "Rapportgruppe")], "X": [measure("resultater", "Median svartid dager")], "Y": [measure("resultater", "P90 svartid dager")], "Size": [measure("resultater", "Antall gyldige svartider")], "Tooltips": tips}, show_legend=False)
+
+
+def build_turnaround_analysis(page: Page) -> None:
+    add_filter_row(page, result_filters(("filter-group", "resultater", "Rapportgruppe", "Rapportgruppe"), ("filter-analysis", "resultater", "Analyse", "Analyse")))
+    page.slicer("perspective", 204, 176, 254, 78, "Svartidsperspektiv", "Perspektiv", "Perspektiv")
+    page.card("kpi-median", 470, 176, 254, 96, "resultater", "Median svartid dager", "Median", C["teal"])
+    page.card("kpi-p90", 736, 176, 254, 96, "resultater", "P90 svartid dager", "P90", C["amber"])
+    page.card("kpi-sla", 1002, 176, 250, 96, "resultater", "Andel innen individuell frist", "Innen frist", C["blue"])
+    tips = [measure("resultater", "Antall gyldige svartider"), measure("resultater", "Andel innen individuell frist"), measure("resultater", "Antall ekskludert datakvalitet")]
+    page.chart("analysis-scatter", "scatterChart", 204, 288, 730, 396, "Analyser: median mot P90", "Hvert punkt er én analyse", {"Category": [column("resultater", "Analyse")], "X": [measure("resultater", "Median svartid dager")], "Y": [measure("resultater", "P90 svartid dager")], "Size": [measure("resultater", "Antall gyldige svartider")], "Tooltips": tips}, show_legend=False)
+    page.chart("material-turnaround", "scatterChart", 950, 288, 302, 396, "Materialer", "Median mot P90", {"Category": [column("resultater", "Materiale")], "X": [measure("resultater", "Median svartid dager")], "Y": [measure("resultater", "P90 svartid dager")], "Size": [measure("resultater", "Antall gyldige svartider")], "Tooltips": tips}, show_legend=False)
 
 
 def build_followup(page: Page) -> None:
-    page.slicer("filter-group", 208, 96, 260, 84, "resultater", "Rapportgruppe", "Rapportgruppe")
-    page.slicer("filter-quality", 484, 96, 260, 84, "resultater", "Datakvalitet status", "Datakvalitet")
-    page.textbox("writeback-note", 760, 96, 496, 84, [("Oppfølging uten falsk writeback", 11, C["blue"], True), ("Kommentarer krever stabil saksnøkkel og godkjent lagringskilde.", 9, C["muted"], False)], panel=True)
+    add_filter_row(page, result_filters(("filter-group", "resultater", "Rapportgruppe", "Rapportgruppe"), ("filter-quality", "resultater", "Datakvalitet status", "Datakvalitet")))
     cards = [
         ("valid", "Antall gyldige svartider", "Gyldige", C["green"]),
         ("excluded", "Antall ekskludert datakvalitet", "Ekskludert", C["red"]),
@@ -350,29 +387,35 @@ def build_followup(page: Page) -> None:
         ("over", "Antall over individuell frist", "Over frist", C["amber"]),
     ]
     for idx, (vid, metric, label, accent) in enumerate(cards):
-        page.card(f"kpi-{vid}", 208 + idx * 262, 196, 246, 96, "resultater", metric, label, accent, "Valgt perspektiv")
+        page.card(f"kpi-{vid}", 204 + idx * 266, 176, 254, 96, "resultater", metric, label, accent)
     fields = [
-        column("resultater", "Rapportgruppe"), column("resultater", "Analyse"), column("resultater", "Tidspunkt.prøvetaking"),
-        column("resultater", "Tidspunkt.analysebestilling"), column("resultater", "Ekstraksjon.ferdig"), column("resultater", "Enhet starttid"),
-        column("resultater", "Enhet startkilde"), column("resultater", "Tidspunkt.analyseresultat"), column("resultater", "Tidspunkt.godkjenning"),
-        column("resultater", "Svartid pasient dager"), column("resultater", "Svartid seksjon dager"), column("resultater", "Svartid enhet dager"),
-        column("resultater", "Svarfrist"), column("resultater", "Datakvalitet status"),
+        column("resultater", "Rapportgruppe"), column("resultater", "Analyse"), column("resultater", "Materiale"),
+        column("resultater", "Svartid enhet dager"), column("resultater", "Svarfrist"), column("resultater", "Datakvalitet status"),
     ]
-    page.table("followup-table", 208, 308, 1048, 376, "Detaljer • sorter og filtrer før faglig oppfølging", fields)
+    page.table("followup-table", 204, 288, 1048, 396, "Oppfølging", fields)
+
+
+def build_timeline(page: Page) -> None:
+    add_filter_row(page, result_filters(("filter-group", "resultater", "Rapportgruppe", "Rapportgruppe")))
+    page.card("kpi-valid", 204, 176, 254, 96, "resultater", "Antall gyldige svartider", "Gyldige", C["green"])
+    page.card("kpi-median", 470, 176, 254, 96, "resultater", "Median svartid dager", "Median", C["teal"])
+    page.card("kpi-p90", 736, 176, 254, 96, "resultater", "P90 svartid dager", "P90", C["amber"])
+    fields = [
+        column("resultater", "Analyse"), column("resultater", "Materiale"), column("resultater", "Tidspunkt.prøvetaking"),
+        column("resultater", "Tidspunkt.analysebestilling"), column("resultater", "Ekstraksjon.ferdig"),
+        column("resultater", "Tidspunkt.analyseresultat"), column("resultater", "Tidspunkt.godkjenning"),
+    ]
+    page.table("timeline-table", 204, 288, 1048, 396, "Tidslinje", fields)
 
 
 def build_quality(page: Page) -> None:
-    cards = [
-        ("all", "Antall resultater", "Resultater", C["blue"]),
-        ("ok", "Datakvalitet OK", "Datakvalitet OK", C["green"]),
-        ("issues", "Datakvalitet avvik", "Datakvalitet avvik", C["red"]),
-        ("excluded", "Andel ekskludert datakvalitet", "Andel ekskludert", C["amber"]),
-    ]
-    for idx, (vid, metric, label, accent) in enumerate(cards):
-        page.card(f"kpi-{vid}", 208 + idx * 262, 100, 246, 116, "resultater", metric, label, accent, "Valgt periode og filter")
-    page.chart("quality-status", "clusteredBarChart", 208, 240, 506, 238, "Avvik etter type", "Kun avvikskategorier; OK-totalen vises i KPI-kortet", {"Category": [column("resultater", "Datakvalitet status")], "Y": [measure("resultater", "Antall avvik etter type")], "Tooltips": [measure("resultater", "Andel ekskludert datakvalitet")]})
-    page.chart("quality-source", "clusteredBarChart", 730, 240, 526, 238, "Valgt enhetsstart", "Viser om bestilling eller ekstraksjon var seneste operative start", {"Category": [column("resultater", "Enhet startkilde")], "Y": [measure("resultater", "Antall resultater")], "Tooltips": [measure("resultater", "Median enhetstid dager")]})
-    page.textbox("quality-rules", 208, 500, 1048, 184, [("Datakvalitetsregler", 13, C["blue"], True), ("• Manglende start eller analyseresultat ekskluderes fra relevante svartidsmål.", 10, C["text"], False), ("• Negative intervaller og intervaller over 365 dager returnerer BLANK – aldri 0.", 10, C["text"], False), ("• Godkjenning før analyseresultat flagges separat.", 10, C["text"], False), ("• Alle prosentmål bruker kun gyldige observasjoner og viser antall i tooltip.", 10, C["text"], False)], panel=True)
+    add_filter_row(page, result_filters(("filter-quality", "resultater", "Datakvalitet status", "Datakvalitet")))
+    page.card("kpi-ok", 204, 176, 254, 96, "resultater", "Datakvalitet OK", "Datakvalitet OK", C["green"])
+    page.card("kpi-issues", 470, 176, 254, 96, "resultater", "Datakvalitet avvik", "Avvik", C["red"])
+    page.card("kpi-excluded", 736, 176, 254, 96, "resultater", "Andel ekskludert datakvalitet", "Andel ekskludert", C["amber"])
+    page.card("kpi-valid", 1002, 176, 250, 96, "resultater", "Antall gyldige svartider", "Gyldige", C["blue"])
+    page.chart("quality-status", "clusteredBarChart", 204, 288, 618, 396, "Avvikstyper", "Antall observasjoner per status", {"Category": [column("resultater", "Datakvalitet status")], "Y": [measure("resultater", "Antall avvik etter type")]}, show_legend=False)
+    page.chart("quality-source", "clusteredBarChart", 838, 288, 414, 396, "Valgt enhetsstart", "Analysebestilling eller ekstraksjon", {"Category": [column("resultater", "Enhet startkilde")], "Y": [measure("resultater", "Antall resultater")]}, show_legend=False)
 
 
 def build_theme() -> None:
@@ -409,17 +452,23 @@ def main() -> None:
         shutil.rmtree(PAGES)
     PAGES.mkdir(parents=True)
     pages = [
-        Page(PAGE_DEFS[0][0], PAGE_DEFS[0][1], "Ledelsesbilde med volum, svartid og synlige kvalitetsvarsler", "Resultater: analyseresultat • Volum: analysebestilling"),
-        Page(PAGE_DEFS[1][0], PAGE_DEFS[1][1], "Ukevis kapasitet, sesongmønster og analysefordeling", "Analysebestilling"),
-        Page(PAGE_DEFS[2][0], PAGE_DEFS[2][1], "Median, P75, P90 og individuell fristoppnåelse", "Analyseresultat"),
-        Page(PAGE_DEFS[3][0], PAGE_DEFS[3][1], "Tidsstempler, startkilde, frist og datakvalitet på detaljnivå", "Analyseresultat"),
-        Page(PAGE_DEFS[4][0], PAGE_DEFS[4][1], "Diagnostikk som gjør ekskluderinger synlige og etterprøvbare", "Analyseresultat"),
+        Page(PAGE_DEFS[0][0], PAGE_DEFS[0][1], "Volum, svartid og kvalitet", "Analyseresultatdato"),
+        Page(PAGE_DEFS[1][0], PAGE_DEFS[1][1], "Kapasitet per uke og måned", "Analysebestillingsdato"),
+        Page(PAGE_DEFS[2][0], PAGE_DEFS[2][1], "Fordeling på analyser og rapportgrupper", "Analysebestillingsdato"),
+        Page(PAGE_DEFS[3][0], PAGE_DEFS[3][1], "Median, P90 og individuell frist", "Analyseresultatdato"),
+        Page(PAGE_DEFS[4][0], PAGE_DEFS[4][1], "Sammenlign analyser og materialer", "Analyseresultatdato"),
+        Page(PAGE_DEFS[5][0], PAGE_DEFS[5][1], "Sorter og filtrer avvik", "Analyseresultatdato"),
+        Page(PAGE_DEFS[6][0], PAGE_DEFS[6][1], "Tidsstempler fra prøve til godkjenning", "Analyseresultatdato"),
+        Page(PAGE_DEFS[7][0], PAGE_DEFS[7][1], "Avvik og valgt enhetsstart", "Analyseresultatdato"),
     ]
     build_leadership(pages[0])
     build_volume(pages[1])
-    build_turnaround(pages[2])
-    build_followup(pages[3])
-    build_quality(pages[4])
+    build_volume_analysis(pages[2])
+    build_turnaround(pages[3])
+    build_turnaround_analysis(pages[4])
+    build_followup(pages[5])
+    build_timeline(pages[6])
+    build_quality(pages[7])
     dump(
         PAGES / "pages.json",
         {
@@ -429,7 +478,7 @@ def main() -> None:
         },
     )
     build_theme()
-    print(f"Bygget fem rapportider i {REPORT}")
+    print(f"Bygget åtte rapportsider i {REPORT}")
 
 
 if __name__ == "__main__":

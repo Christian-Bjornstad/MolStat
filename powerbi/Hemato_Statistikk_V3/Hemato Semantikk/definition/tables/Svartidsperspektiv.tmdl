@@ -1,0 +1,17 @@
+table Svartidsperspektiv
+
+	column Perspektiv
+		dataType: string
+		summarizeBy: none
+		sourceColumn: [Perspektiv]
+		sortByColumn: Sortering
+
+	column Sortering
+		dataType: int64
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: [Sortering]
+
+	partition Svartidsperspektiv = calculated
+		mode: import
+		source = DATATABLE ( "Perspektiv", STRING, "Sortering", INTEGER, { { "Pasientforløp", 1 }, { "Seksjonstid", 2 }, { "Enhetstid", 3 } } )

@@ -1,0 +1,13 @@
+EVALUATE
+ROW (
+    "Perspektiv", [Valgt perspektiv],
+    "Antall gyldige", [Antall gyldige svartider],
+    "Median", [Median svartid dager],
+    "P75", [P75 svartid dager],
+    "P90", [P90 svartid dager],
+    "Gjennomsnitt", [Gjennomsnitt svartid dager],
+    "Innen frist", [Antall innen individuell frist],
+    "Over frist", [Antall over individuell frist],
+    "Andel innen frist", [Andel innen individuell frist],
+    "Entydig frist", [Entydig svarfrist dager]
+)

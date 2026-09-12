@@ -1,0 +1,65 @@
+table Dato
+	dataCategory: Time
+
+	column Date
+		dataType: dateTime
+		formatString: dd.MM.yyyy
+		isKey
+		summarizeBy: none
+		isNameInferred
+		sourceColumn: [Date]
+
+	column År = YEAR ( Dato[Date] )
+		formatString: 0
+		summarizeBy: none
+
+	column Kvartal = "K" & FORMAT ( Dato[Date], "Q" )
+		summarizeBy: none
+
+	column MånedNr = MONTH ( Dato[Date] )
+		formatString: 0
+		summarizeBy: none
+
+	column Måned = FORMAT ( Dato[Date], "mmmm" )
+		summarizeBy: none
+		sortByColumn: MånedNr
+
+	column ÅrMåned = FORMAT ( Dato[Date], "yyyy-MM" )
+		summarizeBy: none
+		sortByColumn: ÅrMånedSort
+
+	column ÅrMånedSort = YEAR ( Dato[Date] ) * 100 + MONTH ( Dato[Date] )
+		formatString: 0
+		summarizeBy: none
+
+	column MånedStart = DATE ( YEAR ( Dato[Date] ), MONTH ( Dato[Date] ), 1 )
+		formatString: MMM yyyy
+		summarizeBy: none
+
+	column ISOÅr = YEAR ( Dato[Date] - WEEKDAY ( Dato[Date], 2 ) + 4 )
+		formatString: 0
+		summarizeBy: none
+
+	column ISOUke = WEEKNUM ( Dato[Date], 21 )
+		formatString: 00
+		summarizeBy: none
+
+	column ÅrUke = FORMAT ( Dato[ISOÅr], "0000" ) & "-U" & FORMAT ( Dato[ISOUke], "00" )
+		summarizeBy: none
+		sortByColumn: UkeStart
+
+	column UkeStart = Dato[Date] - WEEKDAY ( Dato[Date], 2 ) + 1
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	partition Dato = calculated
+		mode: import
+		source =
+				VAR AlleDatoer =
+					UNION (
+						SELECTCOLUMNS ( antall, "D", antall[Tidspunkt.analysebestilling] ),
+						SELECTCOLUMNS ( resultater, "D", resultater[Tidspunkt.analyseresultat] )
+					)
+				VAR MinDato = DATE ( YEAR ( MINX ( AlleDatoer, [D] ) ), 1, 1 )
+				VAR MaksDato = DATE ( YEAR ( MAXX ( AlleDatoer, [D] ) ), 12, 31 )
+				RETURN CALENDAR ( MinDato, MaksDato )

@@ -1,0 +1,7 @@
+EVALUATE
+SUMMARIZECOLUMNS (
+    resultater[Datakvalitet status],
+    "Antall", [Antall resultater],
+    "Avvik i diagnosegraf", [Antall avvik etter type]
+)
+ORDER BY [Antall] DESC

@@ -1,142 +1,4 @@
-from __future__ import annotations
-
-from pathlib import Path
-import re
-
-
-ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "powerbi" / "Hemato_Statistikk_V3"
-BASELINE = ROOT / "powerbi" / "Hemato_Statistikk_Optimert.PbixProj" / "Model"
-DEFINITION = PROJECT / "Hemato Semantikk" / "definition"
-TABLES = DEFINITION / "tables"
-
-
-def partition_tail(table_name: str) -> str:
-    baseline_path = BASELINE / "tables" / f"{table_name}.tmdl"
-    project_path = TABLES / f"{table_name}.tmdl"
-    source_path = baseline_path if baseline_path.exists() else project_path
-    source = source_path.read_text(encoding="utf-8")
-    marker = f"\n\tpartition {table_name} = m"
-    return source[source.index(marker) :].rstrip() + "\n"
-
-
-def remove_variations(text: str) -> str:
-    return re.sub(r"\n\t\tvariation Variasjon\n(?:\t{3,}.*\n)+", "\n", text)
-
-
-def write(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content.lstrip("\ufeff").rstrip() + "\n", encoding="utf-8")
-
-
-def normalize_project_text_encoding() -> None:
-    """Power BI Desktop rejects every PBIP/TMDL text file containing a BOM."""
-    text_suffixes = {".tmdl", ".json", ".pbip", ".pbir", ".pbism", ".md", ".dax"}
-    for path in PROJECT.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in text_suffixes:
-            continue
-        raw = path.read_bytes()
-        if raw.startswith(b"\xef\xbb\xbf"):
-            path.write_bytes(raw[3:])
-
-
-def build_calendar() -> None:
-    write(
-        TABLES / "Dato.tmdl",
-        """table Dato
-\tdataCategory: Time
-
-\tcolumn Date
-\t\tdataType: dateTime
-\t\tformatString: dd.MM.yyyy
-\t\tisKey
-\t\tsummarizeBy: none
-\t\tisNameInferred
-\t\tsourceColumn: [Date]
-
-\tcolumn År = YEAR ( Dato[Date] )
-\t\tformatString: 0
-\t\tsummarizeBy: none
-
-\tcolumn Kvartal = "K" & FORMAT ( Dato[Date], "Q" )
-\t\tsummarizeBy: none
-
-\tcolumn MånedNr = MONTH ( Dato[Date] )
-\t\tformatString: 0
-\t\tsummarizeBy: none
-
-\tcolumn Måned = FORMAT ( Dato[Date], "mmmm" )
-\t\tsummarizeBy: none
-\t\tsortByColumn: MånedNr
-
-\tcolumn ÅrMåned = FORMAT ( Dato[Date], "yyyy-MM" )
-\t\tsummarizeBy: none
-\t\tsortByColumn: ÅrMånedSort
-
-\tcolumn ÅrMånedSort = YEAR ( Dato[Date] ) * 100 + MONTH ( Dato[Date] )
-\t\tformatString: 0
-\t\tsummarizeBy: none
-
-\tcolumn MånedStart = DATE ( YEAR ( Dato[Date] ), MONTH ( Dato[Date] ), 1 )
-\t\tformatString: MMM yyyy
-\t\tsummarizeBy: none
-
-\tcolumn ISOÅr = YEAR ( Dato[Date] - WEEKDAY ( Dato[Date], 2 ) + 4 )
-\t\tformatString: 0
-\t\tsummarizeBy: none
-
-\tcolumn ISOUke = WEEKNUM ( Dato[Date], 21 )
-\t\tformatString: 00
-\t\tsummarizeBy: none
-
-\tcolumn ÅrUke = FORMAT ( Dato[ISOÅr], "0000" ) & "-U" & FORMAT ( Dato[ISOUke], "00" )
-\t\tsummarizeBy: none
-\t\tsortByColumn: UkeStart
-
-\tcolumn UkeStart = Dato[Date] - WEEKDAY ( Dato[Date], 2 ) + 1
-\t\tformatString: dd.MM.yyyy
-\t\tsummarizeBy: none
-
-\tpartition Dato = calculated
-\t\tmode: import
-\t\tsource =
-\t\t\t\tVAR AlleDatoer =
-\t\t\t\t\tUNION (
-\t\t\t\t\t\tSELECTCOLUMNS ( antall, "D", antall[Tidspunkt.analysebestilling] ),
-\t\t\t\t\t\tSELECTCOLUMNS ( resultater, "D", resultater[Tidspunkt.analyseresultat] )
-\t\t\t\t\t)
-\t\t\t\tVAR MinDato = DATE ( YEAR ( MINX ( AlleDatoer, [D] ) ), 1, 1 )
-\t\t\t\tVAR MaksDato = DATE ( YEAR ( MAXX ( AlleDatoer, [D] ) ), 12, 31 )
-\t\t\t\tRETURN CALENDAR ( MinDato, MaksDato )
-""",
-    )
-
-
-def build_perspective_table() -> None:
-    write(
-        TABLES / "Svartidsperspektiv.tmdl",
-        """table Svartidsperspektiv
-
-\tcolumn Perspektiv
-\t\tdataType: string
-\t\tsummarizeBy: none
-\t\tsourceColumn: [Perspektiv]
-\t\tsortByColumn: Sortering
-
-\tcolumn Sortering
-\t\tdataType: int64
-\t\tformatString: 0
-\t\tsummarizeBy: none
-\t\tsourceColumn: [Sortering]
-
-\tpartition Svartidsperspektiv = calculated
-\t\tmode: import
-\t\tsource = DATATABLE ( "Perspektiv", STRING, "Sortering", INTEGER, { { "Pasientforløp", 1 }, { "Seksjonstid", 2 }, { "Enhetstid", 3 } } )
-""",
-    )
-
-
-RESULTATER_HEADER = r'''table resultater
+table resultater
 
 	measure 'Valgt perspektiv' = SELECTEDVALUE ( Svartidsperspektiv[Perspektiv], "Enhetstid" )
 
@@ -490,148 +352,52 @@ RESULTATER_HEADER = r'''table resultater
 	column 'Analysetid status' = resultater[Datakvalitet status]
 		dataType: string
 		summarizeBy: none
-'''
 
+	partition resultater = m
+		mode: import
+		source =
+				let
+				    Kilde =
+				        Csv.Document(
+				            Web.Contents(
+				                "https://hsorhf.sharepoint.com/sites/OUSHF-O-PATXJSeksjonmolekylrpatologi/Shared%20Documents/5_IKT/Bioinformatikk/PowerBI/MolStat/Hemato/resultater.csv"
+				            ),
+				            [
+				                Delimiter = ";",
+				                Columns = 12,
+				                Encoding = 65001,
+				                QuoteStyle = QuoteStyle.None
+				            ]
+				        ),
 
-ANTALL_HEADER = r'''table antall
+				    #"Forfremmede overskrifter" =
+				        Table.PromoteHeaders(
+				            Kilde,
+				            [PromoteAllScalars = true]
+				        ),
 
-	measure 'Antall analyser' = COUNTROWS ( antall )
-		formatString: #,0
+				    #"Endret kolonnetype" =
+				        Table.TransformColumnTypes(
+				            #"Forfremmede overskrifter",
+				            {
+				                {"Materiale", type text},
+				                {"Analyse", type text},
+				                {"Nukleinsyre", type text},
+				                {"Rapportgruppe", type text},
+				                {"Tidspunkt.prøvetaking", type datetime},
+				                {"Tidspunkt.opprettet", type datetime},
+				                {"Tidspunkt.analysebestilling", type datetime},
+				                {"Tidspunkt.analyseresultat", type datetime},
+				                {"Tidspunkt.godkjenning", type datetime},
+				                {"Ekstraksjon.analysebestilling", type datetime},
+				                {"Ekstraksjon.ferdig", type datetime},
+				                {"Svarfrist", Int64.Type}
+				            },
+				            "no"
+				        )
+				in
+				    #"Endret kolonnetype"
 
-	measure 'Antall analyser forrige periode' = CALCULATE ( [Antall analyser], DATEADD ( Dato[Date], -1, MONTH ) )
-		formatString: #,0
+	annotation PBI_NavigationStepName = Navigasjon
 
-	measure 'Endring analyser prosent' = DIVIDE ( [Antall analyser] - [Antall analyser forrige periode], [Antall analyser forrige periode] )
-		formatString: 0.0%
-
-	measure 'Fireukers glidende analyser' = VAR SisteTidspunkt = MAX ( antall[Tidspunkt.analysebestilling] ) VAR SisteDato = DATE ( YEAR ( SisteTidspunkt ), MONTH ( SisteTidspunkt ), DAY ( SisteTidspunkt ) ) RETURN IF ( ISBLANK ( SisteTidspunkt ), BLANK (), DIVIDE ( CALCULATE ( [Antall analyser], REMOVEFILTERS ( Dato ), DATESINPERIOD ( Dato[Date], SisteDato, -28, DAY ) ), 4 ) )
-		formatString: #,0
-
-	measure 'Analyser denne måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( TODAY () ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( TODAY () ) )
-		formatString: #,0
-
-	measure Antall = COUNTROWS ( antall )
-		formatString: #,0
-
-	measure Mål = BLANK ()
-
-	measure 'Analyser forrige måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( EDATE ( TODAY (), -1 ) ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( EDATE ( TODAY (), -1 ) ) )
-		formatString: #,0
-
-	measure 'Endring analyser %' = DIVIDE ( [Analyser denne måned] - [Analyser forrige måned], [Analyser forrige måned] )
-		formatString: 0.0%
-
-	column Analyse
-		dataType: string
-		summarizeBy: none
-		sourceColumn: Analyse
-
-	column 'Tidspunkt.analysebestilling'
-		dataType: dateTime
-		formatString: dd.MM.yyyy HH:mm
-		summarizeBy: none
-		sourceColumn: Tidspunkt.analysebestilling
-
-	column Nukleinsyre
-		dataType: string
-		summarizeBy: none
-		sourceColumn: Nukleinsyre
-
-	column Rapportgruppe
-		dataType: string
-		summarizeBy: none
-		sourceColumn: Rapportgruppe
-
-	column Maaned
-		dataType: int64
-		formatString: 0
-		summarizeBy: none
-		sourceColumn: Maaned
-
-	column 'Analysebestilling dato' = IF ( ISBLANK ( antall[Tidspunkt.analysebestilling] ), BLANK (), DATE ( YEAR ( antall[Tidspunkt.analysebestilling] ), MONTH ( antall[Tidspunkt.analysebestilling] ), DAY ( antall[Tidspunkt.analysebestilling] ) ) )
-		formatString: dd.MM.yyyy
-		summarizeBy: none
-
-	column DatoOpprettet = antall[Analysebestilling dato]
-		dataType: dateTime
-		formatString: dd.MM.yyyy
-		summarizeBy: none
-
-	column 'Analyse ferdig dato' = antall[Analysebestilling dato]
-		dataType: dateTime
-		formatString: dd.MM.yyyy
-		summarizeBy: none
-'''
-
-
-def build_fact_tables() -> None:
-    write(TABLES / "resultater.tmdl", RESULTATER_HEADER + partition_tail("resultater"))
-    write(TABLES / "antall.tmdl", ANTALL_HEADER + partition_tail("antall"))
-
-
-def build_relationships() -> None:
-    write(
-        DEFINITION / "relationships.tmdl",
-        """relationship ResultaterInfo
-\tfromColumn: resultater.Analyse
-\ttoColumn: info.Analyse
-
-relationship AntallInfo
-\tfromColumn: antall.Analyse
-\ttoColumn: info.Analyse
-
-relationship Resultatdato
-\tfromColumn: resultater.'Analyseresultat dato'
-\ttoColumn: Dato.Date
-
-relationship Prøvedato
-\tisActive: false
-\tfromColumn: resultater.'Prøvetaking dato'
-\ttoColumn: Dato.Date
-
-relationship BestillingsdatoResultat
-\tisActive: false
-\tfromColumn: resultater.'Analysebestilling dato'
-\ttoColumn: Dato.Date
-
-relationship Godkjenningsdato
-\tisActive: false
-\tfromColumn: resultater.'Godkjenning dato'
-\ttoColumn: Dato.Date
-
-relationship BestillingsdatoVolum
-\tfromColumn: antall.'Analysebestilling dato'
-\ttoColumn: Dato.Date
-""",
-    )
-
-
-def clean_model() -> None:
-    for path in TABLES.glob("*.tmdl"):
-        if "DateTable" in path.name:
-            path.unlink()
-
-    model_path = DEFINITION / "model.tmdl"
-    model = model_path.read_text(encoding="utf-8")
-    model = re.sub(r"annotation __PBI_TimeIntelligenceEnabled = \d", "annotation __PBI_TimeIntelligenceEnabled = 0", model)
-    model = "\n".join(line for line in model.splitlines() if "DateTable" not in line)
-    if "ref table Svartidsperspektiv" not in model:
-        model = model.replace("ref table resultater", "ref table resultater\nref table Svartidsperspektiv")
-    write(model_path, model)
-
-    for path in TABLES.glob("*.tmdl"):
-        write(path, remove_variations(path.read_text(encoding="utf-8")))
-
-
-def main() -> None:
-    build_calendar()
-    build_perspective_table()
-    build_fact_tables()
-    build_relationships()
-    clean_model()
-    normalize_project_text_encoding()
-    print(f"Bygget semantisk modell i {DEFINITION}")
-
-
-if __name__ == "__main__":
-    main()
+	annotation PBI_ResultType = Table

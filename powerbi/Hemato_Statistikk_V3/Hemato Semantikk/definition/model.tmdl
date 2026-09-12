@@ -1,0 +1,19 @@
+model Model
+	culture: nb-NO
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: nb-NO
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation __PBI_TimeIntelligenceEnabled = 0
+
+annotation PBI_QueryOrder = ["antall","info","resultater"]
+
+ref table Dato
+ref table antall
+ref table info
+ref table resultater
+ref table Svartidsperspektiv
+
+ref cultureInfo nb-NO
