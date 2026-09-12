@@ -1,0 +1,13 @@
+EVALUATE
+SUMMARIZECOLUMNS (
+    Dato[ISOÅr],
+    Dato[ISOUke],
+    info[Rapportgruppe],
+    "Resultater", [Antall resultater],
+    "Gyldige", [Antall gyldige svartider],
+    "Median", [Median svartid dager],
+    "P90", [P90 svartid dager],
+    "Innen frist %", [Andel innen individuell frist],
+    "Volum", [Antall analyser]
+)
+ORDER BY Dato[ISOÅr], Dato[ISOUke], info[Rapportgruppe]

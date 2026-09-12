@@ -1,0 +1,1034 @@
+cultureInfo nb-NO
+
+	linguisticMetadata =
+			{
+			  "Version": "4.1.0",
+			  "Language": "en-US",
+			  "Entities": {
+			    "dato": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "dato": {
+			            "State": "Generated"
+			          }
+			        }
+			      ]
+			    },
+			    "dato.date": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "ConceptualProperty": "Date"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "date": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "moment": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.736
+			          }
+			        },
+			        {
+			          "period": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.714
+			          }
+			        }
+			      ],
+			      "SemanticType": "Time"
+			    },
+			    "dato.date.datohierarki": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "VariationSource": "Date",
+			          "VariationSet": "Variasjon",
+			          "Hierarchy": "Datohierarki"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "datohierarki": {
+			            "State": "Generated"
+			          }
+			        }
+			      ]
+			    },
+			    "dato.date.år": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "VariationSource": "Date",
+			          "VariationSet": "Variasjon",
+			          "Hierarchy": "Datohierarki",
+			          "HierarchyLevel": "År"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "år": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "date år": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "moment år": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.6
+			          }
+			        },
+			        {
+			          "period år": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.582
+			          }
+			        }
+			      ]
+			    },
+			    "dato.date.kvartal": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "VariationSource": "Date",
+			          "VariationSet": "Variasjon",
+			          "Hierarchy": "Datohierarki",
+			          "HierarchyLevel": "Kvartal"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "kvartal": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "date kvartal": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "moment kvartal": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.6
+			          }
+			        },
+			        {
+			          "period kvartal": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.582
+			          }
+			        }
+			      ]
+			    },
+			    "dato.date.måned": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "VariationSource": "Date",
+			          "VariationSet": "Variasjon",
+			          "Hierarchy": "Datohierarki",
+			          "HierarchyLevel": "Måned"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "måned": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "date måned": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "moment måned": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.6
+			          }
+			        },
+			        {
+			          "period måned": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.582
+			          }
+			        }
+			      ]
+			    },
+			    "dato.date.dag": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "VariationSource": "Date",
+			          "VariationSet": "Variasjon",
+			          "Hierarchy": "Datohierarki",
+			          "HierarchyLevel": "Dag"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "dag": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "date dag": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "moment dag": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.6
+			          }
+			        },
+			        {
+			          "period dag": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.582
+			          }
+			        }
+			      ]
+			    },
+			    "dato.år": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "ConceptualProperty": "År"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "år": {
+			            "State": "Generated"
+			          }
+			        }
+			      ]
+			    },
+			    "dato.måned_nr": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "ConceptualProperty": "MånedNr"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "måned nr": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "MånedNr": {
+			            "Type": "Noun",
+			            "State": "Generated",
+			            "Weight": 0.99
+			          }
+			        }
+			      ]
+			    },
+			    "dato.måned": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "ConceptualProperty": "Måned"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "måned": {
+			            "State": "Generated"
+			          }
+			        }
+			      ]
+			    },
+			    "dato.år_måned": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "ConceptualProperty": "ÅrMåned"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "år måned": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "ÅrMåned": {
+			            "Type": "Noun",
+			            "State": "Generated",
+			            "Weight": 0.99
+			          }
+			        }
+			      ]
+			    },
+			    "dato.år_måned_sort": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Dato",
+			          "ConceptualProperty": "ÅrMånedSort"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "år måned sort": {
+			            "State": "Generated"
+			          }
+			        },
+			        {
+			          "ÅrMånedSort": {
+			            "Type": "Noun",
+			            "State": "Generated",
+			            "Weight": 0.99
+			          }
+			        },
+			        {
+			          "år måned category": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.508
+			          }
+			        },
+			        {
+			          "år måned genus": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.508
+			          }
+			        },
+			        {
+			          "år måned species": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.508
+			          }
+			        },
+			        {
+			          "år måned variety": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.508
+			          }
+			        },
+			        {
+			          "år måned nature": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.508
+			          }
+			        },
+			        {
+			          "år måned kind": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.492
+			          }
+			        },
+			        {
+			          "år måned class": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.492
+			          }
+			        },
+			        {
+			          "år måned type": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.492
+			          }
+			        },
+			        {
+			          "år måned ilk": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.492
+			          }
+			        },
+			        {
+			          "år måned order": {
+			            "Type": "Noun",
+			            "State": "Suggested",
+			            "Source": {
+			              "Agent": "Thesaurus"
+			            },
+			            "Weight": 0.492
+			          }
+			        }
+			      ]
+			    },
+			    "resultater.ferdig_maned_navn": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Resultater",
+			          "ConceptualProperty": "Ferdig maned navn"
+			        }
+			      },
+			      "State": "Generated"
+			    }
+			  },
+			  "Relationships": {
+			    "dato_has_date": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato": {
+			          "Target": {
+			            "Entity": "dato"
+			          }
+			        },
+			        "dato.date": {
+			          "Target": {
+			            "Entity": "dato.date"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato"
+			            },
+			            "Object": {
+			              "Role": "dato.date"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datos_have_dates"
+			        }
+			      ]
+			    },
+			    "dato_has_år": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato": {
+			          "Target": {
+			            "Entity": "dato"
+			          }
+			        },
+			        "dato.år": {
+			          "Target": {
+			            "Entity": "dato.år"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato"
+			            },
+			            "Object": {
+			              "Role": "dato.år"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datos_have_års"
+			        }
+			      ]
+			    },
+			    "dato_has_måned_nr": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato": {
+			          "Target": {
+			            "Entity": "dato"
+			          }
+			        },
+			        "dato.måned_nr": {
+			          "Target": {
+			            "Entity": "dato.måned_nr"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato"
+			            },
+			            "Object": {
+			              "Role": "dato.måned_nr"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datos_have_måned_nr"
+			        }
+			      ]
+			    },
+			    "dato_has_måned": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato": {
+			          "Target": {
+			            "Entity": "dato"
+			          }
+			        },
+			        "dato.måned": {
+			          "Target": {
+			            "Entity": "dato.måned"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato"
+			            },
+			            "Object": {
+			              "Role": "dato.måned"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datos_have_måneds"
+			        }
+			      ]
+			    },
+			    "dato_has_år_måned": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato": {
+			          "Target": {
+			            "Entity": "dato"
+			          }
+			        },
+			        "dato.år_måned": {
+			          "Target": {
+			            "Entity": "dato.år_måned"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato"
+			            },
+			            "Object": {
+			              "Role": "dato.år_måned"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datos_have_år_måneds"
+			        }
+			      ]
+			    },
+			    "dato_has_år_måned_sort": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato": {
+			          "Target": {
+			            "Entity": "dato"
+			          }
+			        },
+			        "dato.år_måned_sort": {
+			          "Target": {
+			            "Entity": "dato.år_måned_sort"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato"
+			            },
+			            "Object": {
+			              "Role": "dato.år_måned_sort"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datos_have_år_måned_sorts"
+			        }
+			      ]
+			    },
+			    "dato_date_has_datohierarki": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date": {
+			          "Target": {
+			            "Entity": "dato.date"
+			          }
+			        },
+			        "dato.date.datohierarki": {
+			          "Target": {
+			            "Entity": "dato.date.datohierarki"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date"
+			            },
+			            "Object": {
+			              "Role": "dato.date.datohierarki"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "dates_have_datohierarkis"
+			        }
+			      ]
+			    },
+			    "dato_date_datohierarki_has_dato_date_år": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date.datohierarki": {
+			          "Target": {
+			            "Entity": "dato.date.datohierarki"
+			          }
+			        },
+			        "dato.date.år": {
+			          "Target": {
+			            "Entity": "dato.date.år"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.datohierarki"
+			            },
+			            "Object": {
+			              "Role": "dato.date.år"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datohierarkis_have_års5"
+			        }
+			      ]
+			    },
+			    "dato_date_datohierarki_has_dato_date_kvartal": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date.datohierarki": {
+			          "Target": {
+			            "Entity": "dato.date.datohierarki"
+			          }
+			        },
+			        "dato.date.kvartal": {
+			          "Target": {
+			            "Entity": "dato.date.kvartal"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.datohierarki"
+			            },
+			            "Object": {
+			              "Role": "dato.date.kvartal"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datohierarkis_have_kvartals5"
+			        }
+			      ]
+			    },
+			    "dato_date_datohierarki_has_dato_date_måned": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date.datohierarki": {
+			          "Target": {
+			            "Entity": "dato.date.datohierarki"
+			          }
+			        },
+			        "dato.date.måned": {
+			          "Target": {
+			            "Entity": "dato.date.måned"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.datohierarki"
+			            },
+			            "Object": {
+			              "Role": "dato.date.måned"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datohierarkis_have_måneds5"
+			        }
+			      ]
+			    },
+			    "dato_date_datohierarki_has_dato_date_dag": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date.datohierarki": {
+			          "Target": {
+			            "Entity": "dato.date.datohierarki"
+			          }
+			        },
+			        "dato.date.dag": {
+			          "Target": {
+			            "Entity": "dato.date.dag"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.datohierarki"
+			            },
+			            "Object": {
+			              "Role": "dato.date.dag"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "datohierarkis_have_dag5"
+			        }
+			      ]
+			    },
+			    "dato_date_år_has_dato_date_kvartal": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date.år": {
+			          "Target": {
+			            "Entity": "dato.date.år"
+			          }
+			        },
+			        "dato.date.kvartal": {
+			          "Target": {
+			            "Entity": "dato.date.kvartal"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.år"
+			            },
+			            "Object": {
+			              "Role": "dato.date.kvartal"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "års_have_kvartals5"
+			        },
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.kvartal"
+			            },
+			            "Object": {
+			              "Role": "dato.date.år"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "kvartals_have_års5"
+			        },
+			        {
+			          "Preposition": {
+			            "Subject": {
+			              "Role": "dato.date.kvartal"
+			            },
+			            "Prepositions": [
+			              {
+			                "in": {
+			                  "State": "Generated"
+			                }
+			              }
+			            ],
+			            "Object": {
+			              "Role": "dato.date.år"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "kvartals_are_in_års5"
+			        }
+			      ]
+			    },
+			    "dato_date_kvartal_has_dato_date_måned": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date.kvartal": {
+			          "Target": {
+			            "Entity": "dato.date.kvartal"
+			          }
+			        },
+			        "dato.date.måned": {
+			          "Target": {
+			            "Entity": "dato.date.måned"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.kvartal"
+			            },
+			            "Object": {
+			              "Role": "dato.date.måned"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "kvartals_have_måneds5"
+			        },
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.måned"
+			            },
+			            "Object": {
+			              "Role": "dato.date.kvartal"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "måneds_have_kvartals5"
+			        },
+			        {
+			          "Preposition": {
+			            "Subject": {
+			              "Role": "dato.date.måned"
+			            },
+			            "Prepositions": [
+			              {
+			                "in": {
+			                  "State": "Generated"
+			                }
+			              }
+			            ],
+			            "Object": {
+			              "Role": "dato.date.kvartal"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "måneds_are_in_kvartals5"
+			        }
+			      ]
+			    },
+			    "dato_date_måned_has_dato_date_dag": {
+			      "Binding": {
+			        "ConceptualEntity": "Dato"
+			      },
+			      "State": "Generated",
+			      "Roles": {
+			        "dato.date.måned": {
+			          "Target": {
+			            "Entity": "dato.date.måned"
+			          }
+			        },
+			        "dato.date.dag": {
+			          "Target": {
+			            "Entity": "dato.date.dag"
+			          }
+			        }
+			      },
+			      "Phrasings": [
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.måned"
+			            },
+			            "Object": {
+			              "Role": "dato.date.dag"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "måneds_have_dag5"
+			        },
+			        {
+			          "Attribute": {
+			            "Subject": {
+			              "Role": "dato.date.dag"
+			            },
+			            "Object": {
+			              "Role": "dato.date.måned"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "dag_have_måneds5"
+			        },
+			        {
+			          "Preposition": {
+			            "Subject": {
+			              "Role": "dato.date.dag"
+			            },
+			            "Prepositions": [
+			              {
+			                "in": {
+			                  "State": "Generated"
+			                }
+			              }
+			            ],
+			            "Object": {
+			              "Role": "dato.date.måned"
+			            }
+			          },
+			          "State": "Generated",
+			          "Weight": 0.99,
+			          "ID": "dag_are_in_måneds5"
+			        }
+			      ]
+			    }
+			  },
+			  "Agents": {
+			    "Internal": {
+			      "Version": "1.1.0"
+			    }
+			  }
+			}
+		contentType: json

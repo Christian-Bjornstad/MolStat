@@ -1,0 +1,30 @@
+relationship ResultaterInfo
+	fromColumn: resultater.Analyse
+	toColumn: info.Analyse
+
+relationship AntallInfo
+	fromColumn: antall.Analyse
+	toColumn: info.Analyse
+
+relationship Resultatdato
+	fromColumn: resultater.'Analyseresultat dato'
+	toColumn: Dato.Date
+
+relationship Prøvedato
+	isActive: false
+	fromColumn: resultater.'Prøvetaking dato'
+	toColumn: Dato.Date
+
+relationship BestillingsdatoResultat
+	isActive: false
+	fromColumn: resultater.'Analysebestilling dato'
+	toColumn: Dato.Date
+
+relationship Godkjenningsdato
+	isActive: false
+	fromColumn: resultater.'Godkjenning dato'
+	toColumn: Dato.Date
+
+relationship BestillingsdatoVolum
+	fromColumn: antall.'Analysebestilling dato'
+	toColumn: Dato.Date

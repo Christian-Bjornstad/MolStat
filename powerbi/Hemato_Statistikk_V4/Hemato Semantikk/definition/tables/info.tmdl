@@ -1,0 +1,98 @@
+table info
+
+	column Analyse
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Analyse
+
+		annotation SummarizationSetBy = Automatic
+
+	column Nukleinsyre
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Nukleinsyre
+
+		annotation SummarizationSetBy = Automatic
+
+	column Rapportgruppe
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Rapportgruppe
+
+		annotation SummarizationSetBy = Automatic
+
+	column Svarfrist
+		dataType: int64
+		formatString: 0
+		summarizeBy: sum
+		sourceColumn: Svarfrist
+
+		annotation SummarizationSetBy = Automatic
+
+	partition info = m
+		mode: import
+		source =
+				let
+				    Kilde =
+				        Excel.Workbook(
+				            Web.Contents(
+				                "https://hsorhf.sharepoint.com/sites/OUSHF-O-PATXJSeksjonmolekylrpatologi/Shared%20Documents/5_IKT/Bioinformatikk/PowerBI/MolStat/Hemato/Analyse_lookup.xlsx"
+				            ),
+				            null,
+				            false
+				        ),
+
+				    Sheet1_sheet =
+				        Kilde{[Item = "Sheet1", Kind = "Sheet"]}[Data],
+
+				    #"Filtrer null og mellomrom" =
+				        each
+				            List.Select(
+				                _,
+				                each
+				                    _ <> null
+				                    and (
+				                        not (_ is text)
+				                        or Text.Trim(_) <> ""
+				                    )
+				            ),
+
+				    #"Andre kolonner fjernet" =
+				        Table.SelectColumns(
+				            Sheet1_sheet,
+				            List.Select(
+				                Table.ColumnNames(Sheet1_sheet),
+				                each
+				                    try
+				                        not List.IsEmpty(
+				                            #"Filtrer null og mellomrom"(
+				                                Table.Column(Sheet1_sheet, _)
+				                            )
+				                        )
+				                    otherwise
+				                        true
+				            )
+				        ),
+
+				    #"Forfremmede overskrifter" =
+				        Table.PromoteHeaders(
+				            #"Andre kolonner fjernet",
+				            [PromoteAllScalars = true]
+				        ),
+
+				    #"Endret type" =
+				        Table.TransformColumnTypes(
+				            #"Forfremmede overskrifter",
+				            {
+				                {"Analyse", type text},
+				                {"Nukleinsyre", type text},
+				                {"Rapportgruppe", type text},
+				                {"Svarfrist", Int64.Type}
+				            }
+				        )
+				in
+				    #"Endret type"
+
+	annotation PBI_NavigationStepName = Navigasjon
+
+	annotation PBI_ResultType = Table

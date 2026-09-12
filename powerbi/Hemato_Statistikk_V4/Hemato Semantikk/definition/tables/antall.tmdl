@@ -1,0 +1,116 @@
+table antall
+
+	measure 'Antall analyser' = COUNTROWS ( antall )
+		formatString: #,0
+
+	measure 'Antall analyser forrige periode' = CALCULATE ( [Antall analyser], DATEADD ( Dato[Date], -1, MONTH ) )
+		formatString: #,0
+
+	measure 'Endring analyser prosent' = DIVIDE ( [Antall analyser] - [Antall analyser forrige periode], [Antall analyser forrige periode] )
+		formatString: 0.0%
+
+	measure 'Fireukers glidende analyser' = VAR SisteTidspunkt = MAX ( antall[Tidspunkt.analysebestilling] ) VAR SisteDato = DATE ( YEAR ( SisteTidspunkt ), MONTH ( SisteTidspunkt ), DAY ( SisteTidspunkt ) ) RETURN IF ( ISBLANK ( SisteTidspunkt ), BLANK (), DIVIDE ( CALCULATE ( [Antall analyser], REMOVEFILTERS ( Dato ), DATESINPERIOD ( Dato[Date], SisteDato, -28, DAY ) ), 4 ) )
+		formatString: #,0
+
+	measure 'Analyser denne måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( TODAY () ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( TODAY () ) )
+		formatString: #,0
+
+	measure Antall = COUNTROWS ( antall )
+		formatString: #,0
+
+	measure Mål = BLANK ()
+
+	measure 'Analyser forrige måned' = CALCULATE ( COUNTROWS ( antall ), YEAR ( antall[Analyse ferdig dato] ) = YEAR ( EDATE ( TODAY (), -1 ) ), MONTH ( antall[Analyse ferdig dato] ) = MONTH ( EDATE ( TODAY (), -1 ) ) )
+		formatString: #,0
+
+	measure 'Endring analyser %' = DIVIDE ( [Analyser denne måned] - [Analyser forrige måned], [Analyser forrige måned] )
+		formatString: 0.0%
+
+	column Analyse
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Analyse
+
+	column 'Tidspunkt.analysebestilling'
+		dataType: dateTime
+		formatString: dd.MM.yyyy HH:mm
+		summarizeBy: none
+		sourceColumn: Tidspunkt.analysebestilling
+
+	column Nukleinsyre
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Nukleinsyre
+
+	column Rapportgruppe
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Rapportgruppe
+
+	column Maaned
+		dataType: int64
+		formatString: 0
+		summarizeBy: none
+		sourceColumn: Maaned
+
+	column 'Analysebestilling dato' = IF ( ISBLANK ( antall[Tidspunkt.analysebestilling] ), BLANK (), DATE ( YEAR ( antall[Tidspunkt.analysebestilling] ), MONTH ( antall[Tidspunkt.analysebestilling] ), DAY ( antall[Tidspunkt.analysebestilling] ) ) )
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	column DatoOpprettet = antall[Analysebestilling dato]
+		dataType: dateTime
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	column 'Analyse ferdig dato' = antall[Analysebestilling dato]
+		dataType: dateTime
+		formatString: dd.MM.yyyy
+		summarizeBy: none
+
+	partition antall = m
+		mode: import
+		source =
+				let
+				    Kilde =
+				        Csv.Document(
+				            Web.Contents(
+				                "https://hsorhf.sharepoint.com/sites/OUSHF-O-PATXJSeksjonmolekylrpatologi/Shared%20Documents/5_IKT/Bioinformatikk/PowerBI/MolStat/Hemato/antall.csv"
+				            ),
+				            [
+				                Delimiter = ";",
+				                Columns = 5,
+				                Encoding = 65001,
+				                QuoteStyle = QuoteStyle.None
+				            ]
+				        ),
+
+				    #"Forfremmede overskrifter" =
+				        Table.PromoteHeaders(
+				            Kilde,
+				            [PromoteAllScalars = true]
+				        ),
+
+				    #"Endret kolonnetype" =
+				        Table.TransformColumnTypes(
+				            #"Forfremmede overskrifter",
+				            {
+				                {"Analyse", type text},
+				                {"Tidspunkt.analysebestilling", type datetime},
+				                {"Nukleinsyre", type text},
+				                {"Rapportgruppe", type text},
+				                {"Maaned", Int64.Type}
+				            },
+				            "no"
+				        ),
+
+				    #"Filtrerte rader" =
+				        Table.SelectRows(
+				            #"Endret kolonnetype",
+				            each [Analyse] <> "EKSTRAKSJON-H-OU"
+				        )
+				in
+				    #"Filtrerte rader"
+
+	annotation PBI_NavigationStepName = Navigasjon
+
+	annotation PBI_ResultType = Table
