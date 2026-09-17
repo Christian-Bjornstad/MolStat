@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
 from urllib.parse import urlsplit
+from molstat.failures import RunFailure
 
 from molstat.lvms.batch_form import BatchFormError, BatchReportForm
 from molstat.lvms.batch_navigation import (
@@ -169,6 +170,7 @@ def run_report_batch(
     timeout_seconds: float = 600,
     progress: Callable[[int, int], None] | None = None,
     failure: Callable[[str], None] | None = None,
+    error_reporter: Callable[[RunFailure], None] | None = None,
 ) -> int:
     active = dependencies or _default_dependencies()
     stream = output or sys.stdout
@@ -250,14 +252,30 @@ def run_report_batch(
             edge = None
         result = 0
     except BrowserCleanupError:
+        if error_reporter:
+            error_reporter(RunFailure("BROWSER_CLEANUP", current_stage))
         if failure is not None:
             failure(current_stage)
         stream.write("Batch cleanup did not complete.\n")
         result = 2
     except KeyboardInterrupt:
+        if error_reporter:
+            error_reporter(RunFailure("CANCELLED", current_stage))
         stream.write("Batch cancelled.\n")
         result = 130
     except Exception as exc:
+        if error_reporter:
+            # Once export may have been submitted, never retry automatically.
+            timeout = isinstance(exc, (TimeoutError, CdpTimeout))
+            safe_to_retry = current_stage in {"edge_start", "cdp_connect", "lvms_open", "defined_reports"} or current_stage.endswith(("_clear", "_fill"))
+            code = "LVMS_TIMEOUT" if timeout else "LVMS_FAILED"
+            if current_stage.endswith(("_download", "_export")):
+                code = "DOWNLOAD_INCOMPLETE"
+            if isinstance(exc, BatchFormError):
+                code = "LVMS_FORM"
+            if isinstance(exc, CdpTimeout) and str(exc) == "SSO did not return to the expected origin":
+                code, safe_to_retry = "LVMS_LOGIN_REQUIRED", False
+            error_reporter(RunFailure(code, current_stage, retryable=timeout and safe_to_retry))
         if failure is not None:
             failure(current_stage)
         reason = _safe_failure_reason(exc, current_stage)
@@ -270,6 +288,8 @@ def run_report_batch(
         result = 2
     finally:
         if close_owned(connection, edge):
+            if error_reporter:
+                error_reporter(RunFailure("BROWSER_CLEANUP", "cleanup"))
             if failure is not None:
                 failure("cleanup")
             stream.write("Batch cleanup did not complete.\n")

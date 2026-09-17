@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
 from threading import Event
 import traceback
 from urllib.parse import urlparse
@@ -17,6 +18,7 @@ from .backup import backup_before_migration
 from .config import MolStatSettings
 from .database import SCHEMA_VERSION, MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
+from .failures import RunFailure, database_failure
 from .modules import DEFAULT_UNITS
 from .orchestrator import MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
@@ -406,7 +408,8 @@ class DefaultServices:
             traceback.print_exception(type(error), error, error.__traceback__, file=stream)
 
     def _record_job_failure(self, stage: str, error: BaseException) -> None:
-        message = f"{stage}: {type(error).__name__}"
+        safe_error = database_failure(error) if isinstance(error, sqlite3.Error) else error
+        message = f"{stage}: {safe_error if isinstance(safe_error, RunFailure) else type(error).__name__}"
         self._diagnostics.append(message)
         local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
         local_root = Path(local_text) if local_text else Path.home() / "AppData" / "Local"

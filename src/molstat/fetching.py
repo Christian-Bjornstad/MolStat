@@ -6,12 +6,14 @@ from datetime import date, timedelta
 import json
 from pathlib import Path
 import re
+import time
 from uuid import uuid4
 
 from .lvms.batch_runner import run_report_batch
 from .lvms.report import ReportRequest
 from .lvms.report_job import ReportInterval, ReportJob, batch_filename
 from .statistics import Unit, load_units
+from .failures import RunFailure
 
 
 _WINDOW = re.compile(
@@ -41,6 +43,7 @@ class UnifiedLvmsFetcher:
         backlog_report_path: Path,
         run_batch: Callable[..., int] = run_report_batch,
         today: Callable[[], date] = date.today,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.lvms_config_path = lvms_config_path
         self.sensitive_root = sensitive_root
@@ -49,6 +52,7 @@ class UnifiedLvmsFetcher:
         self.backlog_report_path = backlog_report_path
         self.run_batch = run_batch
         self._today = today
+        self._sleep = sleep
 
     def fetch_statistics(
         self,
@@ -122,20 +126,24 @@ class UnifiedLvmsFetcher:
         run_root = self.work_root / f"{run_label}-{uuid4().hex}"
         run_root.mkdir(parents=True, exist_ok=False)
         jobs_path = _write_jobs(run_root / "jobs.json", jobs)
-        exit_code = self.run_batch(
-            self.lvms_config_path,
-            jobs_path,
-            tuple(job.job_key for job in jobs),
-            repository_root=run_root,
-        )
-        if exit_code != 0:
-            raise RuntimeError(f"LVMS-kjøringen for {run_label} feilet sikkert.")
+        for attempt in range(1, 4):
+            failures: list[RunFailure] = []
+            exit_code = self.run_batch(
+                self.lvms_config_path, jobs_path,
+                tuple(job.job_key for job in jobs), repository_root=run_root,
+                error_reporter=failures.append,
+            )
+            if exit_code == 0:
+                break
+            error = failures[-1] if failures else RunFailure("LVMS_FAILED", "batch")
+            error.attempt, error.run_id = attempt, run_root.name
+            if not error.retryable or attempt == 3:
+                raise error
+            self._sleep(2 ** attempt)
         sources = tuple(run_root / "rådata" / batch_filename(job) for job in jobs)
         missing = [source.name for source in sources if not source.is_file()]
         if missing:
-            raise RuntimeError(
-                f"LVMS-kjøringen mangler {len(missing)} forventede råfiler."
-            )
+            raise RunFailure("DOWNLOAD_INCOMPLETE", "output_check", run_id=run_root.name)
         return sources
 
 

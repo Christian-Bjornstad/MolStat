@@ -1,9 +1,50 @@
 import json
+import pytest
 from datetime import date
 from pathlib import Path
 
 from molstat.fetching import UnifiedLvmsFetcher, plan_window
 from molstat.lvms.report_job import batch_filename, load_report_jobs
+
+
+def test_fetcher_keeps_safe_batch_failure_and_retries_only_before_submission(tmp_path):
+    from molstat.failures import RunFailure
+    calls = []
+    successful = FakeBatchRunner()
+
+    def runner(*args, **kwargs):
+        calls.append(kwargs["repository_root"])
+        if len(calls) == 1:
+            kwargs["error_reporter"](RunFailure("LVMS_TIMEOUT", "lvms_open", retryable=True))
+            return 2
+        return successful(*args, **kwargs)
+
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog.json"),
+        run_batch=runner, sleep=lambda seconds: None,
+    )
+    assert fetcher.fetch_backlog()[1].is_file()
+    assert len(calls) == 2
+    assert calls[0] == calls[1]
+
+
+def test_fetcher_does_not_resubmit_after_download_timeout(tmp_path):
+    from molstat.failures import RunFailure
+    calls = []
+    def runner(*args, **kwargs):
+        calls.append(1)
+        kwargs["error_reporter"](RunFailure("DOWNLOAD_INCOMPLETE", "report_1_download"))
+        return 2
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog.json"), run_batch=runner,
+    )
+    with pytest.raises(RunFailure, match="DOWNLOAD_INCOMPLETE"):
+        fetcher.fetch_backlog()
+    assert len(calls) == 1
 
 
 class FakeBatchRunner:
