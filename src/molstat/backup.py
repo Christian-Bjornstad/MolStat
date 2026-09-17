@@ -11,7 +11,7 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
-from .database import SCHEMA_VERSION, MolStatDatabase
+from .database import SCHEMA_VERSION, MolStatDatabase, readonly_uri
 
 
 class BackupIntegrityError(RuntimeError):
@@ -37,7 +37,7 @@ def verify_database_file(path: Path) -> str:
     # Backup candidates are closed, stable files.  ``immutable`` keeps the
     # read-only integrity check independent of advisory locks and journal
     # discovery, which are unreliable on some enterprise network shares.
-    uri = candidate.as_uri() + "?mode=ro&immutable=1"
+    uri = readonly_uri(candidate, immutable=True)
     try:
         with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
             rows = connection.execute("PRAGMA integrity_check").fetchall()
@@ -125,7 +125,7 @@ def restore_verified_backup(backup_path: Path, destination_path: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.parent / f".{destination.name}.{uuid4().hex}.restore"
     try:
-        source_uri = source_path.as_uri() + "?mode=ro"
+        source_uri = readonly_uri(source_path)
         with closing(sqlite3.connect(source_uri, uri=True)) as source, closing(
             sqlite3.connect(temporary)
         ) as target:

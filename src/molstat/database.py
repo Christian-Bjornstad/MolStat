@@ -1,11 +1,29 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
+from urllib.parse import quote
+
+
+def readonly_uri(path: Path, *, immutable: bool = False) -> str:
+    # Empty URI authority also supports Windows UNC paths with default SQLite.
+    location = path.resolve().as_posix()
+    if not location.startswith("/"):
+        location = "/" + location
+    return "file://" + quote(location, safe="/:") + "?mode=ro" + ("&immutable=1" if immutable else "")
+
+
+class ManagedConnection(sqlite3.Connection):
+    """Retain SQLite transaction semantics and always release the file handle."""
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
 
 
 class WriterLeaseBusy(RuntimeError):
@@ -253,7 +271,7 @@ class MolStatDatabase:
 
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
+        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None, factory=ManagedConnection)
         try:
             connection.execute("PRAGMA busy_timeout = 30000")
             connection.execute("PRAGMA foreign_keys = ON")
@@ -269,8 +287,8 @@ class MolStatDatabase:
         candidate = self.path.resolve()
         if not candidate.is_file():
             return None
-        uri = candidate.as_uri() + "?mode=ro"
-        with sqlite3.connect(uri, uri=True, timeout=30) as connection:
+        uri = readonly_uri(candidate)
+        with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
             connection.execute("PRAGMA busy_timeout = 30000")
             table = connection.execute(
                 "SELECT 1 FROM sqlite_master "
