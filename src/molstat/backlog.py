@@ -187,20 +187,22 @@ class BacklogProcessor:
                         for detail, registered in registered_details
                     ),
                 )
-                connection.execute("DELETE FROM backlog_sample")
+                connection.execute("DELETE FROM backlog_sample WHERE unit_key = ?", (self.config.unit.key,))
                 connection.executemany(
                     """
                     INSERT INTO backlog_sample(
+                        unit_key,
                         sample_key,
                         analysis_group,
                         ordered_at,
                         arrived_at,
                         workflow_stage,
                         observed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         (
+                            self.config.unit.key,
                             sample.sample_id,
                             sample.analysis_code,
                             sample.ordered_at.isoformat(),
@@ -325,7 +327,8 @@ class BacklogProcessor:
                 SELECT sample_key, analysis_group, ordered_at, arrived_at,
                        workflow_stage, observed_at
                 FROM backlog_sample
-                """
+                WHERE unit_key = ?
+                """, (self.config.unit.key,)
             ).fetchall()
         samples = tuple(
             Sample(

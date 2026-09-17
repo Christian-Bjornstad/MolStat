@@ -30,7 +30,7 @@ class WriterLeaseBusy(RuntimeError):
     """Raised when another MolStat writer still owns the database lease."""
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA = (
     """
@@ -80,13 +80,14 @@ _SCHEMA = (
     """,
     """
     CREATE TABLE IF NOT EXISTS backlog_sample (
+        unit_key TEXT NOT NULL DEFAULT 'hemato',
         sample_key TEXT NOT NULL,
         analysis_group TEXT NOT NULL,
         ordered_at TEXT NOT NULL,
         arrived_at TEXT,
         workflow_stage TEXT NOT NULL,
         observed_at TEXT NOT NULL,
-        PRIMARY KEY (sample_key, analysis_group)
+        PRIMARY KEY (unit_key, sample_key, analysis_group)
     )
     """,
     """
@@ -164,7 +165,7 @@ _SCHEMA = (
     """,
     """
     CREATE TABLE IF NOT EXISTS backlog_current (
-        occurrence_id INTEGER PRIMARY KEY
+        occurrence_id INTEGER NOT NULL
             REFERENCES analysis_occurrence(id) ON DELETE RESTRICT,
         import_run_id INTEGER NOT NULL REFERENCES import_run(id) ON DELETE RESTRICT,
         unit_key TEXT NOT NULL,
@@ -174,7 +175,8 @@ _SCHEMA = (
         arrived_at TEXT,
         analysis_status TEXT NOT NULL DEFAULT '',
         preliminary_status TEXT NOT NULL DEFAULT '',
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (unit_key, occurrence_id)
     )
     """,
     """
@@ -308,6 +310,7 @@ class MolStatDatabase:
             try:
                 for statement in _SCHEMA:
                     connection.execute(statement)
+                self._migrate_unit_scopes(connection)
                 detail_columns = {
                     str(column[1])
                     for column in connection.execute(
@@ -344,7 +347,7 @@ class MolStatDatabase:
                         "INSERT INTO schema_info(version) VALUES (?)",
                         (SCHEMA_VERSION,),
                     )
-                elif row[0] in (1, 2, 3, 4, 5):
+                elif row[0] in (1, 2, 3, 4, 5, 6):
                     connection.execute(
                         "UPDATE schema_info SET version = ?", (SCHEMA_VERSION,)
                     )
@@ -354,6 +357,26 @@ class MolStatDatabase:
             except BaseException:
                 connection.execute("ROLLBACK")
                 raise
+
+    @staticmethod
+    def _migrate_unit_scopes(connection: sqlite3.Connection) -> None:
+        for table in ("backlog_sample", "backlog_current"):
+            columns = connection.execute(f"PRAGMA table_info({table})").fetchall()
+            primary = {column[1] for column in columns if column[5]}
+            if "unit_key" in primary:
+                continue
+            # Both tables are leaves: no foreign keys reference them. Rebuild
+            # transactionally, preserving rows and the original Hemato scope.
+            connection.execute(f"ALTER TABLE {table} RENAME TO {table}_before_v7")
+            statement = next(sql for sql in _SCHEMA if f"CREATE TABLE IF NOT EXISTS {table} (" in sql)
+            connection.execute(statement)
+            names = ", ".join(column[1] for column in columns)
+            connection.execute(f"INSERT INTO {table} ({names}) SELECT {names} FROM {table}_before_v7")
+            connection.execute(f"DROP TABLE {table}_before_v7")
+        # Rebuilt tables lose their old indexes with the staging tables.
+        for statement in _SCHEMA:
+            if "CREATE INDEX" in statement:
+                connection.execute(statement)
 
     def schema_version(self) -> int:
         with self._connect() as connection:

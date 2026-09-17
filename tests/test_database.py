@@ -21,7 +21,7 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
     database.migrate()
     database.migrate()
 
-    assert database.schema_version() == 6
+    assert database.schema_version() == 7
     assert database.table_names() == {
         "analysis_event",
         "analysis_occurrence",
@@ -59,7 +59,7 @@ def test_second_pc_can_probe_schema_while_first_pc_has_write_reservation(
     with first._connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
         try:
-            assert second.schema_version_if_present() == 6
+            assert second.schema_version_if_present() == 7
         finally:
             connection.execute("ROLLBACK")
 
@@ -95,7 +95,7 @@ def test_v1_migration_adds_history_without_rewriting_current_samples(
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 6
+    assert database.schema_version() == 7
     assert "backlog_snapshot" in database.table_names()
     assert "backlog_detail_snapshot" in database.table_names()
     with database._connect() as connection:
@@ -151,7 +151,7 @@ def test_v3_migration_adds_approved_text_columns_with_empty_history(
     database = MolStatDatabase(path)
     database.migrate()
 
-    assert database.schema_version() == 6
+    assert database.schema_version() == 7
     with database._connect() as connection:
         columns = {
             str(row[1])
