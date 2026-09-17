@@ -16,6 +16,8 @@ MESSAGES = {
     "DB_SCHEMA": "Databaseskjemaet støttes ikke av denne appversjonen.",
     "DB_INTEGRITY": "Databasekontrollen feilet. Behold filen og kontroller en sikkerhetskopi.",
     "DB_ERROR": "Databaseoperasjonen feilet. Se teknisk feilkode.",
+    "EXCEL_REFRESH_FAILED": "Excel-søket kunne ikke oppdateres. Lukk filen i Excel og prøv igjen.",
+    "CSV_INVALID": "Uttrekket stemmer ikke med CSV-oppsettet eller inneholder ugyldige rader. Kontroller skilletegn, kolonner og datoformat i enhetsfilen.",
 }
 
 

@@ -23,6 +23,7 @@ class MolStatSettings:
     lvms_config_path: Path | None = None
     lvms_url: str = ""
     enabled_units: tuple[str, ...] = ACTIVE_UNIT_KEYS
+    unit_config_paths: dict[str, Path] = field(default_factory=dict)
 
     def validate(self) -> tuple[str, ...]:
         errors: list[str] = []
@@ -30,6 +31,10 @@ class MolStatSettings:
             self.sensitive_root, self.sharepoint_root
         ):
             errors.append("K-sensitiv og SharePoint må være ulike mapper.")
+        elif self.sharepoint_root is not None:
+            sensitive, public = self.sensitive_root.resolve(), self.sharepoint_root.resolve()
+            if sensitive.is_relative_to(public) or public.is_relative_to(sensitive):
+                errors.append("K-sensitiv og SharePoint kan ikke ligge inni hverandre.")
         if not 0 <= self.statistics_hour <= 23:
             errors.append("Klokkeslett for statistikk må være mellom 0 og 23.")
         if not 0 <= self.backlog_first_hour <= 23:
@@ -64,6 +69,7 @@ class MolStatSettings:
                     "statistics_lookup_path": str(
                         self.statistics_lookup_paths.get(key, "")
                     ),
+                    "config_path": str(self.unit_config_paths.get(key, "")),
                 }
                 for key in ACTIVE_UNIT_KEYS
             },
@@ -157,6 +163,7 @@ class MolStatSettings:
 
         enabled: list[str] = []
         lookups: dict[str, Path] = {}
+        configs: dict[str, Path] = {}
         for key in ACTIVE_UNIT_KEYS:
             raw_unit = units.get(key, {"enabled": False})
             if not isinstance(raw_unit, Mapping):
@@ -171,6 +178,11 @@ class MolStatSettings:
                 raise ValueError(f"Lookup-sti for {key} må være tekst.")
             if lookup:
                 lookups[key] = Path(lookup)
+            config = raw_unit.get("config_path", "")
+            if not isinstance(config, str):
+                raise ValueError(f"Enhetsfil for {key} må være tekst.")
+            if config:
+                configs[key] = Path(config)
 
         lvms_config: str | None = None
         if allow_local_runtime:
@@ -192,6 +204,7 @@ class MolStatSettings:
             lvms_config_path=Path(lvms_config) if lvms_config else None,
             lvms_url=_required_string(payload, "lvms_url"),
             enabled_units=tuple(enabled),
+            unit_config_paths=configs,
         )
         return settings
 

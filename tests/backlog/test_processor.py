@@ -100,6 +100,22 @@ def _write_snapshot(path: Path, sample_id: str) -> None:
     )
 
 
+def test_invalid_snapshot_does_not_replace_current_state(tmp_path):
+    path = tmp_path / "source.csv"
+    _write_snapshot(path, "SYNTHETIC")
+    database = MolStatDatabase(tmp_path / "db.sqlite3")
+    database.migrate()
+    processor = BacklogProcessor(_config(), _contract())
+    processor.import_snapshot(path, database)
+    with database._connect() as connection:
+        previous = connection.execute("SELECT * FROM backlog_current").fetchall()
+    path.write_text("SampleID;Analyse;Tidspunkt analysebestilling;Status analyse\nSYNTHETIC;IGH-OU;bad-date;Initial\n", encoding="cp1252")
+    with pytest.raises(ValueError, match="ugyldige"):
+        processor.import_snapshot(path, database)
+    with database._connect() as connection:
+        assert connection.execute("SELECT * FROM backlog_current").fetchall() == previous
+
+
 def test_processor_retains_one_aggregate_row_per_group_and_hour(
     tmp_path: Path,
 ) -> None:

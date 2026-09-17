@@ -23,6 +23,7 @@ from .dashboard import OverviewPage
 from .diagnostics import DiagnosticsPage
 from .settings import SettingsPage
 from .theme import build_stylesheet
+from ..orchestrator import JobResult
 
 
 class _WorkerSignals(QObject):
@@ -37,7 +38,13 @@ class _JobWorker(QRunnable):
         self.signals = _WorkerSignals()
 
     def run(self) -> None:
-        self.signals.finished.emit(self.orchestrator.run(self.target, "manual"))
+        try:
+            result = self.orchestrator.run(self.target, "manual")
+        except Exception as exc:
+            if hasattr(self.orchestrator, "_report_failure"):
+                self.orchestrator._report_failure(f"{self.target}_run_failed", exc)
+            result = JobResult(self.target, "failed", {}, "Kjøringen feilet. Se Diagnostikk.")
+        self.signals.finished.emit(result)
 
 
 class MainWindow(QMainWindow):
@@ -83,6 +90,8 @@ class MainWindow(QMainWindow):
         self.nav_settings.clicked.connect(lambda: self._navigate(1))
         self.nav_diagnostics.clicked.connect(lambda: self._navigate(2))
         self.overview.run_all.clicked.connect(lambda: self._start_job("all"))
+        self.overview.refresh_excel.clicked.connect(lambda: self._start_job("excel"))
+        self.overview.retry_publish.clicked.connect(lambda: self._start_job("publish"))
         for key, card in self.overview.unit_cards.items():
             if card.unit.status == "active":
                 card.run_button.clicked.connect(
@@ -136,6 +145,8 @@ class MainWindow(QMainWindow):
             button.style().polish(button)
 
     def _start_job(self, target: str) -> None:
+        if self._workers:
+            return
         if self.orchestrator is None:
             self.statusBar().showMessage("Kjøring er ikke konfigurert.")
             return
@@ -158,12 +169,18 @@ class MainWindow(QMainWindow):
     def _job_finished(self, result: Any, worker: _JobWorker) -> None:
         self._workers.discard(worker)
         self._refresh_run_button_states()
+        if self.settings_store and hasattr(self.settings_store, "overview_status_fields"):
+            for key, value in self.settings_store.overview_status_fields().items():
+                if key in self.overview.cards:
+                    self.overview.cards[key].set_status(*value)
         if result.status == "succeeded":
             detail = self._completion_detail(result.summary)
             self._set_target_status(result.kind, "Fullført", detail)
-            self.overview.cards["sharepoint"].set_status(
-                "Publisert", "Siste kjøring ble fullført"
-            )
+            if result.kind != "excel":
+                self.overview.cards["sharepoint"].set_status(
+                    "Publisert" if result.kind != "publish" or result.summary.get("published") else "Ingen ventende filer",
+                    "Siste handling ble fullført",
+                )
             self.statusBar().showMessage("Kjøringen er fullført.", 5000)
         elif result.status == "partial":
             succeeded = int(result.summary.get("succeeded", 0))
@@ -237,13 +254,16 @@ class MainWindow(QMainWindow):
     def _refresh_run_button_states(self) -> None:
         running = {worker.target for worker in self._workers}
         enabled = self._enabled_unit_keys()
-        self.overview.run_all.setEnabled(not running and bool(enabled))
+        self.overview.run_all.setEnabled(not running and bool(enabled) and self.orchestrator is not None)
+        self.overview.refresh_excel.setEnabled(not running and self.orchestrator is not None)
+        self.overview.retry_publish.setEnabled(not running and self.orchestrator is not None)
+        self.settings_page.setEnabled(not running)
         for key, card in self.overview.unit_cards.items():
             if card.unit.status != "active" or key not in enabled:
                 card.run_button.setEnabled(False)
             else:
                 card.run_button.setEnabled(
-                    "all" not in running and key not in running
+                    not running and self.orchestrator is not None
                 )
 
     def _enabled_unit_keys(self) -> set[str]:
@@ -264,11 +284,18 @@ class MainWindow(QMainWindow):
         self.settings_page.lvms_url.setText(values.get("lvms_url", ""))
         for key, field in self.settings_page.lookup_fields.items():
             field.setText(values.get(f"lookup_{key}", ""))
+        for key, field in self.settings_page.config_fields.items():
+            field.setText(values.get(f"config_{key}", ""))
+        for key, field in self.settings_page.schedule_fields.items():
+            field.setValue(int(values.get(key, field.value())))
         for key, field in self.settings_page.enabled_fields.items():
             field.setChecked(values.get(f"enabled_{key}", "true") == "true")
         self._refresh_run_button_states()
 
     def _save_settings(self) -> None:
+        if self._workers:
+            self.statusBar().showMessage("Vent til kjøringen er ferdig før innstillinger endres.")
+            return
         if self.settings_store is None or not hasattr(
             self.settings_store, "save_settings_fields"
         ):
@@ -291,11 +318,14 @@ class MainWindow(QMainWindow):
                 for key, field in self.settings_page.enabled_fields.items()
             }
         )
+        values.update({f"config_{key}": field.text().strip() for key, field in self.settings_page.config_fields.items()})
+        values.update({key: str(field.value()) for key, field in self.settings_page.schedule_fields.items()})
         try:
             self.settings_store.save_settings_fields(values)
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             self.statusBar().showMessage(str(exc), 8000)
             return
+        self._load_settings()
         if hasattr(self.settings_store, "refresh_gui_runtime"):
             orchestrator, error = self.settings_store.refresh_gui_runtime()
             self.orchestrator = orchestrator

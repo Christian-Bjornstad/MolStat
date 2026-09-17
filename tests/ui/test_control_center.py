@@ -88,18 +88,18 @@ def _contrast(first: str, second: str) -> float:
 
 def test_theme_uses_accessible_power_bi_pastel_palette() -> None:
     assert COLORS == {
-        "primary": "#F2C811",
-        "background": "#FFF9E6",
-        "muted": "#FFF3C4",
+        "primary": "#2457C5",
+        "background": "#F4F7FB",
+        "muted": "#EDF2FA",
         "surface": "#FFFFFF",
-        "foreground": "#2B2618",
-        "muted_text": "#5C553D",
-        "border": "#E6D17A",
-        "focus": "#8A6A00",
-        "success": "#1B7D3A",
-        "warning": "#9A6A00",
-        "danger": "#A4262C",
-        "sidebar": "#3A321B",
+        "foreground": "#172033",
+        "muted_text": "#526176",
+        "border": "#D6DFEB",
+        "focus": "#2457C5",
+        "success": "#18734A",
+        "warning": "#8A5800",
+        "danger": "#B42332",
+        "sidebar": "#18263D",
     }
     assert _contrast(COLORS["foreground"], COLORS["background"]) >= 4.5
     assert _contrast(COLORS["muted_text"], COLORS["background"]) >= 4.5
@@ -131,6 +131,53 @@ def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
     assert window.findChild(QStackedWidget, "page-stack").currentWidget().objectName() == (
         "overview-page"
     )
+
+
+def test_unit_config_is_validated_and_saved_from_settings(qtbot):
+    from molstat.unit_settings import default_unit_file
+    store = FakeSettingsStore()
+    window = MainWindow(FakeOrchestrator(), store)
+    qtbot.addWidget(window)
+    window.settings_page.config_fields["hemato"].setText(str(default_unit_file("hemato")))
+    window.settings_page.schedule_fields["statistics_hour"].setValue(7)
+    window._save_settings()
+    assert store.saved["config_hemato"] == str(default_unit_file("hemato"))
+    assert store.saved["statistics_hour"] == "7"
+
+
+def test_worker_exception_releases_ui_controls(qtbot):
+    class Broken:
+        def run(self, *args):
+            raise RuntimeError("synthetic")
+    window = MainWindow(Broken(), FakeSettingsStore())
+    qtbot.addWidget(window)
+    window._start_job("hemato")
+    qtbot.waitUntil(lambda: not window._workers, timeout=3000)
+    assert window.settings_page.isEnabled()
+    assert window.overview.run_all.isEnabled()
+    assert "feilet" in window.statusBar().currentMessage().lower()
+
+
+def test_excel_action_does_not_claim_sharepoint_was_published(qtbot):
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+    window.overview.cards["sharepoint"].set_status("Venter", "Ikke publisert")
+    window._start_job("excel")
+    qtbot.waitUntil(lambda: not window._workers, timeout=3000)
+    assert window.overview.cards["sharepoint"].state_label.text() == "Venter"
+
+
+def test_primary_and_status_colors_have_accessible_contrast():
+    assert _contrast("#FFFFFF", COLORS["primary"]) >= 4.5
+    for name in ("success", "warning", "danger"):
+        assert _contrast(COLORS[name], COLORS["surface"]) >= 4.5
+
+
+def test_unconfigured_app_disables_all_run_controls(qtbot):
+    window = MainWindow(None, FakeSettingsStore())
+    qtbot.addWidget(window)
+    assert not window.overview.run_all.isEnabled()
+    assert not window.overview.unit_cards["hemato"].run_button.isEnabled()
 
 
 def test_navigation_works_and_power_bi_action_is_removed(qtbot) -> None:

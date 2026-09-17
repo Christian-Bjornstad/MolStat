@@ -32,7 +32,7 @@ def test_second_pc_opens_current_shared_database_without_migrating(
     database_path.parent.mkdir(parents=True)
     with sqlite3.connect(database_path) as connection:
         connection.execute("CREATE TABLE schema_info(version INTEGER NOT NULL)")
-        connection.execute("INSERT INTO schema_info VALUES (6)")
+        connection.execute("INSERT INTO schema_info VALUES (7)")
 
     services = DefaultServices(tmp_path / "pc-b-settings.json")
     services.settings = services.settings.__class__(sensitive_root=sensitive)
@@ -233,3 +233,21 @@ def test_settings_export_excludes_local_lvms_runtime(tmp_path: Path) -> None:
     assert '"schema_version": 2' in exported
     for forbidden in ("lvms_config_path", "profile_directory", "cdp", "session"):
         assert forbidden not in exported
+
+
+def test_database_folder_selection_never_creates_nested_replacement(tmp_path):
+    from dataclasses import replace
+    services = DefaultServices(tmp_path / "settings.json")
+    (tmp_path / "molstat.sqlite3").write_bytes(b"synthetic-existing")
+    services.settings = replace(services.settings, sensitive_root=tmp_path)
+    with pytest.raises(ValueError, match="DB_LOCATION"):
+        services._database()
+    assert not (tmp_path / "data" / "molstat.sqlite3").exists()
+
+
+def test_manual_excel_regeneration_works_with_real_workbook_writer(tmp_path):
+    from dataclasses import replace
+    services = DefaultServices(tmp_path / "settings.json")
+    services.settings = replace(services.settings, sensitive_root=tmp_path)
+    assert services.regenerate_excel() == {"excel_published": True}
+    assert (tmp_path / "Prøvesøk.xlsx").is_file()

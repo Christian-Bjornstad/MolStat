@@ -170,3 +170,11 @@ def test_unversioned_settings_migrate_in_memory_with_active_defaults(
     assert settings.statistics_lookup_paths["solide"] == Path(
         "K:/lookup-solide.xlsx"
     )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_settings_reject_nested_sensitive_and_sharepoint_roots(tmp_path, reverse):
+    first, second = tmp_path, tmp_path / "nested"
+    if reverse:
+        first, second = second, first
+    assert MolStatSettings(sensitive_root=first, sharepoint_root=second).validate()

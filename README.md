@@ -1,5 +1,9 @@
 # MolStat
 
+Appens nye enhetsfiler, mappeoppsett og feilretting er beskrevet i
+[enhetsfiler og drift](docs/APP-OPPSETT.md). Innstillinger validerer rapport-
+og analyselister. Oversikten kan regenerere Excel og prøve publisering igjen.
+
 MolStat henter molekylærpatologisk statistikk og restanse fra LVMS, lagrer
 historikken på K-sensitiv og publiserer avtalte, prosesserte CSV-filer til en
 lokal SharePoint-synkmappe. Kontrollappen gir manuell kjøring, status,

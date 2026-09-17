@@ -96,9 +96,9 @@ class UnifiedLvmsFetcher:
             )
         return result
 
-    def fetch_backlog(self) -> tuple[ReportRequest, Path]:
+    def fetch_backlog(self, unit_key: str = "hemato", report_path: Path | None = None) -> tuple[ReportRequest, Path]:
         today = self._today()
-        definition = load_report_definition(self.backlog_report_path)
+        definition = load_report_definition(report_path or self.backlog_report_path)
         created_from, created_to = BACKLOG_FROM, today
         job = ReportJob(
             job_key="backlog",
@@ -114,7 +114,7 @@ class UnifiedLvmsFetcher:
         return (
             ReportRequest(
                 kind="backlog",
-                unit="hemato",
+                unit=unit_key,
                 report_name=definition.output_stem,
                 date_from=created_from,
                 date_to=created_to,

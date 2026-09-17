@@ -120,6 +120,7 @@ class OverviewPage(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
+        content.setObjectName("page-content")
         layout = QVBoxLayout(content)
         layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(32, 28, 32, 28)
@@ -138,6 +139,13 @@ class OverviewPage(QWidget):
         self.run_all = _button("Kjør alt", "run-all", primary=True)
         self.run_all.setAccessibleName("Kjør alle funksjoner for aktive enheter")
         layout.addWidget(self.run_all, 0, Qt.AlignmentFlag.AlignLeft)
+        actions = QHBoxLayout()
+        self.refresh_excel = _button("Oppdater Excel-søk", "refresh-excel")
+        self.retry_publish = _button("Prøv publisering igjen", "retry-publish")
+        actions.addWidget(self.refresh_excel)
+        actions.addWidget(self.retry_publish)
+        actions.addStretch(1)
+        layout.addLayout(actions)
 
         unit_grid = QGridLayout()
         unit_grid.setHorizontalSpacing(16)
@@ -145,7 +153,7 @@ class OverviewPage(QWidget):
         self.unit_cards = {
             unit.key: UnitCard(unit) for unit in DEFAULT_UNITS
         }
-        for index, card in enumerate(self.unit_cards.values()):
+        for index, card in enumerate(card for card in self.unit_cards.values() if card.unit.status == "active"):
             unit_grid.addWidget(card, index // 2, index % 2)
         layout.addLayout(unit_grid)
 
@@ -158,10 +166,23 @@ class OverviewPage(QWidget):
             "sharepoint": StatusCard(
                 "SharePoint", "Ikke satt opp", "Velg mappe i Innstillinger"
             ),
+            "excel": StatusCard("Excel-søk", "Ikke kontrollert", "Lesekopi fra databasen"),
         }
         system_grid.addWidget(self.cards["database"], 0, 0)
         system_grid.addWidget(self.cards["sharepoint"], 0, 1)
+        system_grid.addWidget(self.cards["excel"], 1, 0, 1, 2)
         layout.addLayout(system_grid)
+        future = QWidget()
+        future_layout = QGridLayout(future)
+        future_layout.setContentsMargins(0, 0, 0, 0)
+        for index, card in enumerate(card for card in self.unit_cards.values() if card.unit.status != "active"):
+            future_layout.addWidget(card, index // 2, index % 2)
+        future.setVisible(False)
+        show_future = _button("Vis kommende enheter", "show-future-units")
+        show_future.setCheckable(True)
+        show_future.toggled.connect(future.setVisible)
+        layout.addWidget(show_future, 0, Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(future)
         layout.addStretch(1)
         scroll.setWidget(content)
         page_layout.addWidget(scroll)

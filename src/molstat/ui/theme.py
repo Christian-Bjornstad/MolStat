@@ -2,18 +2,18 @@ from __future__ import annotations
 
 
 COLORS = {
-    "primary": "#F2C811",
-    "background": "#FFF9E6",
-    "muted": "#FFF3C4",
+    "primary": "#2457C5",
+    "background": "#F4F7FB",
+    "muted": "#EDF2FA",
     "surface": "#FFFFFF",
-    "foreground": "#2B2618",
-    "muted_text": "#5C553D",
-    "border": "#E6D17A",
-    "focus": "#8A6A00",
-    "success": "#1B7D3A",
-    "warning": "#9A6A00",
-    "danger": "#A4262C",
-    "sidebar": "#3A321B",
+    "foreground": "#172033",
+    "muted_text": "#526176",
+    "border": "#D6DFEB",
+    "focus": "#2457C5",
+    "success": "#18734A",
+    "warning": "#8A5800",
+    "danger": "#B42332",
+    "sidebar": "#18263D",
 }
 
 
@@ -24,10 +24,11 @@ def build_stylesheet() -> str:
         font-size: 14px;
         color: {COLORS['foreground']};
     }}
-    QMainWindow, QWidget#app-shell {{ background: {COLORS['background']}; }}
+    QWidget#qt_scrollarea_viewport, QScrollArea {{ background: {COLORS['background']}; border: none; }}
+    QMainWindow, QWidget#app-shell, QWidget#page-content {{ background: {COLORS['background']}; }}
     QFrame#sidebar {{ background: {COLORS['sidebar']}; border: none; }}
     QLabel#brand {{ color: white; font-size: 27px; font-weight: 700; }}
-    QLabel#brand-subtitle {{ color: #F5E8B0; font-size: 12px; }}
+    QLabel#brand-subtitle {{ color: #C5D4EB; font-size: 12px; }}
     QPushButton {{
         min-height: 44px;
         border-radius: 8px;
@@ -36,26 +37,26 @@ def build_stylesheet() -> str:
         background: {COLORS['muted']};
         border: 1px solid {COLORS['border']};
     }}
-    QPushButton:hover {{ background: #FBE69A; border-color: {COLORS['focus']}; }}
-    QPushButton:pressed {{ background: #F6D85D; }}
+    QPushButton:hover {{ background: #DFE8F7; border-color: {COLORS['focus']}; }}
+    QPushButton:pressed {{ background: #CFDDF4; }}
     QPushButton:focus {{ border: 3px solid {COLORS['focus']}; }}
-    QPushButton:disabled {{ color: #6B6657; background: #EEE9D8; border-color: #D8CFAC; }}
+    QPushButton:disabled {{ color: #64748B; background: #E8EDF4; border-color: #D6DFEB; }}
     QPushButton[primary="true"] {{
-        color: {COLORS['foreground']};
+        color: white;
         background: {COLORS['primary']};
         border-color: {COLORS['focus']};
     }}
-    QPushButton[primary="true"]:hover {{ background: #DDB600; border-color: #6E5500; }}
+    QPushButton[primary="true"]:hover {{ background: #1D46A0; border-color: #173980; }}
     QPushButton[nav="true"] {{
-        color: #FFF9E6;
+        color: #F4F7FB;
         background: transparent;
         border: 1px solid transparent;
         text-align: left;
     }}
-    QPushButton[nav="true"]:hover {{ background: #514622; border-color: #8A6A00; }}
+    QPushButton[nav="true"]:hover {{ background: #263B5A; border-color: #2457C5; }}
     QPushButton[nav="true"][active="true"] {{
         color: white;
-        background: #665718;
+        background: #284A7A;
         border-color: {COLORS['primary']};
     }}
     QLabel#page-title {{ font-size: 26px; font-weight: 700; }}
@@ -71,8 +72,8 @@ def build_stylesheet() -> str:
         border-radius: 12px;
     }}
     QFrame[unitStatus="coming"] {{
-        background: #F7F3E7;
-        border: 1px dashed #B8AA78;
+        background: #EFF3F8;
+        border: 1px dashed #AAB8CD;
         border-radius: 12px;
     }}
     QLabel[unitTitle="true"] {{ font-size: 19px; font-weight: 700; }}
@@ -88,14 +89,15 @@ def build_stylesheet() -> str:
     QLabel[cardTitle="true"] {{ color: {COLORS['muted_text']}; font-weight: 600; }}
     QLabel[cardState="true"] {{ font-size: 20px; font-weight: 700; }}
     QLabel[cardDetail="true"] {{ color: {COLORS['muted_text']}; }}
-    QLineEdit, QPlainTextEdit {{
+    QLineEdit, QPlainTextEdit, QSpinBox {{
         background: white;
-        border: 1px solid #9B8C52;
+        border: 1px solid #8293AB;
         border-radius: 8px;
         padding: 10px 12px;
         selection-background-color: {COLORS['primary']};
+        selection-color: white;
     }}
-    QLineEdit:focus, QPlainTextEdit:focus {{ border: 3px solid {COLORS['focus']}; }}
+    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus {{ border: 3px solid {COLORS['focus']}; }}
     QGroupBox {{
         background: white;
         border: 1px solid {COLORS['border']};

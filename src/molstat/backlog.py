@@ -70,6 +70,8 @@ class BacklogProcessor:
         )
         if imported.rows_read == 0:
             raise CsvImportError("RESTANSE-filen inneholder ingen datarader.")
+        if imported.invalid_rows:
+            raise CsvImportError("RESTANSE-filen inneholder ugyldige rader. Forrige nåtilstand er beholdt; kontroller format og kolonnekartlegging.")
         observed_at = self._now()
         history_rows = build_history_rows(
             self.config,

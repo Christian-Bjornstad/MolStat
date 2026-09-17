@@ -7,7 +7,7 @@ Python code and cannot be loaded dynamically from user configuration.
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Literal, Mapping
 
@@ -144,6 +144,17 @@ _HEMATO_BACKLOG = CapabilityDefinition(
         "published_rows",
     ),
 )
+
+
+def configured_registry(definitions) -> UnitRegistry:
+    units = []
+    for key, definition in definitions.items():
+        statistics = _SOLIDE_STATISTICS if definition.unit.profile == "solide" else _HEMATO_STATISTICS
+        capabilities = [replace(statistics, sharepoint_folder=key)]
+        if definition.payload.get("backlog") is not None:
+            capabilities.append(replace(_HEMATO_BACKLOG, publication_files=((f"restansehistorikk_{key}.csv", frozenset(BACKLOG_PUBLIC_COLUMNS)),)))
+        units.append(UnitDefinition(key, definition.unit.label, "active", tuple(capabilities)))
+    return UnitRegistry(tuple(units))
 
 DEFAULT_UNITS = UnitRegistry(
     (

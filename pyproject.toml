@@ -30,6 +30,7 @@ molstat = [
     "web_assets/*.js",
     "assets/*.png",
     "assets/*.ico",
+    "defaults/units/*.json",
 ]
 
 [tool.pytest.ini_options]

@@ -1,7 +1,9 @@
 # MolStat: robust app, enhetsoppsett og sammenhengende dataflyt
 
 Dato: 2026-09-17. Branch: `codex/robust-app-config`.
-Status: kartlagt og planlagt; implementeringen nedenfor er ikke utført.
+Status: lokal implementering og verifikasjon ferdig; se [status.md](status.md).
+Jobb-PC-piloten gjenstår. Kartleggingen nedenfor beskriver utgangspunktet,
+og den opprinnelige planen beholdes som sporbarhet for videre arbeid.
 
 ## Mål
 

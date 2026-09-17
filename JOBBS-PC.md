@@ -1,5 +1,8 @@
 # MolStat på jobb-PC
 
+Ved appoppgraderingen: følg [oppsett og pilot](docs/APP-OPPSETT.md).
+Behold eksisterende rot og database; schema 7 migreres etter verifisert backup.
+
 ## Første oppsett
 
 - Bruk en fast mappe på K-sensitiv som MolStat alene skriver til.

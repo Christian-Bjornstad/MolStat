@@ -15,6 +15,7 @@ from .excel_search import publish_search_workbook, read_excel_snapshot
 from .lvms.report import ReportRequest
 from .modules import DEFAULT_UNITS, JobKind, UnitRegistry
 from .publisher import SharePointPublisher
+from .delivery import deliver
 
 
 FetchedReport = tuple[ReportRequest, Path]
@@ -101,19 +102,20 @@ class MolStatSystem:
         if processor is None:
             raise ValueError(f"Statistikkprosessor mangler for {unit_key}.")
         archived = tuple(self._archive_and_remove(item) for item in reports)
-        output_dir = self.work_root / f"statistics-{unit_key}-{uuid4().hex}"
+        output_dir = self.work_root / unit_key / "statistics" / uuid4().hex
         result = processor.process(unit_key, archived, output_dir)
         active_publisher = (
             self.publisher[unit_key]
             if isinstance(self.publisher, Mapping)
             else self.publisher
         )
-        active_publisher.publish(
+        deliver(active_publisher,
             {
                 "antall.csv": result.antall,
                 "resultater.csv": result.resultater,
             },
             self.sharepoint_root / capability.sharepoint_folder,
+            output_dir,
         )
         excel_published = self._refresh_excel_search()
         return {
@@ -127,13 +129,14 @@ class MolStatSystem:
 
     def run_backlog_unit(self, unit_key: str) -> dict[str, int]:
         capability = self.units.require(unit_key).capability("backlog")
-        if unit_key != "hemato":
-            raise ValueError(f"Restansehenting er ikke konfigurert for {unit_key}.")
-        request, source = self.backlog_fetch()
+        fetch = getattr(self, "backlog_fetchers", {}).get(unit_key, self.backlog_fetch)
+        processor = getattr(self, "backlog_processors", {}).get(unit_key, self.backlog_processor)
+        publisher = getattr(self, "backlog_publishers", {}).get(unit_key, self.backlog_publisher)
+        request, source = fetch()
         if request.kind != "backlog" or request.unit != unit_key:
             raise ValueError("Restanserapporten har feil type eller enhet.")
         try:
-            imported = self.backlog_processor.import_snapshot(
+            imported = processor.import_snapshot(
                 source,
                 self.database,
                 date_from=request.date_from,
@@ -142,18 +145,19 @@ class MolStatSystem:
         finally:
             source.unlink(missing_ok=True)
         published_rows = 0
-        if self.backlog_publisher is not None:
+        if publisher is not None:
             filename = capability.publication_files[0][0]
-            output_dir = self.work_root / f"backlog-{unit_key}-{uuid4().hex}"
+            output_dir = self.work_root / unit_key / "backlog" / uuid4().hex
             candidate = output_dir / filename
             published_rows = export_backlog_history(
                 self.database,
                 candidate,
                 unit_key=unit_key,
             )
-            self.backlog_publisher.publish(
+            deliver(publisher,
                 {filename: candidate},
                 self.sharepoint_root / capability.sharepoint_folder,
+                output_dir,
             )
         with self.database._connect() as connection:
             snapshots = int(

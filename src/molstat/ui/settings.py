@@ -11,12 +11,17 @@ from PyQt6.QtWidgets import (
     QLayout,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
 from ..modules import DEFAULT_UNITS
+from ..unit_settings import load_unit_file
+from pathlib import Path
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
 
 
 class SettingsPage(QWidget):
@@ -30,6 +35,7 @@ class SettingsPage(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
+        content.setObjectName("page-content")
         layout = QVBoxLayout(content)
         layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         layout.setContentsMargins(32, 28, 32, 28)
@@ -71,6 +77,7 @@ class SettingsPage(QWidget):
         layout.addWidget(storage)
 
         self.lookup_fields: dict[str, QLineEdit] = {}
+        self.config_fields: dict[str, QLineEdit] = {}
         self.enabled_fields: dict[str, QCheckBox] = {}
         for unit in DEFAULT_UNITS.active():
             group = QGroupBox(unit.display_name)
@@ -83,6 +90,21 @@ class SettingsPage(QWidget):
             enabled.setChecked(True)
             self.enabled_fields[unit.key] = enabled
             unit_form.addRow("Enhet", enabled)
+            config_field = _field(f"config-{unit.key}", f"Enhetsfil for {unit.display_name}")
+            config_field.setPlaceholderText("Standardoppsett opprettes ved første lagring")
+            self.config_fields[unit.key] = config_field
+            browse = _browse_button(f"browse-config-{unit.key}", f"Velg enhetsfil for {unit.display_name}")
+            browse.clicked.connect(lambda _=False, target=config_field: self._choose_config(target))
+            unit_form.addRow("Analyser og rapporter", _path_row(config_field, browse))
+            preview = QLabel("Velg en JSON-fil. Endringene aktiveres med «Valider og lagre».")
+            preview.setWordWrap(True)
+            preview.setProperty("cardDetail", True)
+            validate = _action_button("Valider fil", f"validate-config-{unit.key}", f"Valider enhetsfil for {unit.display_name}")
+            validate.clicked.connect(lambda _=False, field=config_field, label=preview, key=unit.key: self._validate_config(field, label, key))
+            unit_form.addRow(validate, preview)
+            open_folder = _action_button("Åpne filmappe", f"open-config-{unit.key}", f"Åpne mappen med enhetsfil for {unit.display_name}")
+            open_folder.clicked.connect(lambda _=False, field=config_field: self._open_config_folder(field))
+            unit_form.addRow("Rediger oppsett", open_folder)
 
             capability = unit.capability("statistics")
             del capability
@@ -99,6 +121,25 @@ class SettingsPage(QWidget):
                 ),
             )
             layout.addWidget(group)
+
+        schedule = QGroupBox("Automatisk kjøring")
+        schedule_form = QFormLayout(schedule)
+        self.schedule_fields = {}
+        for key, label, default in (("statistics_hour", "Statistikk – klokkeslett", 5),
+                                    ("backlog_first_hour", "Restanse – første time", 6),
+                                    ("backlog_last_hour", "Restanse – siste time", 18)):
+            field = QSpinBox()
+            field.setRange(0, 23)
+            field.setValue(default)
+            field.setAccessibleName(label)
+            field.setSuffix(":00")
+            field.setMinimumHeight(44)
+            self.schedule_fields[key] = field
+            schedule_form.addRow(label, field)
+        hint = QLabel("Installer Windows-oppgavene på nytt etter endring av tidsplanen.")
+        hint.setWordWrap(True)
+        schedule_form.addRow(hint)
+        layout.addWidget(schedule)
 
         transfer = QGroupBox("Flytt innstillinger")
         transfer_layout = QHBoxLayout(transfer)
@@ -121,6 +162,24 @@ class SettingsPage(QWidget):
         layout.addStretch(1)
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
+
+    def _choose_config(self, field: QLineEdit) -> None:
+        selected, _ = QFileDialog.getOpenFileName(self, "Velg enhetsfil", field.text(), "JSON-filer (*.json)")
+        if selected:
+            field.setText(selected)
+
+    def _open_config_folder(self, field: QLineEdit) -> None:
+        if field.text() and Path(field.text()).is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(field.text()).resolve().parent)))
+
+    def _validate_config(self, field: QLineEdit, label: QLabel, key: str) -> None:
+        try:
+            definition = load_unit_file(Path(field.text()), key)
+            counts = ", ".join(f"{name}: {len(report['analysis_codes'])}" for name, report in definition.payload["statistics"].items())
+            backlog = definition.payload.get("backlog")
+            label.setText(f"Gyldig · {counts}" + (f" · restanse: {len(backlog['report']['analysis_codes'])}" if backlog else ""))
+        except ValueError as exc:
+            label.setText(str(exc))
 
     def _directory_row(
         self, field: QLineEdit, button_name: str, accessible_name: str

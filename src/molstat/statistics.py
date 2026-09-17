@@ -81,11 +81,13 @@ class StatisticsProcessor:
         profile: str = "hemato",
         database: MolStatDatabase | None = None,
         now: Callable[[], datetime] = datetime.now,
+        report_ids: Mapping[str, str] | None = None,
     ) -> None:
         self.lookup_path = lookup_path
         self.profile = profile
         self.database = database
         self._now = now
+        self.report_ids = report_ids
 
     def process(
         self,
@@ -94,12 +96,20 @@ class StatisticsProcessor:
         output_dir: Path,
     ) -> StatisticsResult:
         merged_dir = output_dir / "merged"
-        ordered = _merge_archives(_one_report(raw_files, "ANTALL"), merged_dir)
+        def report(role: str, legacy_marker: str) -> Path:
+            if self.report_ids is None:
+                return _one_report(raw_files, legacy_marker)
+            matches = [path for path in raw_files if path.name.partition("__")[0] == self.report_ids[role]]
+            if len(matches) != 1:
+                raise ValueError(f"Forventet nøyaktig én rapport for {role}.")
+            return matches[0]
+
+        ordered = _merge_archives(report("antall", "ANTALL"), merged_dir)
         answered = _merge_archives(
-            _one_report(raw_files, "RESULTATER"), merged_dir
+            report("resultater", "RESULTATER"), merged_dir
         )
         extraction = _merge_archives(
-            _one_report(raw_files, "EKSTRAKSJON"), merged_dir
+            report("ekstraksjon", "EKSTRAKSJON"), merged_dir
         )
         molstat_ids: Mapping[str, str] | None = None
         if self.database is not None:
