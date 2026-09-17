@@ -1,5 +1,10 @@
 # Task List: MolStat prøveregister og Excel-søk
 
+> Oppfølging 2026-09-17: Videre arbeid koordineres i
+> [app-fornyelse/todo.md](app-fornyelse/todo.md). Koblingen mellom gamle åpne
+> punkter og nye oppgaver står i [hovedplanen](app-fornyelse/plan.md).
+> Tidligere sjekklister og status beholdes til kontrollene er dokumentert.
+
 ## Task 1: Verifiser LVMS-identitetskontrakten
 
 **Description:** Kartlegg headerne i RESTANSE, ANTALL, RESULTATER og ekstraksjonsrapporten og velg en stabil forekomst-ID. Les bare feltnavn og syntetiser testdata; ingen produksjonsrader eller verdier skal inn i Git eller logger.

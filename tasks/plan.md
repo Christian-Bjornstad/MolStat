@@ -1,5 +1,10 @@
 # Implementation Plan: MolStat prøveregister og Excel-søk
 
+> Oppfølging 2026-09-17: Excel-søket er implementert og brukes, men brukeren
+> melder at det fungerer delvis. Videre forbedring og åpne målmiljøkontroller
+> samordnes nå i [planen for appfornyelse](app-fornyelse/plan.md).
+> Denne planen bevares; uverifiserte kontrollpunkter er ikke automatisk fullført.
+
 ## Overview
 
 MolStat skal bruke eksisterende SQLite-database på K-sensitiv som autoritativt
