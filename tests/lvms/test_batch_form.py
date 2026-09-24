@@ -50,6 +50,10 @@ ROLE_PAYLOADS = {
     "created_to": raw_control(
         "INPUT", "created-to", label="analyse opprettet tom:", control_type="text"
     ),
+    "macro_usernames": raw_control("TEXTAREA", "macro-users", label="makro utført av"),
+    "production_usernames": raw_control("TEXTAREA", "production-users", label="brukernavn"),
+    "period_from": raw_control("INPUT", "period-from", label="fra dato", control_type="text"),
+    "period_to": raw_control("INPUT", "period-to", label="til dato", control_type="text"),
 }
 
 
@@ -258,6 +262,10 @@ class BatchFormTests(unittest.TestCase):
             "analysis_codes": "analyses",
             "created_from": "created-from",
             "created_to": "created-to",
+            "macro_usernames": "macro-users",
+            "production_usernames": "production-users",
+            "period_from": "period-from",
+            "period_to": "period-to",
         }
         for role, expected_id in expected_ids.items():
             with self.subTest(role=role):
@@ -435,6 +443,32 @@ class BatchFormTests(unittest.TestCase):
             ],
         )
         self.assertEqual(state.report_id_checks, 3)
+
+    def test_doctor_reports_fill_distinct_username_fields_and_dates(self) -> None:
+        for report_id, expected_id in (
+            ("PAT-EGEN MAKRO", "macro-users"),
+            ("PAT-EGEN PRODUKSJON", "production-users"),
+        ):
+            with self.subTest(report_id=report_id):
+                state = FormState()
+                doctor_job = validate_report_job({
+                    "job_key": "doctor", "report_type": "PRODSTAT",
+                    "category": "PATOLOGI", "report_id": report_id,
+                    "analysis_codes": [], "usernames": ["ESP", "UXYSGA"],
+                    "created_from": "01.08.2026", "created_to": "31.08.2026",
+                    "output_stem": "DOCTOR-REPORT",
+                })
+                form = BatchReportForm(state.page, state.actions, EXPECTED_ORIGIN,
+                                       clock=TickingClock(), sleep=lambda _seconds: None)
+
+                form.populate(defined_reports_page(), doctor_job)
+
+                self.assertIn(("replace", "_nav_frame1", expected_id, "ESP,UXYSGA"), state.calls)
+                self.assertEqual(state.calls[-2:], [
+                    ("replace", "_nav_frame1", "period-from", "01.08.2026"),
+                    ("replace", "_nav_frame1", "period-to", "31.08.2026"),
+                ])
+                self.assertFalse(any(call[2] == "analyses" for call in state.calls))
 
     def test_wait_until_clear_allows_persistent_empty_choice_controls(self) -> None:
         page = ClearingPage(dynamic_roles_present=False)

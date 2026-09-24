@@ -102,7 +102,9 @@ def _reports(raw: Mapping[str, object]) -> tuple[UnitReport, ...]:
         fetch_id_raw = item.get("fetch_report_id")
         if isinstance(fetch_id_raw, str) and fetch_id_raw.strip():
             fetch_report_id = fetch_id_raw.strip()
-            if not (OUTPUT_STEM_PATTERN.fullmatch(fetch_report_id) or fetch_report_id == "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU"):
+            if not (OUTPUT_STEM_PATTERN.fullmatch(fetch_report_id) or fetch_report_id in {
+                "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "PAT-EGEN PRODUKSJON", "PAT-EGEN MAKRO"
+            }):
                 raise UnitsConfigError(
                     "unit report fetch id is invalid"
                 )

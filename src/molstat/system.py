@@ -4,6 +4,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import os
+import shutil
 from typing import Any
 from uuid import uuid4
 
@@ -104,6 +106,17 @@ class MolStatSystem:
         archived = tuple(self._archive_and_remove(item) for item in reports)
         output_dir = self.work_root / unit_key / "statistics" / uuid4().hex
         result = processor.process(unit_key, archived, output_dir)
+        if result.private_files:
+            private_root = self.work_root / unit_key / "powerbi"
+            private_root.mkdir(parents=True, exist_ok=True)
+            for name, source in result.private_files.items():
+                destination = private_root / name
+                temporary = private_root / f".{name}.{uuid4().hex}.tmp"
+                try:
+                    shutil.copyfile(source, temporary)
+                    os.replace(temporary, destination)
+                finally:
+                    temporary.unlink(missing_ok=True)
         active_publisher = (
             self.publisher[unit_key]
             if isinstance(self.publisher, Mapping)

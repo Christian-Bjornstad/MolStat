@@ -16,11 +16,53 @@ from molstat.backlog import (
 from molstat.database import MolStatDatabase
 from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from molstat.lvms.report import ReportRequest
-from molstat.publisher import PublicationPolicy, SharePointPublisher
+from molstat.publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from molstat.statistics import StatisticsProcessor, StatisticsResult
 from molstat.system import MolStatSystem
 import molstat.system as system_module
 from molstat.modules import DEFAULT_UNITS
+
+
+def test_pathologist_facts_stay_in_sensitive_powerbi_folder(tmp_path: Path) -> None:
+    sensitive = tmp_path / "sensitive"
+    public = tmp_path / "sharepoint"
+    database = MolStatDatabase(sensitive / "data" / "molstat.sqlite3")
+    database.migrate()
+    download = tmp_path / "download.csv"
+    download.write_text("private source", encoding="utf-8")
+
+    class Processor:
+        def process(self, unit, raw_files, output_dir):
+            assert unit == "lege" and len(raw_files) == 1
+            output_dir.mkdir(parents=True)
+            aggregate = output_dir / "prosess.csv"
+            _write(aggregate, ["Maaned", "Profil", "Lab", "Prosesskode", "Prosessgruppe",
+                               "AntallProver", "AntallBlokker", "AntallGlass", "UttrekkTom"],
+                   [["2026-09-01", "HISTO", "OU", "HEMATO", "Hemato Flow", "1", "2", "3", "2026-09-24"]])
+            fact = output_dir / "FactPatologRolle.csv"
+            _write(fact, ["SampleID", "Brukernavn"], [["PRIVATE-1", "ESP"]])
+            return StatisticsResult(aggregate, aggregate, {"prosess": 1},
+                                    publication_files={"prosess.csv": aggregate},
+                                    private_files={"FactPatologRolle.csv": fact})
+
+    capability = DEFAULT_UNITS.require("lege").capability("statistics")
+    publisher = SharePointPublisher(PublicationPolicy(capability.allowed_columns, default_forbidden_patterns()))
+    request = ReportRequest("statistics", "lege", "PAT-PROSESS-CURRENT-OU",
+                            date(2026, 9, 1), date(2026, 9, 24))
+    system = MolStatSystem(
+        database=database, archive=RawArchive(sensitive),
+        statistics_processors={"lege": Processor()}, backlog_processor=None,
+        publisher={"lege": publisher}, sharepoint_root=public,
+        work_root=sensitive / "processed",
+        statistics_fetch=lambda _keys: {"lege": ((request, download),)},
+        backlog_fetch=lambda: None,
+    )
+
+    system.run_statistics_unit("lege")
+
+    assert (public / "lege" / "prosess.csv").is_file()
+    assert not (public / "lege" / "FactPatologRolle.csv").exists()
+    assert "PRIVATE-1" in (sensitive / "processed" / "lege" / "powerbi" / "FactPatologRolle.csv").read_text(encoding="utf-8-sig")
 
 
 class SyntheticStatisticsProcessor:

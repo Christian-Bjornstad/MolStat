@@ -72,6 +72,7 @@ class StatisticsResult:
     resultater: Path
     row_counts: Mapping[str, int]
     publication_files: Mapping[str, Path] | None = None
+    private_files: Mapping[str, Path] | None = None
 
 
 class StatisticsProcessor:
@@ -100,14 +101,24 @@ class StatisticsProcessor:
         if self.profile == "lege":
             from ._statistics.patolog_process import process
 
-            if len(raw_files) != 2:
+            if len(raw_files) not in {2, 6}:
                 raise ValueError("Patolograpporten krever inneværende og forrige måned.")
             destination = output_dir / "prosess.csv"
             count = process(raw_files[0].parent, destination)
+            private_files = None
+            row_counts = {"prosess": count}
+            if self.lookup_path != Path(""):
+                from ._statistics.patolog_reports import process as process_doctors
+
+                private_files = process_doctors(raw_files[0].parent, self.lookup_path, output_dir)
+                for name, path in private_files.items():
+                    with path.open(encoding="utf-8-sig") as stream:
+                        row_counts[name] = max(sum(1 for _ in stream) - 1, 0)
             return StatisticsResult(
                 antall=destination, resultater=destination,
-                row_counts={"prosess": count},
+                row_counts=row_counts,
                 publication_files={"prosess.csv": destination},
+                private_files=private_files,
             )
         if self.profile in {"flow", "fish", "pre"}:
             if self.report_ids is None:

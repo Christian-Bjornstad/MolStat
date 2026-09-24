@@ -24,7 +24,7 @@ REQUIRED_JOB_FIELDS = frozenset(
         "output_stem",
     }
 )
-OPTIONAL_JOB_FIELDS = frozenset({"report_groups"})
+OPTIONAL_JOB_FIELDS = frozenset({"report_groups", "usernames"})
 CODE_PATTERN = re.compile(r"[A-Za-z0-9/-]{1,80}")
 KEY_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
 OUTPUT_STEM_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
@@ -61,12 +61,16 @@ class ReportJob:
     interval: ReportInterval
     output_stem: str
     report_groups: tuple[str, ...] = ()
+    usernames: tuple[str, ...] = ()
 
     def analysis_text(self) -> str:
         return ",".join(self.analysis_codes)
 
     def report_groups_text(self) -> str:
         return ",".join(self.report_groups)
+
+    def usernames_text(self) -> str:
+        return ",".join(self.usernames)
 
     def review(self) -> JobReview:
         start, end = self.interval.as_lvms()
@@ -142,8 +146,21 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         codes.append(code)
     if len(set(codes)) != len(codes):
         raise ReportJobError("analysis codes contain duplicates")
-    if not codes and raw.get("report_id") != "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU":
+    doctor_report = raw.get("report_id") in {"PAT-EGEN MAKRO", "PAT-EGEN PRODUKSJON"}
+    if doctor_report and codes:
+        raise ReportJobError("doctor reports do not accept analysis codes")
+    if not codes and raw.get("report_id") != "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU" and not doctor_report:
         raise ReportJobError("analysis codes are invalid")
+    raw_usernames = raw.get("usernames", [])
+    if not isinstance(raw_usernames, list) or len(raw_usernames) > 500:
+        raise ReportJobError("usernames are invalid")
+    usernames = []
+    for value in raw_usernames:
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Z0-9._-]{1,80}", value):
+            raise ReportJobError("username is invalid")
+        usernames.append(value)
+    if len(set(usernames)) != len(usernames) or (doctor_report and not usernames) or (not doctor_report and usernames):
+        raise ReportJobError("usernames are invalid")
     raw_groups = raw.get("report_groups", [])
     if not isinstance(raw_groups, list) or len(raw_groups) > 50:
         raise ReportJobError("report groups are invalid")
@@ -170,6 +187,7 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         interval=ReportInterval(created_from, created_to),
         output_stem=output_stem,
         report_groups=tuple(groups),
+        usernames=tuple(usernames),
     )
 
 

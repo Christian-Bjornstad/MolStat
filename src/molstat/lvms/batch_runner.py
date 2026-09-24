@@ -91,6 +91,8 @@ def _write_review(stream: TextIO, job: ReportJob) -> None:
     stream.write(f"Job: {review.job_key}\n")
     stream.write(f"Report ID: {review.report_id}\n")
     stream.write(f"Analysis count: {review.analysis_count}\n")
+    if job.usernames:
+        stream.write(f"User count: {len(job.usernames)}\n")
     stream.write(f"Interval: {review.created_from} to {review.created_to}\n")
 
 

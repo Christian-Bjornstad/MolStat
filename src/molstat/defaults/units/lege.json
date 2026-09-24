@@ -15,6 +15,18 @@
       "fetch_report_id": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU",
       "report_id": "PAT-PROSESS-PREVIOUS-OU",
       "analysis_codes": []
+    },
+    "production": {
+      "job_key": "production",
+      "fetch_report_id": "PAT-EGEN PRODUKSJON",
+      "report_id": "PAT-EGEN-PRODUKSJON-OU",
+      "analysis_codes": []
+    },
+    "macro": {
+      "job_key": "macro",
+      "fetch_report_id": "PAT-EGEN MAKRO",
+      "report_id": "PAT-EGEN-MAKRO-OU",
+      "analysis_codes": []
     }
   },
   "backlog": null

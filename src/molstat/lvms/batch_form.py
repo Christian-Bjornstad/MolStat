@@ -40,6 +40,10 @@ _ROLE_ALIASES = {
         "analysebestilling til og med dato",
         "analysebestilling til og med dato:",
     ),
+    "macro_usernames": ("makro utført av", "makro utført av:"),
+    "production_usernames": ("brukernavn", "brukernavn:", "brukernanv", "brukernanv:"),
+    "period_from": ("fra dato", "fra dato:"),
+    "period_to": ("til dato", "til dato:"),
 }
 _CLEAR_DYNAMIC_ROLES = (
     "analysis_codes",
@@ -54,6 +58,10 @@ _ROLE_TAGS = {
     "report_groups": frozenset({"INPUT", "TEXTAREA"}),
     "created_from": frozenset({"INPUT"}),
     "created_to": frozenset({"INPUT"}),
+    "macro_usernames": frozenset({"INPUT", "TEXTAREA"}),
+    "production_usernames": frozenset({"INPUT", "TEXTAREA"}),
+    "period_from": frozenset({"INPUT"}),
+    "period_to": frozenset({"INPUT"}),
 }
 _ROLE_TYPES = {
     "category": frozenset({"", "text", "search"}),
@@ -63,6 +71,10 @@ _ROLE_TYPES = {
     "report_groups": frozenset({"", "text", "search"}),
     "created_from": frozenset({"", "text", "date"}),
     "created_to": frozenset({"", "text", "date"}),
+    "macro_usernames": frozenset({"", "text", "search"}),
+    "production_usernames": frozenset({"", "text", "search"}),
+    "period_from": frozenset({"", "text", "date"}),
+    "period_to": frozenset({"", "text", "date"}),
 }
 
 
@@ -291,6 +303,15 @@ class BatchReportForm:
             self._actions.replace_text(
                 report_groups, job.report_groups_text()
             )
+        if job.report_id in {"PAT-EGEN MAKRO", "PAT-EGEN PRODUKSJON"}:
+            role = "macro_usernames" if job.report_id == "PAT-EGEN MAKRO" else "production_usernames"
+            usernames = self._wait_for(role)
+            self._actions.replace_text(usernames, job.usernames_text())
+            start, end = job.interval.as_lvms()
+            self._actions.replace_text(self._wait_for("period_from"), start)
+            self._sleep(0.5)
+            self._actions.replace_text(self._wait_for("period_to"), end)
+            return
         analysis_codes = self._wait_for("analysis_codes") if job.analysis_codes else None
         created_from = self._wait_for("created_from")
         created_to = self._wait_for("created_to")

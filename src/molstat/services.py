@@ -174,6 +174,7 @@ class DefaultServices:
             work_root=self.settings.sensitive_root / "work" / "fetch",
             units_path=config_root / "units.json",
             backlog_report_path=config_root / "hemato" / "backlog-report.json",
+            lege_lookup_path=self.settings.statistics_lookup_paths.get("lege"),
         )
         statistics_processors, publishers = {}, {}
         for definition in registry.for_job("statistics") if require_statistics else ():

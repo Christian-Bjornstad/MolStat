@@ -46,6 +46,7 @@ class UnifiedLvmsFetcher:
         today: Callable[[], date] = date.today,
         sleep: Callable[[float], None] = time.sleep,
         history_from: date = date(2024, 1, 1),
+        lege_lookup_path: Path | None = None,
     ) -> None:
         self.lvms_config_path = lvms_config_path
         self.sensitive_root = sensitive_root
@@ -56,6 +57,7 @@ class UnifiedLvmsFetcher:
         self._today = today
         self._sleep = sleep
         self.history_from = history_from
+        self.lege_lookup_path = lege_lookup_path
 
     def fetch_statistics(
         self,
@@ -76,14 +78,20 @@ class UnifiedLvmsFetcher:
             selected = tuple(by_key[key] for key in unit_keys)
         for unit in selected:
             if unit.profile == "lege":
-                self._backfill_patolog_months(unit, today)
-                windows = monthly_process_windows(today)
-                jobs = tuple(
-                    _statistics_job(unit, report, *windows[report.job_key])
-                    for report in unit.reports
+                from ._statistics.lege_lookup import load_lege_lookup
+
+                usernames = (
+                    tuple(row["Brukernavn"] for row in load_lege_lookup(self.lege_lookup_path))
+                    if self.lege_lookup_path else ()
                 )
-                sources = tuple(self._run_jobs((job,), unit.key)[0] for job in jobs)
+                self._backfill_patolog_months(unit, today, usernames)
+                windows = monthly_process_windows(today)
+                planned = [(unit.report_by_key(role), *windows[role]) for role in ("current", "previous")]
+                if usernames:
+                    planned.extend((unit.report_by_key(role), *windows[month])
+                                   for role in ("production", "macro") for month in ("current", "previous"))
             else:
+                usernames = ()
                 created_from, created_to = plan_window(
                     self.sensitive_root,
                     kind="statistics",
@@ -91,7 +99,14 @@ class UnifiedLvmsFetcher:
                     baseline=date(2024, 1, 1),
                     today=today,
                 )
-                jobs = tuple(_statistics_job(unit, report, created_from, created_to) for report in unit.reports)
+                planned = [(report, created_from, created_to) for report in unit.reports]
+            jobs = tuple(
+                _statistics_job(unit, report, start, end, usernames=usernames)
+                for report, start, end in planned
+            )
+            if unit.profile == "lege":
+                sources = tuple(self._run_jobs((job,), unit.key)[0] for job in jobs)
+            else:
                 sources = self._run_jobs(jobs, unit.key)
             result[unit.key] = tuple(
                 (
@@ -104,26 +119,41 @@ class UnifiedLvmsFetcher:
                     ),
                     source,
                 )
-                for report, job, source in zip(unit.reports, jobs, sources, strict=True)
+                for (report, _, _), job, source in zip(planned, jobs, sources, strict=True)
             )
         return result
 
-    def _backfill_patolog_months(self, unit: Unit, today: date) -> None:
+    def _backfill_patolog_months(self, unit: Unit, today: date, usernames: tuple[str, ...] = ()) -> None:
         from ._statistics.patolog_process import _latest_by_month, _read
 
         previous_start, _ = monthly_process_windows(today)["previous"]
         archive_dir = self.sensitive_root / "raw" / "statistics" / unit.key
-        completed = set(_latest_by_month(archive_dir)) if archive_dir.is_dir() else set()
-        report = unit.report_by_key("previous")
+        completed = (
+            {month for month, (_, end) in _latest_by_month(archive_dir).items()
+             if end == _month_end(month)}
+            if archive_dir.is_dir() else set()
+        )
+        reports = (unit.report_by_key("previous"),)
+        if usernames:
+            reports += (unit.report_by_key("production"), unit.report_by_key("macro"))
         month = self.history_from.replace(day=1)
         archive = RawArchive(self.sensitive_root)
         while month < previous_start:
             next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
-            if month not in completed:
+            for report in reports:
+                if report.job_key == "previous" and month in completed:
+                    continue
+                if report.job_key != "previous" and _archive_has_month(archive_dir, report.report_id, month):
+                    continue
                 end = next_month - timedelta(days=1)
-                job = _statistics_job(unit, report, month, end)
+                job = _statistics_job(unit, report, month, end, usernames=usernames)
                 source = self._run_jobs((job,), unit.key)[0]
-                _read(source)
+                if report.job_key == "previous":
+                    _read(source)
+                else:
+                    from ._statistics.patolog_reports import validate_source
+
+                    validate_source(source, report.job_key)
                 archive.store(source, ReportRequest(
                     kind="statistics", unit=unit.key, report_name=report.report_id,
                     date_from=month, date_to=end,
@@ -182,7 +212,7 @@ class UnifiedLvmsFetcher:
         return sources
 
 
-def _statistics_job(unit: Unit, report, created_from: date, created_to: date) -> ReportJob:
+def _statistics_job(unit: Unit, report, created_from: date, created_to: date, *, usernames: tuple[str, ...] = ()) -> ReportJob:
     return ReportJob(
         job_key=report.job_key,
         report_type="PRODSTAT",
@@ -192,6 +222,7 @@ def _statistics_job(unit: Unit, report, created_from: date, created_to: date) ->
         analysis_codes=report.analysis_codes or unit.analysis_codes,
         interval=ReportInterval(created_from, created_to),
         output_stem=report.report_id,
+        usernames=usernames if report.job_key in {"production", "macro"} else (),
     )
 
 
@@ -204,6 +235,20 @@ def monthly_process_windows(today: date) -> dict[str, tuple[date, date]]:
     }
 
 
+def _archive_has_month(archive_dir: Path, stem: str, month: date) -> bool:
+    for path in archive_dir.glob(f"{stem}__*.csv"):
+        match = _WINDOW.search(path.name)
+        if (match and date.fromisoformat(match.group(1)) == month
+                and date.fromisoformat(match.group(2)) == _month_end(month)):
+            return True
+    return False
+
+
+def _month_end(month: date) -> date:
+    next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return next_month - timedelta(days=1)
+
+
 def _write_jobs(path: Path, jobs: tuple[ReportJob, ...]) -> Path:
     payload = {
         "jobs": [
@@ -214,6 +259,7 @@ def _write_jobs(path: Path, jobs: tuple[ReportJob, ...]) -> Path:
                 "report_id": job.report_id,
                 "report_groups": list(job.report_groups),
                 "analysis_codes": list(job.analysis_codes),
+                "usernames": list(job.usernames),
                 "created_from": job.interval.created_from.strftime("%d.%m.%Y"),
                 "created_to": job.interval.created_to.strftime("%d.%m.%Y"),
                 "output_stem": job.output_stem,

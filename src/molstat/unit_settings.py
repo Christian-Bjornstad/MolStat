@@ -73,14 +73,18 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
         if not isinstance(raw.get("label"), str) or not raw["label"].strip():
             raise UnitConfigError("label: navn mangler")
         reports = raw.get("statistics")
-        _object(reports, {"antall", "resultater", "ekstraksjon", "current", "previous"}, "statistics")
+        if raw.get("profile") == "lege" and isinstance(reports, dict) and set(reports) == {"current", "previous"}:
+            # Upgrade the process-only definition already saved on work PCs.
+            additions = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))["statistics"]
+            reports.update({key: additions[key] for key in ("production", "macro")})
+        _object(reports, {"antall", "resultater", "ekstraksjon", "current", "previous", "production", "macro"}, "statistics")
         expected_roles = {
             "hemato": {"antall", "resultater", "ekstraksjon"},
             "solide": {"antall", "resultater", "ekstraksjon"},
             "flow": {"antall", "resultater"},
             "fish": {"antall", "resultater"},
             "pre": {"resultater"},
-            "lege": {"current", "previous"},
+            "lege": {"current", "previous", "production", "macro"},
         }.get(raw.get("profile"))
         if expected_roles is None or set(reports) != expected_roles:
             raise UnitConfigError("statistics: rapportrollene stemmer ikke med profilen")
@@ -97,6 +101,7 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
         for report in unit.reports:
             validate_report_job({"job_key": report.job_key, "report_type": "PRODSTAT", "category": "PATOLOGI",
                                  "report_id": report.fetch_report_id, "analysis_codes": list(report.analysis_codes),
+                                 "usernames": ["TESTUSER"] if raw.get("profile") == "lege" and report.job_key in {"production", "macro"} else [],
                                  "created_from": "01.01.2024", "created_to": "01.01.2024", "output_stem": report.report_id})
         backlog = raw.get("backlog")
         if backlog is not None:

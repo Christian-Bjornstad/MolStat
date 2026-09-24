@@ -11,7 +11,7 @@ _USERNAME = re.compile(r"[A-Za-z0-9._-]{1,80}")
 _COLUMNS = ("Brukernavn", "Navn", "Faggruppe")
 
 
-def validate_lege_lookup(path: Path) -> int:
+def load_lege_lookup(path: Path) -> list[dict[str, str]]:
     """Accept the supplied comma CSV and exported semicolon CSV, without rewriting it."""
     if path.suffix.lower() != ".csv" or path.stat().st_size > 1_000_000:
         raise ValueError("Legeregisteret må være en CSV-fil under 1 MB.")
@@ -26,7 +26,7 @@ def validate_lege_lookup(path: Path) -> int:
     if tuple(reader.fieldnames or ()) != _COLUMNS:
         raise ValueError("Legeregisteret må ha kolonnene Brukernavn, Navn og Faggruppe.")
     seen: set[str] = set()
-    count = 0
+    doctors: list[dict[str, str]] = []
     for row in reader:
         if None in row or any(value is None for value in row.values()):
             raise ValueError("Legeregisteret har en ugyldig rad.")
@@ -37,9 +37,13 @@ def validate_lege_lookup(path: Path) -> int:
                 or any(value.startswith(("=", "+", "-", "@")) for value in (name, group))):
             raise ValueError("Legeregisteret har tomme, dupliserte eller ugyldige verdier.")
         seen.add(username)
-        count += 1
-        if count > 500:
+        doctors.append({"Brukernavn": username, "Navn": name, "Faggruppe": group})
+        if len(doctors) > 500:
             raise ValueError("Legeregisteret har for mange brukere.")
-    if count == 0:
+    if not doctors:
         raise ValueError("Legeregisteret er tomt.")
-    return count
+    return doctors
+
+
+def validate_lege_lookup(path: Path) -> int:
+    return len(load_lege_lookup(path))
