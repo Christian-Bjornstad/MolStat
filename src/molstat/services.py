@@ -191,6 +191,10 @@ class DefaultServices:
                     lookup, capability.processor_profile,
                     set(definitions[definition.key].unit.analysis_codes),
                 )
+            elif capability.processor_profile == "lege" and lookup != Path(""):
+                from ._statistics.lege_lookup import validate_lege_lookup
+
+                validate_lege_lookup(lookup)
             elif capability.processor_profile != "lege":
                 load_lookup(lookup)
             statistics_processors[definition.key] = StatisticsProcessor(
@@ -380,7 +384,6 @@ class DefaultServices:
         lookups = {
             unit.key: Path(text)
             for unit in DEFAULT_UNITS.for_job("statistics")
-            if unit.key != "lege"
             if (text := values.get(f"lookup_{unit.key}", "").strip())
         }
         updated = replace(
@@ -525,6 +528,12 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
         raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
     for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
         if unit.key == "lege":
+            if lookup := settings.statistics_lookup_paths.get("lege"):
+                if not lookup.is_file():
+                    raise ValueError("Legeregister for Patologer finnes ikke.")
+                from ._statistics.lege_lookup import validate_lege_lookup
+
+                validate_lege_lookup(lookup)
             continue
         lookup = settings.statistics_lookup_paths.get(unit.key) or (
             default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else None
@@ -544,6 +553,9 @@ def _unavailable_path_messages(settings: MolStatSettings) -> tuple[str, ...]:
         unavailable.append("SharePoint-mappe")
     for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
         if unit.key == "lege":
+            lookup = settings.statistics_lookup_paths.get("lege")
+            if lookup is not None and not lookup.is_file():
+                unavailable.append("Legeregister for Patologer")
             continue
         lookup = settings.statistics_lookup_paths.get(unit.key) or (
             default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else None

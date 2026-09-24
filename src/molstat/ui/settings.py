@@ -107,19 +107,22 @@ class SettingsPage(QWidget):
             unit_form.addRow("Rediger oppsett", open_folder)
 
             capability = unit.capability("statistics")
-            if capability.processor_profile == "lege":
-                layout.addWidget(group)
-                continue
-            accessible_name = f"Lookup-fil for {unit.display_name}"
+            is_lege = capability.processor_profile == "lege"
+            accessible_name = (
+                "Legeregister for Patologer" if is_lege
+                else f"Lookup-fil for {unit.display_name}"
+            )
             field = _field(f"lookup-{unit.key}", accessible_name)
             self.lookup_fields[unit.key] = field
             setattr(self, f"lookup_{unit.key}", field)
             unit_form.addRow(
-                "Lookup-fil",
+                "Legeregister (CSV)" if is_lege else "Lookup-fil",
                 self._file_row(
                     field,
                     f"browse-lookup-{unit.key}",
-                    f"Velg lookup-fil for {unit.display_name}",
+                    f"Velg legeregister for {unit.display_name}" if is_lege
+                    else f"Velg lookup-fil for {unit.display_name}",
+                    csv_only=is_lege,
                 ),
             )
             layout.addWidget(group)
@@ -191,10 +194,11 @@ class SettingsPage(QWidget):
         return _path_row(field, button)
 
     def _file_row(
-        self, field: QLineEdit, button_name: str, accessible_name: str
+        self, field: QLineEdit, button_name: str, accessible_name: str,
+        *, csv_only: bool = False,
     ) -> QWidget:
         button = _browse_button(button_name, accessible_name)
-        button.clicked.connect(lambda: self._choose_lookup(field, accessible_name))
+        button.clicked.connect(lambda: self._choose_lookup(field, accessible_name, csv_only=csv_only))
         return _path_row(field, button)
 
     def _choose_directory(self, field: QLineEdit, title: str) -> None:
@@ -202,12 +206,13 @@ class SettingsPage(QWidget):
         if selected:
             field.setText(selected)
 
-    def _choose_lookup(self, field: QLineEdit, title: str) -> None:
+    def _choose_lookup(self, field: QLineEdit, title: str, *, csv_only: bool = False) -> None:
         selected, _ = QFileDialog.getOpenFileName(
             self,
             title,
             field.text(),
-            "Oppslag (*.xlsx *.xlsm *.xls *.csv);;Alle filer (*)",
+            "CSV-filer (*.csv);;Alle filer (*)" if csv_only
+            else "Oppslag (*.xlsx *.xlsm *.xls *.csv);;Alle filer (*)",
         )
         if selected:
             field.setText(selected)

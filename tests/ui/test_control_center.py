@@ -277,6 +277,11 @@ def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
         assert enabled.accessibleName()
         assert enabled.isChecked()
 
+    lege_lookup = window.findChild(object, "lookup-lege")
+    assert lege_lookup is not None
+    assert lege_lookup.accessibleName() == "Legeregister for Patologer"
+    assert window.findChild(QPushButton, "browse-lookup-lege") is not None
+
 
 def test_settings_browse_buttons_fill_directory_and_lookup_paths(
     qtbot, monkeypatch
