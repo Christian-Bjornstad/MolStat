@@ -9,6 +9,7 @@ import re
 import time
 from uuid import uuid4
 
+from .archive import RawArchive
 from .lvms.batch_runner import run_report_batch
 from .lvms.report import ReportRequest
 from .lvms.report_job import ReportInterval, ReportJob, batch_filename
@@ -44,6 +45,7 @@ class UnifiedLvmsFetcher:
         run_batch: Callable[..., int] = run_report_batch,
         today: Callable[[], date] = date.today,
         sleep: Callable[[float], None] = time.sleep,
+        history_from: date = date(2024, 1, 1),
     ) -> None:
         self.lvms_config_path = lvms_config_path
         self.sensitive_root = sensitive_root
@@ -53,6 +55,7 @@ class UnifiedLvmsFetcher:
         self.run_batch = run_batch
         self._today = today
         self._sleep = sleep
+        self.history_from = history_from
 
     def fetch_statistics(
         self,
@@ -73,11 +76,13 @@ class UnifiedLvmsFetcher:
             selected = tuple(by_key[key] for key in unit_keys)
         for unit in selected:
             if unit.profile == "lege":
+                self._backfill_patolog_months(unit, today)
                 windows = monthly_process_windows(today)
                 jobs = tuple(
                     _statistics_job(unit, report, *windows[report.job_key])
                     for report in unit.reports
                 )
+                sources = tuple(self._run_jobs((job,), unit.key)[0] for job in jobs)
             else:
                 created_from, created_to = plan_window(
                     self.sensitive_root,
@@ -87,7 +92,7 @@ class UnifiedLvmsFetcher:
                     today=today,
                 )
                 jobs = tuple(_statistics_job(unit, report, created_from, created_to) for report in unit.reports)
-            sources = self._run_jobs(jobs, unit.key)
+                sources = self._run_jobs(jobs, unit.key)
             result[unit.key] = tuple(
                 (
                     ReportRequest(
@@ -102,6 +107,29 @@ class UnifiedLvmsFetcher:
                 for report, job, source in zip(unit.reports, jobs, sources, strict=True)
             )
         return result
+
+    def _backfill_patolog_months(self, unit: Unit, today: date) -> None:
+        from ._statistics.patolog_process import _latest_by_month, _read
+
+        previous_start, _ = monthly_process_windows(today)["previous"]
+        archive_dir = self.sensitive_root / "raw" / "statistics" / unit.key
+        completed = set(_latest_by_month(archive_dir)) if archive_dir.is_dir() else set()
+        report = unit.report_by_key("previous")
+        month = self.history_from.replace(day=1)
+        archive = RawArchive(self.sensitive_root)
+        while month < previous_start:
+            next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
+            if month not in completed:
+                end = next_month - timedelta(days=1)
+                job = _statistics_job(unit, report, month, end)
+                source = self._run_jobs((job,), unit.key)[0]
+                _read(source)
+                archive.store(source, ReportRequest(
+                    kind="statistics", unit=unit.key, report_name=report.report_id,
+                    date_from=month, date_to=end,
+                ))
+                source.unlink()
+            month = next_month
 
     def fetch_backlog(self, unit_key: str = "hemato", report_path: Path | None = None) -> tuple[ReportRequest, Path]:
         today = self._today()

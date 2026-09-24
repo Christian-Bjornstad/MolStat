@@ -56,7 +56,9 @@ def merge_report_csvs(
                 if not any(cell.strip() for cell in raw):
                     continue
                 key = _row_key(header, [
-                    raw[index_of[name]] if name in index_of else ""
+                    raw[index_of[name]]
+                    if name in index_of and index_of[name] < len(raw)
+                    else ""
                     for name in header
                 ])
                 if key in seen:

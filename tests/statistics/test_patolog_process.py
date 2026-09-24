@@ -1,6 +1,7 @@
 import csv
 from datetime import date
 from pathlib import Path
+import pytest
 
 from molstat._statistics.patolog_process import process
 from molstat.fetching import UnifiedLvmsFetcher, monthly_process_windows
@@ -57,6 +58,7 @@ def test_fetcher_uses_two_month_windows_for_patolog(tmp_path: Path) -> None:
         work_root=tmp_path / "work", units_path=config_root / "units.json",
         backlog_report_path=tmp_path / "unused.json", run_batch=batch,
         today=lambda: date(2026, 1, 1),
+        history_from=date(2025, 12, 1),
     )
     result = fetcher.fetch_statistics(("lege",))["lege"]
     assert [(request.date_from, request.date_to) for request, _ in result] == [
@@ -66,3 +68,78 @@ def test_fetcher_uses_two_month_windows_for_patolog(tmp_path: Path) -> None:
     assert {job.report_id for job in jobs} == {"PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU"}
     assert all(job.analysis_codes == () for job in jobs)
     assert monthly_process_windows(date(2026, 3, 15))["previous"] == (date(2026, 2, 1), date(2026, 2, 28))
+
+
+def test_first_patolog_fetch_builds_history_one_month_at_a_time(tmp_path: Path) -> None:
+    definition = load_unit_file(default_unit_file("lege"))
+    config_root = materialize_snapshot(tmp_path, {"lege": definition})
+    calls = []
+
+    def batch(_config, jobs_path, keys, **kwargs):
+        loaded = load_report_jobs(jobs_path)
+        assert len(loaded) == 1
+        job = loaded[0]
+        calls.append((job.interval.created_from, job.interval.created_to))
+        raw = kwargs["repository_root"] / "rådata"
+        raw.mkdir(parents=True)
+        (raw / batch_filename(job)).write_text(HEADER, encoding="cp1252")
+        return 0
+
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=config_root / "units.json",
+        backlog_report_path=tmp_path / "unused.json", run_batch=batch,
+        today=lambda: date(2024, 4, 10),
+    )
+    result = fetcher.fetch_statistics(("lege",))["lege"]
+    assert calls == [
+        (date(2024, 1, 1), date(2024, 1, 31)),
+        (date(2024, 2, 1), date(2024, 2, 29)),
+        (date(2024, 4, 1), date(2024, 4, 10)),
+        (date(2024, 3, 1), date(2024, 3, 31)),
+    ]
+    assert len(result) == 2
+    archives = tuple((tmp_path / "raw" / "statistics" / "lege").glob("*.csv"))
+    assert len(archives) == 2
+    assert {"2024-01-01", "2024-02-01"} == {p.name.split("__")[1] for p in archives}
+
+    calls.clear()
+    fetcher.fetch_statistics(("lege",))
+    assert calls == [
+        (date(2024, 4, 1), date(2024, 4, 10)),
+        (date(2024, 3, 1), date(2024, 3, 31)),
+    ]
+
+
+def test_patolog_backfill_resumes_after_failed_month(tmp_path: Path) -> None:
+    definition = load_unit_file(default_unit_file("lege"))
+    config_root = materialize_snapshot(tmp_path, {"lege": definition})
+    calls = []
+    fail_february = True
+
+    def batch(_config, jobs_path, _keys, **kwargs):
+        job = load_report_jobs(jobs_path)[0]
+        calls.append(job.interval.created_from)
+        if job.interval.created_from == date(2024, 2, 1) and fail_february:
+            return 2
+        raw = kwargs["repository_root"] / "rådata"
+        raw.mkdir(parents=True)
+        (raw / batch_filename(job)).write_text(HEADER, encoding="cp1252")
+        return 0
+
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=config_root / "units.json",
+        backlog_report_path=tmp_path / "unused.json", run_batch=batch,
+        today=lambda: date(2024, 4, 10), sleep=lambda _seconds: None,
+    )
+    with pytest.raises(Exception):
+        fetcher.fetch_statistics(("lege",))
+    assert calls == [date(2024, 1, 1), date(2024, 2, 1)]
+    assert len(tuple((tmp_path / "raw" / "statistics" / "lege").glob("*.csv"))) == 1
+
+    calls.clear()
+    fail_february = False
+    fetcher.fetch_statistics(("lege",))
+    assert calls[0] == date(2024, 2, 1)
+    assert date(2024, 1, 1) not in calls

@@ -53,3 +53,15 @@ def test_write_merged_roundtrip(tmp_path: Path) -> None:
         content = list(csv.reader(f, delimiter=";"))
     assert content == [["Sample ID"], ['=T("S1")']]
 
+
+def test_merge_handles_ragged_lvms_row_without_index_error(tmp_path: Path) -> None:
+    source = tmp_path / "fish.csv"
+    write_csv(source, [["Sample ID", "Analyse", "Tidspunkt godkjenning"],
+                       ['=T("S1")', '=T("FISH-ALKBA-OU")']])
+
+    header, rows = merge_report_csvs([source])
+
+    assert header == ["Sample ID", "Analyse", "Tidspunkt godkjenning"]
+    assert rows == [{"Sample ID": '=T("S1")', "Analyse": '=T("FISH-ALKBA-OU")',
+                     "Tidspunkt godkjenning": ""}]
+
