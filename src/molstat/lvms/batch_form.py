@@ -291,11 +291,12 @@ class BatchReportForm:
             self._actions.replace_text(
                 report_groups, job.report_groups_text()
             )
-        analysis_codes = self._wait_for("analysis_codes")
+        analysis_codes = self._wait_for("analysis_codes") if job.analysis_codes else None
         created_from = self._wait_for("created_from")
         created_to = self._wait_for("created_to")
         start, end = job.interval.as_lvms()
-        self._actions.replace_text(analysis_codes, job.analysis_text())
+        if analysis_codes is not None:
+            self._actions.replace_text(analysis_codes, job.analysis_text())
         self._actions.replace_text(created_from, start)
         self._sleep(0.5)
         created_to = self._wait_for("created_to")

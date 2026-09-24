@@ -18,6 +18,7 @@ from .statistics import (
     SOLIDE_ANTALL_COLUMNS,
     SOLIDE_RESULTATER_COLUMNS,
 )
+from ._statistics import flow_reports, fish_reports, pre_reports, patolog_process
 
 
 JobKind = Literal["statistics", "backlog"]
@@ -128,6 +129,46 @@ _SOLIDE_STATISTICS = CapabilityDefinition(
     status_fields=("rows",),
 )
 
+_FLOW_STATISTICS = CapabilityDefinition(
+    job_kind="statistics", schedule_key="statistics_daily",
+    processor_profile="flow", sharepoint_folder="flow",
+    publication_files=(("antall.csv", frozenset(flow_reports.ANTALL_FIELDS)),
+                       ("resultater.csv", frozenset(flow_reports.RESULTATER_FIELDS))),
+    status_fields=("rows",),
+)
+
+_FISH_STATISTICS = CapabilityDefinition(
+    job_kind="statistics", schedule_key="statistics_daily",
+    processor_profile="fish", sharepoint_folder="fish",
+    publication_files=(("antall.csv", frozenset(fish_reports.ANTALL_FIELDS)),
+                       ("resultater.csv", frozenset(fish_reports.RESULT_FIELDS))),
+    status_fields=("rows",),
+)
+
+_PRE_STATISTICS = CapabilityDefinition(
+    job_kind="statistics", schedule_key="statistics_daily",
+    processor_profile="pre", sharepoint_folder="pre",
+    publication_files=(("antall.csv", frozenset(pre_reports.ANTALL_FIELDS)),
+                       ("resultater.csv", frozenset(pre_reports.RESULT_FIELDS))),
+    status_fields=("rows",),
+)
+
+_LEGE_STATISTICS = CapabilityDefinition(
+    job_kind="statistics", schedule_key="statistics_daily",
+    processor_profile="lege", sharepoint_folder="lege",
+    publication_files=(("prosess.csv", frozenset(patolog_process.FIELDS)),),
+    status_fields=("rows",),
+)
+
+_STATISTICS_PROFILES = {
+    "hemato": _HEMATO_STATISTICS,
+    "solide": _SOLIDE_STATISTICS,
+    "flow": _FLOW_STATISTICS,
+    "fish": _FISH_STATISTICS,
+    "pre": _PRE_STATISTICS,
+    "lege": _LEGE_STATISTICS,
+}
+
 _HEMATO_BACKLOG = CapabilityDefinition(
     job_kind="backlog",
     schedule_key="backlog_hourly",
@@ -149,7 +190,7 @@ _HEMATO_BACKLOG = CapabilityDefinition(
 def configured_registry(definitions) -> UnitRegistry:
     units = []
     for key, definition in definitions.items():
-        statistics = _SOLIDE_STATISTICS if definition.unit.profile == "solide" else _HEMATO_STATISTICS
+        statistics = _STATISTICS_PROFILES[definition.unit.profile]
         capabilities = [replace(statistics, sharepoint_folder=key)]
         if definition.payload.get("backlog") is not None:
             capabilities.append(replace(_HEMATO_BACKLOG, publication_files=((f"restansehistorikk_{key}.csv", frozenset(BACKLOG_PUBLIC_COLUMNS)),)))
@@ -170,9 +211,10 @@ DEFAULT_UNITS = UnitRegistry(
             status="active",
             capabilities=(_SOLIDE_STATISTICS,),
         ),
-        UnitDefinition("lege", "Lege", "coming", ()),
-        UnitDefinition("flow", "Flow", "coming", ()),
-        UnitDefinition("pre", "Pre", "coming", ()),
+        UnitDefinition("lege", "Patologer", "active", (_LEGE_STATISTICS,)),
+        UnitDefinition("flow", "Flow", "active", (_FLOW_STATISTICS,)),
+        UnitDefinition("fish", "FISH", "active", (_FISH_STATISTICS,)),
+        UnitDefinition("pre", "Pre", "active", (_PRE_STATISTICS,)),
         UnitDefinition("hist", "Hist", "coming", ()),
     )
 )

@@ -110,7 +110,7 @@ class MolStatSystem:
             else self.publisher
         )
         deliver(active_publisher,
-            {
+            result.publication_files or {
                 "antall.csv": result.antall,
                 "resultater.csv": result.resultater,
             },

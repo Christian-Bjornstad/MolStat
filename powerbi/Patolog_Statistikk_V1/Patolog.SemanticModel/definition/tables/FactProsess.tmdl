@@ -1,0 +1,74 @@
+table FactProsess
+	lineageTag: 9836b122-679a-48cc-85d5-66e145ea73ce
+
+	column 'Maaned'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: Maaned
+		formatString: yyyy-MM-dd
+
+	column 'Profil'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Profil
+
+	column 'Lab'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Lab
+
+	column 'Prosesskode'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Prosesskode
+
+	column 'Prosessgruppe'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Prosessgruppe
+
+	column 'AntallProver'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: AntallProver
+
+	column 'AntallBlokker'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: AntallBlokker
+
+	column 'AntallGlass'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: AntallGlass
+
+	column 'UttrekkTom'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: UttrekkTom
+		formatString: yyyy-MM-dd
+
+	measure 'Registrerte prøver' =
+			SUM(FactProsess[AntallProver])
+		formatString: #,##0
+
+	measure 'Blokker' =
+			SUM(FactProsess[AntallBlokker])
+		formatString: #,##0
+
+	measure 'Glass' =
+			SUM(FactProsess[AntallGlass])
+		formatString: #,##0
+
+	measure 'Glass per prøve' =
+			DIVIDE([Glass],[Registrerte prøver])
+		formatString: 0.0
+
+	partition FactProsess = m
+		mode: import
+		source =
+				let
+				    Raw = Csv.Document(File.Contents("C:\Users\molpa\Documents\MolStat\powerbi\Patolog_Statistikk_V1\TemplateData\FactProsess.csv"), [Delimiter=";",Encoding=65001,QuoteStyle=QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Raw,[PromoteAllScalars=true]),
+				    Typed = Table.TransformColumns(Headers,{{"Maaned", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"Profil", each if _ = "" then null else _, type nullable text},{"Lab", each if _ = "" then null else _, type nullable text},{"Prosesskode", each if _ = "" then null else _, type nullable text},{"Prosessgruppe", each if _ = "" then null else _, type nullable text},{"AntallProver", each if _ = "" then null else Int64.From(Number.FromText(_, "en-US")), type nullable number},{"AntallBlokker", each if _ = "" then null else Int64.From(Number.FromText(_, "en-US")), type nullable number},{"AntallGlass", each if _ = "" then null else Int64.From(Number.FromText(_, "en-US")), type nullable number},{"UttrekkTom", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime}})
+				in Typed

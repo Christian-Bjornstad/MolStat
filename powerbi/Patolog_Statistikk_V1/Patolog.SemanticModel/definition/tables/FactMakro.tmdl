@@ -1,0 +1,43 @@
+table FactMakro
+	lineageTag: 46166a24-6866-4253-adc5-52ec3724d89a
+
+	column 'SampleID'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: SampleID
+
+	column 'Brukernavn'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Brukernavn
+
+	column 'Prioritet'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Prioritet
+
+	column 'Prosess'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Prosess
+
+	column 'MakroTid'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: MakroTid
+		formatString: dd.MM.yyyy HH:mm
+
+	column 'MakroDato'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: MakroDato
+		formatString: dd.MM.yyyy HH:mm
+
+	partition FactMakro = m
+		mode: import
+		source =
+				let
+				    Raw = Csv.Document(File.Contents("C:\Users\molpa\Documents\MolStat\powerbi\Patolog_Statistikk_V1\TemplateData\FactMakro.csv"), [Delimiter=";",Encoding=65001,QuoteStyle=QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Raw,[PromoteAllScalars=true]),
+				    Typed = Table.TransformColumns(Headers,{{"SampleID", each if _ = "" then null else _, type nullable text},{"Brukernavn", each if _ = "" then null else _, type nullable text},{"Prioritet", each if _ = "" then null else _, type nullable text},{"Prosess", each if _ = "" then null else _, type nullable text},{"MakroTid", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"MakroDato", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime}})
+				in Typed

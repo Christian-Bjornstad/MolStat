@@ -9,7 +9,8 @@ from typing import Any
 
 
 SETTINGS_SCHEMA_VERSION = 2
-ACTIVE_UNIT_KEYS = ("hemato", "solide")
+ACTIVE_UNIT_KEYS = ("hemato", "solide", "flow", "fish", "pre", "lege")
+DEFAULT_ENABLED_UNIT_KEYS = ("hemato", "solide")
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,7 +23,7 @@ class MolStatSettings:
     statistics_lookup_paths: dict[str, Path] = field(default_factory=dict)
     lvms_config_path: Path | None = None
     lvms_url: str = ""
-    enabled_units: tuple[str, ...] = ACTIVE_UNIT_KEYS
+    enabled_units: tuple[str, ...] = DEFAULT_ENABLED_UNIT_KEYS
     unit_config_paths: dict[str, Path] = field(default_factory=dict)
 
     def validate(self) -> tuple[str, ...]:
@@ -134,7 +135,7 @@ class MolStatSettings:
             statistics_lookup_paths=lookups,
             lvms_config_path=Path(lvms_config) if lvms_config else None,
             lvms_url=str(payload.get("lvms_url", "")),
-            enabled_units=ACTIVE_UNIT_KEYS,
+            enabled_units=DEFAULT_ENABLED_UNIT_KEYS,
         )
         return settings
 

@@ -25,7 +25,7 @@ REQUIRED_JOB_FIELDS = frozenset(
     }
 )
 OPTIONAL_JOB_FIELDS = frozenset({"report_groups"})
-CODE_PATTERN = re.compile(r"[A-Z0-9-]{1,80}")
+CODE_PATTERN = re.compile(r"[A-Za-z0-9/-]{1,80}")
 KEY_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
 OUTPUT_STEM_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
 
@@ -130,7 +130,7 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
     ):
         raise ReportJobError("report job key is invalid")
     raw_codes = raw.get("analysis_codes")
-    if not isinstance(raw_codes, list) or not 1 <= len(raw_codes) <= 500:
+    if not isinstance(raw_codes, list) or len(raw_codes) > 500:
         raise ReportJobError("analysis codes are invalid")
     codes: list[str] = []
     for raw_code in raw_codes:
@@ -142,6 +142,8 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         codes.append(code)
     if len(set(codes)) != len(codes):
         raise ReportJobError("analysis codes contain duplicates")
+    if not codes and raw.get("report_id") != "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU":
+        raise ReportJobError("analysis codes are invalid")
     raw_groups = raw.get("report_groups", [])
     if not isinstance(raw_groups, list) or len(raw_groups) > 50:
         raise ReportJobError("report groups are invalid")

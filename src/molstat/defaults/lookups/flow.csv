@@ -1,0 +1,67 @@
+﻿Analyse;Analysenavn;Rapportgruppe;Svarfrist;Pris2026NOK;Priskobling
+FLOW-01-OU;Granulopoiese;B-celle og basispanel;;293.57;Eksakt workitem
+FLOW-02-OU;LST;B-celle og basispanel;;323.60;Eksakt workitem
+FLOW-03-OU;KLL;B-celle og basispanel;;287.59;Eksakt workitem
+FLOW-04-OU;B4 FL/DLBCL;B-celle og basispanel;;298.82;Eksakt workitem
+FLOW-05-OU;B5 BL;B-celle og basispanel;;217.03;Eksakt workitem
+FLOW-06-B-OU;B6 CD38 multiepitope – kode i LVMS-uttakslisten;B-celle og basispanel;;;Ingen eksakt kobling
+FLOW-06-OU;B6 LPL/PCD;B-celle og basispanel;;274.51;Eksakt workitem
+FLOW-07-OU;B7 HCL;B-celle og basispanel;;282.09;Eksakt workitem
+FLOW-08-OU;B8 KLL/MCL MRD;B-celle og basispanel;;382.65;Eksakt workitem
+FLOW-09-OU;B9 HCL MRD;B-celle og basispanel;;242.83;Eksakt workitem
+FLOW-10-OU;B10 FL/DLBCL MRD;B-celle og basispanel;;320.53;Eksakt workitem
+FLOW-11-OU;B11 BL MRD;B-celle og basispanel;;265.10;Eksakt workitem
+FLOW-12-OU;B12 KLL PROGNOSE;B-celle og basispanel;;75.62;Eksakt workitem
+FLOW-13-OU;B13 KLL PROGNOSE CD38;B-celle og basispanel;;100.38;Eksakt workitem
+FLOW-14-OU;T4 GenT/Reaktivt CD5;T- og NK-cellepanel;;299.32;Eksakt workitem
+FLOW-15-OU;T4 GenT/Reaktivt CD38;T- og NK-cellepanel;;274.44;Eksakt workitem
+FLOW-16-OU;T5 NK-T/T-LGL CD5;T- og NK-cellepanel;;266.00;Eksakt workitem
+FLOW-17-OU;T5 NK-T/T-LGL CD11b;T- og NK-cellepanel;;240.81;Eksakt workitem
+FLOW-18-OU;T6 MF/Sezary CD26-CD5;T- og NK-cellepanel;;282.63;Eksakt workitem
+FLOW-19-OU;T6 ATLL/T-PLL CD25-cyTCL1;T- og NK-cellepanel;;388.70;Eksakt workitem
+FLOW-20-OU;T7 Cøliaki/EATL;T- og NK-cellepanel;;258.04;Eksakt workitem
+FLOW-21-OU;T8 ALCL CD30;T- og NK-cellepanel;;314.29;Eksakt workitem
+FLOW-22-OU;T8 AITL CD10;T- og NK-cellepanel;;311.25;Eksakt workitem
+FLOW-23-OU;T9 Hepatosplenisk;T- og NK-cellepanel;;264.81;Eksakt workitem
+FLOW-24-OU;T10 Eks.nod. NKT/ Aggr. NK-celleleukemi CD5;T- og NK-cellepanel;;321.72;Eksakt workitem
+FLOW-25-OU;T10 Plasmacyt. dend. celletumor CD123;T- og NK-cellepanel;;306.08;Eksakt workitem
+FLOW-26-OU;T11 NK-celler;T- og NK-cellepanel;;315.63;Eksakt workitem
+FLOW-27-OU;T12 ALPS1;T- og NK-cellepanel;;136.00;Eksakt workitem
+FLOW-28-OU;T13 ALPS2;T- og NK-cellepanel;;126.66;Eksakt workitem
+FLOW-29-OU;T14 Campath;T- og NK-cellepanel;;189.49;Eksakt workitem
+FLOW-30-OU;AML/MDS Monocytopoiese;AML/MDS og øvrige;;280.77;Eksakt workitem
+FLOW-31-OU;AML/MDS Erytropoiese;AML/MDS og øvrige;;335.67;Eksakt workitem
+FLOW-32-OU;AML/MDS 11q23 CD123;AML/MDS og øvrige;;341.34;Eksakt workitem
+FLOW-33-OU;AML/MDS 11q23 CD22;AML/MDS og øvrige;;332.34;Eksakt workitem
+FLOW-34-OU;AML/MDS Mk, Baso, DC CD123;AML/MDS og øvrige;;393.40;Eksakt workitem
+FLOW-35-OU;AML/MDS Mk, Baso, DC CD25;AML/MDS og øvrige;;413.79;Eksakt workitem
+FLOW-36-OU;AML/MDS Mastcelle, Mk;AML/MDS og øvrige;;;Ingen eksakt kobling
+FLOW-37-OU;AML/MDS TDT;AML/MDS og øvrige;;450.76;Eksakt workitem
+FLOW-38-OU;AML/MDS ALOT;AML/MDS og øvrige;;355.47;Eksakt workitem
+FLOW-39-OU;AML/MDS Monocytopoiese, egendefinert;AML/MDS og øvrige;;330.12;Eksakt workitem
+FLOW-40-OU;SCL Non-hematopoietisk;AML/MDS og øvrige;;280.10;Eksakt workitem
+FLOW-41-OU;NOPHO B-ALL 1;NOPHO;;179.00;Eksakt workitem
+FLOW-42-OU;NOPHO B-ALL 2;NOPHO;;272.05;Eksakt workitem
+FLOW-43-OU;NOPHO B-ALL 3;NOPHO;;341.91;Eksakt workitem
+FLOW-44-OU;NOPHO T-ALL 1;NOPHO;;299.13;Eksakt workitem
+FLOW-45-OU;NOPHO T-ALL 2;NOPHO;;178.68;Eksakt workitem
+FLOW-46-OU;NOPHO T-ALL 3;NOPHO;;384.53;Eksakt workitem
+FLOW-47-OU;NOPHO T-ALL 4;NOPHO;;326.04;Eksakt workitem
+FLOW-48-OU;NOPHO B/T-ALL diagnose cyIgM;NOPHO;;258.61;Eksakt workitem
+FLOW-49-OU;NOPHO B/T-ALL diagnose CD15;NOPHO;;157.40;Eksakt workitem
+FLOW-50-OU;NOPHO AML-MRD 1;NOPHO;;364.50;Eksakt workitem
+FLOW-51-OU;NOPHO AML-MRD 2;NOPHO;;360.41;Eksakt workitem
+FLOW-52-OU;NOPHO AML-MRD 3;NOPHO;;295.13;Eksakt workitem
+FLOW-53-OU;NOPHO AML-MRD 4;NOPHO;;357.49;Eksakt workitem
+FLOW-54-OU;NOPHO AML-MRD 5;NOPHO;;378.96;Eksakt workitem
+FLOW-55-OU;Cyt MOD LST;Spesialpanel;;318.87;Eksakt workitem
+FLOW-56-OU;MM MRD kit;Spesialpanel;;;Ingen eksakt kobling
+FLOW-57-OU;Refraktær cøliaki 1;Spesialpanel;;287.04;Eksakt workitem
+FLOW-58-OU;Refraktær cøliaki 2;Spesialpanel;;278.96;Eksakt workitem
+FLOW-59-OU;Refraktær cøliaki 3;Spesialpanel;;272.49;Eksakt workitem
+FLOW-60-OU;MZL CD180;Spesialpanel;;345.83;Eksakt workitem
+FLOW-61-OU;Egendefinert, se panelskjema;Spesialpanel;;250.00;Eksakt workitem
+FLOW-62-OU;T-celleklonalitet;Spesialpanel;;318.77;Eksakt workitem
+FLOW-BB-OU;Flowcytometri bestilling lab (blod/BM);Bestilling og frysing;;;Ingen eksakt kobling
+FLOW-BESTILT-OU;Flowcytometri etterbestilling lege (Cytflow);Bestilling og frysing;;;Ingen eksakt kobling
+FRYSFLOW-OU;Nedfrysing til FLOW;Bestilling og frysing;;;Ingen eksakt kobling

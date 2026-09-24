@@ -6,6 +6,7 @@ import pytest
 
 from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from molstat.services import DefaultServices
+from molstat._statistics.specialized_lookup import default_lookup_path
 
 
 def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
@@ -17,8 +18,16 @@ def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
         "lvms_url": "",
         "lookup_hemato": "",
         "lookup_solide": "",
+        "lookup_flow": str(default_lookup_path("flow")),
+        "lookup_fish": str(default_lookup_path("fish")),
+        "lookup_pre": str(default_lookup_path("pre")),
+        "lookup_lege": "",
         "enabled_hemato": "true",
         "enabled_solide": "true",
+        "enabled_flow": "false",
+        "enabled_fish": "false",
+        "enabled_pre": "false",
+        "enabled_lege": "false",
     }
 
 

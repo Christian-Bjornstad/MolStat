@@ -72,14 +72,21 @@ class UnifiedLvmsFetcher:
                 )
             selected = tuple(by_key[key] for key in unit_keys)
         for unit in selected:
-            created_from, created_to = plan_window(
-                self.sensitive_root,
-                kind="statistics",
-                unit=unit.key,
-                baseline=date(2024, 1, 1),
-                today=today,
-            )
-            jobs = tuple(_statistics_job(unit, report, created_from, created_to) for report in unit.reports)
+            if unit.profile == "lege":
+                windows = monthly_process_windows(today)
+                jobs = tuple(
+                    _statistics_job(unit, report, *windows[report.job_key])
+                    for report in unit.reports
+                )
+            else:
+                created_from, created_to = plan_window(
+                    self.sensitive_root,
+                    kind="statistics",
+                    unit=unit.key,
+                    baseline=date(2024, 1, 1),
+                    today=today,
+                )
+                jobs = tuple(_statistics_job(unit, report, created_from, created_to) for report in unit.reports)
             sources = self._run_jobs(jobs, unit.key)
             result[unit.key] = tuple(
                 (
@@ -87,12 +94,12 @@ class UnifiedLvmsFetcher:
                         kind="statistics",
                         unit=unit.key,
                         report_name=report.report_id,
-                        date_from=created_from,
-                        date_to=created_to,
+                        date_from=job.interval.created_from,
+                        date_to=job.interval.created_to,
                     ),
                     source,
                 )
-                for report, source in zip(unit.reports, sources, strict=True)
+                for report, job, source in zip(unit.reports, jobs, sources, strict=True)
             )
         return result
 
@@ -158,6 +165,15 @@ def _statistics_job(unit: Unit, report, created_from: date, created_to: date) ->
         interval=ReportInterval(created_from, created_to),
         output_stem=report.report_id,
     )
+
+
+def monthly_process_windows(today: date) -> dict[str, tuple[date, date]]:
+    current_start = today.replace(day=1)
+    previous_end = current_start - timedelta(days=1)
+    return {
+        "current": (current_start, today),
+        "previous": (previous_end.replace(day=1), previous_end),
+    }
 
 
 def _write_jobs(path: Path, jobs: tuple[ReportJob, ...]) -> Path:

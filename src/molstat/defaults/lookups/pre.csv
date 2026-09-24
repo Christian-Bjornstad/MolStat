@@ -1,0 +1,51 @@
+﻿Analyse;Analysenavn;Rapportgruppe;Svarfrist;Pris2026NOK;Priskobling;Aktivitetstype;NormProsess;NormTotalt;Kildekorreksjon
+FORBEHANDLE-OU;Velg forbehandling;Valg;;;;ValgForbehandling;;;
+FORBAVPIP-OU;Avpipettering;Forbehandling Hemato;3;;;UtførtForbehandling;1;3;
+FORBMNC-OU;Mononukleære celler;Forbehandling Hemato;3;;;UtførtForbehandling;1;3;
+FORBLEUCO-OU;Leukocyttpellet;Forbehandling Hemato;3;;;UtførtForbehandling;1;3;
+FORBLEUCOMAX-OU;Leukocyttpellet MAX;Forbehandling Hemato;3;;;UtførtForbehandling;1;3;
+FORBVEVDNA-OU;Preparering vev DNA;Forbehandling Solide;3;;;UtførtForbehandling;1;3;
+FORBVEVRNA-OU;Preparering vev RNA;Forbehandling Solide;3;;;UtførtForbehandling;1;3;
+FORBVEVDNA-MLPA-OU;Preparering vev DNA, MLPA;Forbehandling Solide;3;;;UtførtForbehandling;1;3;
+FORBCELLDNA-OU;Preparering celler DNA;Forbehandling Solide;3;;;UtførtForbehandling;1;3;
+FORBCELLRNA-OU;Preparering celler RNA;Forbehandling Solide;3;;;UtførtForbehandling;1;3;
+FORBIDYLLA-OU;Idyllakassett KRAS;Forbehandling PRE;;;;UtførtForbehandling;;;"Utfylt fra brukeroppgitt oppslag; tomt i Excel-register"
+FORBIDYLLA-E-OU;Idyllakassett EGFR;Forbehandling PRE;;;;UtførtForbehandling;;;"Utfylt fra brukeroppgitt oppslag; tomt i Excel-register"
+FORBIDYLLA-M-OU;Idyllakassett MSI;Forbehandling PRE;;;;UtførtForbehandling;;;"Utfylt fra brukeroppgitt oppslag; tomt i Excel-register"
+FORBIDYLLA-NB-OU;Idyllakassett NRAS og BRAF;Forbehandling PRE;;;;UtførtForbehandling;;;"Utfylt fra brukeroppgitt oppslag; tomt i Excel-register"
+FORBIDYLLA-GF-OU;Idyllakassett Genefusion;Forbehandling PRE;;;;UtførtForbehandling;;;"Utfylt fra brukeroppgitt oppslag; tomt i Excel-register"
+FORBANNET-OU;Annet;Forbehandling Felles;4;;;UtførtForbehandling;1;4;
+EKSTRAKSJON-OU;Velg ekstraksjonsmetode;Valg;4;;;ValgEkstraksjon;1;4;
+EKSTRAKSJON-H-OU;Velg ekstraksjonsmetode;Valg;4;;;ValgEkstraksjon;1;4;
+EKSTRAQIACRNA-OU;S_QIAcube RNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAFFPEKOL-OU;S_DNA FFPE/celler kolonne;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAEZ1VEV-OU;S_EZ1 vev DNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAQIASDNA-OU;S_QIAsymphony DNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAMAXDNA-OU;S_Maxwell DNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAMAXRNA-OU;S_Maxwell RNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRARECALL-OU;S_RecoverAll DNA og RNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAGENXDNA-OU;S_Genexus DNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAGENXRNA-OU;S_Genexus RNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAFFPETRNA-OU;S_FFPET RNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAANNETRNA-OU;S_Annet RNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAANNETDNA-OU;S_Annet DNA;Ekstraksjon Solide;4;;;UtførtEkstraksjon;1;4;
+EKSTRAQIACRNA-H-OU;H_QIAcube RNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAFFPEKOL-H-OU;H_DNA FFPE/celler kolonne;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAEZ1DNA-H-OU;H_EKSTRAEZ1DNA-H-OU;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAEZ1VEV-H-OU;H_EZ1 vev DNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAQIASDNA-H-OU;H_QIAsymphony DNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAQIASRNA-H-OU;H_QIAsymphony RNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAMAXDNA-H-OU;H_Maxwell DNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAMAXRNA-H-OU;H_Maxwell RNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRMAXRNA-KML-H-OU;H_Maxwell RNA KML;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAANNETRNA-H-OU;H_Annet RNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAANNETDNA-H-OU;H_Annet DNA;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+EKSTRAAPKOL-H-OU;H_DNA AllPrep kolonne;Ekstraksjon Hemato;4;;;UtførtEkstraksjon;1;4;
+FORBVIDERE-OU;Forbehandling til videresending;Videresending;7;;;Videresendt;2;7;
+MSI-OU;Mikrosatellittinstabilitet Idylla (MSI);Idylla;15;;;AnalyseFerdig;;15;
+EGFR-VAR-OU;EGFR sekvensvarianter Idylla;Idylla;15;;;AnalyseFerdig;;15;
+KRAS-VAR-OU;KRAS sekvensvarianter Idylla;Idylla;15;;;AnalyseFerdig;;15;
+NRASBRAF-VAR-OU;NRAS /BRAF sekvensvarianter Idylla;Idylla;15;;;AnalyseFerdig;;15;
+GENEFUSION-OU;Genefusion Panel Idylla;Idylla;15;;;AnalyseFerdig;;15;
+MYRIAD-OU;Myriad MyChoice;Myriad;40;;;AnalyseFerdig;;40;
+MYRIAD-VIDERE-OU;Videresendt til København;Videresending;7;;;Videresendt;2;7;

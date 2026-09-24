@@ -1,0 +1,168 @@
+table FactPatologRolle
+	lineageTag: 5aee49b5-6dba-4e69-9beb-d9847425b80a
+
+	column 'SampleID'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: SampleID
+
+	column 'Brukernavn'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Brukernavn
+
+	column 'Rolle'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Rolle
+
+	column 'Profil'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Profil
+
+	column 'Prosess'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Prosess
+
+	column 'GodkjentTid'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: GodkjentTid
+		formatString: dd.MM.yyyy HH:mm
+
+	column 'SisteFerdigFarget'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: SisteFerdigFarget
+		formatString: dd.MM.yyyy HH:mm
+
+	column 'GodkjentDato'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: GodkjentDato
+		formatString: dd.MM.yyyy HH:mm
+
+	column 'SvartidDager'
+		dataType: double
+		summarizeBy: none
+		sourceColumn: SvartidDager
+
+	column 'Tidsstatus'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Tidsstatus
+
+	column 'MakroTid'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: MakroTid
+		formatString: dd.MM.yyyy HH:mm
+
+	column 'MakroSvartidDager'
+		dataType: double
+		summarizeBy: none
+		sourceColumn: MakroSvartidDager
+
+	measure 'Antall prøver' =
+			DISTINCTCOUNT(FactPatologRolle[SampleID])
+		formatString: #,##0
+
+	measure 'Antall godkjenningshendelser' =
+			COUNTROWS(SUMMARIZE(FactPatologRolle,FactPatologRolle[SampleID],FactPatologRolle[Brukernavn],FactPatologRolle[Rolle],FactPatologRolle[GodkjentTid]))
+		formatString: #,##0
+
+	measure 'Hovedansvarlig' =
+			CALCULATE([Antall prøver],FactPatologRolle[Rolle]="Hovedansvarlig")
+		formatString: #,##0
+
+	measure 'Medansvarlig' =
+			CALCULATE([Antall prøver],FactPatologRolle[Rolle]="Medansvarlig")
+		formatString: #,##0
+
+	measure 'Screener' =
+			CALCULATE([Antall prøver],FactPatologRolle[Rolle]="Screener")
+		formatString: #,##0
+
+	measure 'Median svartid dager' =
+			VAR P = SELECTEDVALUE(Perspektiv[Perspektiv], "Farget → godkjent")
+			VAR Pr = ADDCOLUMNS(VALUES(FactPatologRolle[SampleID]), "Tid",
+			    VAR Slutt = CALCULATE(MAX(FactPatologRolle[GodkjentTid]))
+			    RETURN IF(P = "Makro → godkjent",
+			        CALCULATE(MAX(FactPatologRolle[MakroSvartidDager]), FactPatologRolle[GodkjentTid] = Slutt),
+			        CALCULATE(MAX(FactPatologRolle[SvartidDager]), FactPatologRolle[GodkjentTid] = Slutt)))
+			VAR Gyldige = FILTER(Pr, NOT ISBLANK([Tid]))
+			RETURN MEDIANX(Gyldige,[Tid])
+		formatString: 0.0
+
+	measure 'Antall prøver med svartid' =
+			VAR P = SELECTEDVALUE(Perspektiv[Perspektiv], "Farget → godkjent")
+			VAR Pr = ADDCOLUMNS(VALUES(FactPatologRolle[SampleID]), "Tid",
+			    VAR Slutt = CALCULATE(MAX(FactPatologRolle[GodkjentTid]))
+			    RETURN IF(P = "Makro → godkjent",
+			        CALCULATE(MAX(FactPatologRolle[MakroSvartidDager]), FactPatologRolle[GodkjentTid] = Slutt),
+			        CALCULATE(MAX(FactPatologRolle[SvartidDager]), FactPatologRolle[GodkjentTid] = Slutt)))
+			VAR Gyldige = FILTER(Pr, NOT ISBLANK([Tid]))
+			RETURN COALESCE(COUNTROWS(Gyldige),0)
+		formatString: #,##0
+
+	measure 'Antall uten beregnbar tid' =
+			[Antall prøver]-[Antall prøver med svartid]
+		formatString: #,##0
+
+	measure 'Andel med beregnbar tid' =
+			DIVIDE([Antall prøver med svartid],[Antall prøver])
+		formatString: 0.0%
+
+	measure 'Valgt starttidspunkt' =
+			IF(HASONEVALUE(FactPatologRolle[SampleID]) && HASONEVALUE(FactPatologRolle[Brukernavn]) && HASONEVALUE(FactPatologRolle[GodkjentTid]),IF(SELECTEDVALUE(Perspektiv[Perspektiv],"Farget → godkjent")="Makro → godkjent",MAX(FactPatologRolle[MakroTid]),MAX(FactPatologRolle[SisteFerdigFarget])))
+		formatString: dd.MM.yyyy HH:mm
+
+	measure 'Svartid i detalj' =
+			IF(HASONEVALUE(FactPatologRolle[SampleID]) && HASONEVALUE(FactPatologRolle[Brukernavn]) && HASONEVALUE(FactPatologRolle[GodkjentTid]),IF(SELECTEDVALUE(Perspektiv[Perspektiv],"Farget → godkjent")="Makro → godkjent",MAX(FactPatologRolle[MakroSvartidDager]),MAX(FactPatologRolle[SvartidDager])))
+		formatString: 0.0
+
+	measure 'Tidsstatus i detalj' =
+			IF(COUNTROWS(FactPatologRolle)>0 && HASONEVALUE(FactPatologRolle[SampleID]) && HASONEVALUE(FactPatologRolle[Brukernavn]) && HASONEVALUE(FactPatologRolle[GodkjentTid]),IF(SELECTEDVALUE(Perspektiv[Perspektiv],"Farget → godkjent")="Makro → godkjent",IF(ISBLANK(MAX(FactPatologRolle[MakroSvartidDager])),"Mangler makrokobling","Gyldig"),SELECTEDVALUE(FactPatologRolle[Tidsstatus],"Flere tidsstatuser")),BLANK())
+
+	measure 'Antall aktive leger' =
+			DISTINCTCOUNT(FactPatologRolle[Brukernavn])
+		formatString: #,##0
+
+	measure 'Antall makrohendelser' =
+			COUNTROWS(FactMakro)
+		formatString: #,##0
+
+	measure 'Antall makroprøver' =
+			DISTINCTCOUNT(FactMakro[SampleID])
+		formatString: #,##0
+
+	measure 'Antall makroleger' =
+			DISTINCTCOUNT(FactMakro[Brukernavn])
+		formatString: #,##0
+
+	measure 'Antall koblede prøver' =
+			CALCULATE(DISTINCTCOUNT(FactPatologRolle[SampleID]),NOT ISBLANK(FactPatologRolle[MakroTid]))
+		formatString: #,##0
+
+	measure 'Prøver' =
+			[Antall prøver]
+		formatString: #,##0
+
+	measure 'Median · dager' =
+			[Median svartid dager]
+		formatString: 0.0
+
+	measure 'N svartid' =
+			[Antall prøver med svartid]
+		formatString: #,##0
+
+	partition FactPatologRolle = m
+		mode: import
+		source =
+				let
+				    Raw = Csv.Document(File.Contents("C:\Users\molpa\Documents\MolStat\powerbi\Patolog_Statistikk_V1\TemplateData\FactPatologRolle.csv"), [Delimiter=";",Encoding=65001,QuoteStyle=QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Raw,[PromoteAllScalars=true]),
+				    Typed = Table.TransformColumns(Headers,{{"SampleID", each if _ = "" then null else _, type nullable text},{"Brukernavn", each if _ = "" then null else _, type nullable text},{"Rolle", each if _ = "" then null else _, type nullable text},{"Profil", each if _ = "" then null else _, type nullable text},{"Prosess", each if _ = "" then null else _, type nullable text},{"GodkjentTid", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"SisteFerdigFarget", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"GodkjentDato", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"SvartidDager", each if _ = "" then null else Number.FromText(_,"en-US"), type nullable number},{"Tidsstatus", each if _ = "" then null else _, type nullable text},{"MakroTid", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"MakroSvartidDager", each if _ = "" then null else Number.FromText(_,"en-US"), type nullable number}})
+				in Typed

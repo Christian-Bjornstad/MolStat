@@ -218,7 +218,12 @@ def test_overview_exposes_active_and_coming_units(qtbot) -> None:
     assert "statistikk" in (
         window.findChild(object, "capabilities-solide").text().casefold()
     )
-    for key in ("lege", "flow", "pre", "hist"):
+    for key in ("flow", "fish", "pre", "lege"):
+        button = window.findChild(QPushButton, f"run-{key}")
+        assert button is not None
+        assert button.isEnabled() is True
+        assert button.accessibleName()
+    for key in ("hist",):
         button = window.findChild(QPushButton, f"run-{key}")
         assert button is not None
         assert button.isEnabled() is False

@@ -1,0 +1,15 @@
+relationship 98bd633f-d1e0-421a-af89-830ae857bdd3
+	fromColumn: FactPatologRolle.Brukernavn
+	toColumn: DimPatolog.Brukernavn
+
+relationship dffdd536-263f-4fc1-8f79-45271cdf5104
+	fromColumn: FactMakro.Brukernavn
+	toColumn: DimPatolog.Brukernavn
+
+relationship 3240b665-cac7-47dd-b318-f5a12299b3ed
+	fromColumn: FactPatologRolle.GodkjentDato
+	toColumn: DimDato.Dato
+
+relationship 5833110b-350e-4aa3-a02d-ae09d42211b6
+	fromColumn: FactMakro.MakroDato
+	toColumn: DimDato.Dato

@@ -71,6 +71,7 @@ class StatisticsResult:
     antall: Path
     resultater: Path
     row_counts: Mapping[str, int]
+    publication_files: Mapping[str, Path] | None = None
 
 
 class StatisticsProcessor:
@@ -96,6 +97,48 @@ class StatisticsProcessor:
         output_dir: Path,
     ) -> StatisticsResult:
         merged_dir = output_dir / "merged"
+        if self.profile == "lege":
+            from ._statistics.patolog_process import process
+
+            if len(raw_files) != 2:
+                raise ValueError("Patolograpporten krever inneværende og forrige måned.")
+            destination = output_dir / "prosess.csv"
+            count = process(raw_files[0].parent, destination)
+            return StatisticsResult(
+                antall=destination, resultater=destination,
+                row_counts={"prosess": count},
+                publication_files={"prosess.csv": destination},
+            )
+        if self.profile in {"flow", "fish", "pre"}:
+            if self.report_ids is None:
+                raise ValueError("Rapport-ID-er mangler for spesialisert statistikkprofil.")
+            from ._statistics import fish_reports, flow_reports, pre_reports
+
+            inputs: dict[str, Path] = {}
+            for role, report_id in self.report_ids.items():
+                matches = [path for path in raw_files if path.name.partition("__")[0] == report_id]
+                if len(matches) != 1:
+                    raise ValueError(f"Forventet nøyaktig én rapport for {role}.")
+                inputs[role] = _merge_archives(matches[0], merged_dir)
+            if self.profile == "flow":
+                counts = flow_reports.process(
+                    inputs["antall"], inputs["resultater"], output_dir, self.lookup_path
+                )
+                antall_count, result_count = counts["antall"], counts["resultater"]
+            elif self.profile == "fish":
+                counts = fish_reports.process(
+                    inputs["antall"], inputs["resultater"], output_dir, self.lookup_path
+                )
+                antall_count, result_count = counts["antall"], counts["resultater"]
+            else:
+                counts = pre_reports.process(inputs["resultater"], output_dir, self.lookup_path)
+                antall_count, result_count = 0, counts["activity_rows"]
+            return StatisticsResult(
+                antall=output_dir / "antall.csv",
+                resultater=output_dir / "resultater.csv",
+                row_counts={"antall": antall_count, "resultater": result_count},
+            )
+
         def report(role: str, legacy_marker: str) -> Path:
             if self.report_ids is None:
                 return _one_report(raw_files, legacy_marker)

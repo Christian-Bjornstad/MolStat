@@ -1,0 +1,13 @@
+model Model
+	culture: nb-NO
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: nb-NO
+
+annotation __PBI_TimeIntelligenceEnabled = 0
+
+ref table DimPatolog
+ref table FactPatologRolle
+ref table FactMakro
+ref table DimDato
+ref table Perspektiv
+ref table FactProsess

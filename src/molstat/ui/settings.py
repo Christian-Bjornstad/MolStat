@@ -107,7 +107,9 @@ class SettingsPage(QWidget):
             unit_form.addRow("Rediger oppsett", open_folder)
 
             capability = unit.capability("statistics")
-            del capability
+            if capability.processor_profile == "lege":
+                layout.addWidget(group)
+                continue
             accessible_name = f"Lookup-fil for {unit.display_name}"
             field = _field(f"lookup-{unit.key}", accessible_name)
             self.lookup_fields[unit.key] = field
@@ -205,7 +207,7 @@ class SettingsPage(QWidget):
             self,
             title,
             field.text(),
-            "Excel-filer (*.xlsx *.xlsm *.xls);;Alle filer (*)",
+            "Oppslag (*.xlsx *.xlsm *.xls *.csv);;Alle filer (*)",
         )
         if selected:
             field.setText(selected)

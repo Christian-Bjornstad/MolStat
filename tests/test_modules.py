@@ -14,6 +14,7 @@ def test_default_registry_groups_capabilities_by_unit() -> None:
         "solide",
         "lege",
         "flow",
+        "fish",
         "pre",
         "hist",
     )
@@ -56,7 +57,7 @@ def test_active_unit_capabilities_define_runtime_and_publication_contracts() -> 
 
 
 def test_coming_units_have_no_runnable_capabilities() -> None:
-    for key in ("lege", "flow", "pre", "hist"):
+    for key in ("hist",):
         unit = modules.DEFAULT_UNITS.require(key)
         assert unit.status == "coming"
         assert unit.capabilities == ()
@@ -66,6 +67,10 @@ def test_registry_filters_by_job_kind_and_enabled_units() -> None:
     assert tuple(unit.key for unit in modules.DEFAULT_UNITS.for_job("statistics")) == (
         "hemato",
         "solide",
+        "lege",
+        "flow",
+        "fish",
+        "pre",
     )
     assert tuple(unit.key for unit in modules.DEFAULT_UNITS.for_job("backlog")) == (
         "hemato",

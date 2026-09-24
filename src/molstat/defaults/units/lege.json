@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "key": "lege",
+  "label": "Patologer",
+  "profile": "lege",
+  "statistics": {
+    "current": {
+      "job_key": "current",
+      "fetch_report_id": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU",
+      "report_id": "PAT-PROSESS-CURRENT-OU",
+      "analysis_codes": []
+    },
+    "previous": {
+      "job_key": "previous",
+      "fetch_report_id": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU",
+      "report_id": "PAT-PROSESS-PREVIOUS-OU",
+      "analysis_codes": []
+    }
+  },
+  "backlog": null
+}

@@ -1,0 +1,26 @@
+table DimPatolog
+	lineageTag: c96dd3fd-f617-4027-af6c-d6cfe7c04ab7
+
+	column 'Brukernavn'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Brukernavn
+
+	column 'Navn'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Navn
+
+	column 'Faggruppe'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Faggruppe
+
+	partition DimPatolog = m
+		mode: import
+		source =
+				let
+				    Raw = Csv.Document(File.Contents("C:\Users\molpa\Documents\MolStat\powerbi\Patolog_Statistikk_V1\TemplateData\DimPatolog.csv"), [Delimiter=";",Encoding=65001,QuoteStyle=QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Raw,[PromoteAllScalars=true]),
+				    Typed = Table.TransformColumns(Headers,{{"Brukernavn", each if _ = "" then null else _, type nullable text},{"Navn", each if _ = "" then null else _, type nullable text},{"Faggruppe", each if _ = "" then null else _, type nullable text}})
+				in Typed

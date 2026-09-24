@@ -1,0 +1,16 @@
+table Perspektiv
+	lineageTag: 2e193e82-0a5a-4095-b059-573503dbfd01
+
+	column 'Perspektiv'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Perspektiv
+
+	partition Perspektiv = m
+		mode: import
+		source =
+				let
+				    Raw = Csv.Document(File.Contents("C:\Users\molpa\Documents\MolStat\powerbi\Patolog_Statistikk_V1\TemplateData\Perspektiv.csv"), [Delimiter=";",Encoding=65001,QuoteStyle=QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Raw,[PromoteAllScalars=true]),
+				    Typed = Table.TransformColumns(Headers,{{"Perspektiv", each if _ = "" then null else _, type nullable text}})
+				in Typed

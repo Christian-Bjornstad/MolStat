@@ -31,6 +31,7 @@ molstat = [
     "assets/*.png",
     "assets/*.ico",
     "defaults/units/*.json",
+    "defaults/lookups/*.csv",
 ]
 
 [tool.pytest.ini_options]

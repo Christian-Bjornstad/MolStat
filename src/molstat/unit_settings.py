@@ -54,7 +54,7 @@ class UnitFile:
 
 
 def default_unit_file(key: str) -> Path:
-    if key not in ("hemato", "solide"):
+    if key not in ("hemato", "solide", "flow", "fish", "pre", "lege"):
         raise UnitConfigError("Enheten trenger en importert definisjon.")
     return Path(__file__).parent / "defaults" / "units" / f"{key}.json"
 
@@ -73,15 +73,24 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
         if not isinstance(raw.get("label"), str) or not raw["label"].strip():
             raise UnitConfigError("label: navn mangler")
         reports = raw.get("statistics")
-        _object(reports, {"antall", "resultater", "ekstraksjon"}, "statistics")
-        if set(reports) != {"antall", "resultater", "ekstraksjon"}:
-            raise UnitConfigError("statistics: antall, resultater og ekstraksjon må defineres")
+        _object(reports, {"antall", "resultater", "ekstraksjon", "current", "previous"}, "statistics")
+        expected_roles = {
+            "hemato": {"antall", "resultater", "ekstraksjon"},
+            "solide": {"antall", "resultater", "ekstraksjon"},
+            "flow": {"antall", "resultater"},
+            "fish": {"antall", "resultater"},
+            "pre": {"resultater"},
+            "lege": {"current", "previous"},
+        }.get(raw.get("profile"))
+        if expected_roles is None or set(reports) != expected_roles:
+            raise UnitConfigError("statistics: rapportrollene stemmer ikke med profilen")
         for name, report in reports.items():
             _object(report, {"job_key", "fetch_report_id", "report_id", "analysis_codes", "comment"}, f"statistics.{name}")
-            if not isinstance(report.get("analysis_codes"), list) or not report["analysis_codes"]:
+            if not isinstance(report.get("analysis_codes"), list) or (not report["analysis_codes"] and raw.get("profile") != "lege"):
                 raise UnitConfigError(f"statistics.{name}.analysis_codes: listen må ha minst én kode")
+        primary = reports.get("antall") or reports.get("resultater") or reports["current"]
         legacy = {"label": raw["label"], "profile": raw.get("profile"),
-                  "analysis_codes": reports["antall"]["analysis_codes"], "reports": list(reports.values())}
+                  "analysis_codes": primary["analysis_codes"], "reports": list(reports.values())}
         unit = validate_units({"units": {key: legacy}})[0]
         if len({r.report_id.casefold() for r in unit.reports}) != len(unit.reports):
             raise UnitConfigError("statistics: report_id må være unik for hver rapportrolle")
@@ -188,6 +197,8 @@ def load_active_units(sensitive_root: Path, paths: dict[str, Path], keys) -> dic
 
 def upgrade_source(sensitive_root: Path, key: str, legacy_root: Path | None = None) -> Path:
     """Preserve the previously active installation configuration on first upgrade."""
+    if key in {"flow", "fish", "pre", "lege"}:
+        return default_unit_file(key)
     legacy_root = legacy_root or Path(__file__).resolve().parents[2] / "config"
     legacy_units = legacy_root / "units.json"
     if not legacy_units.is_file():

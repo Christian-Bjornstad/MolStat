@@ -31,6 +31,7 @@ from .orchestrator import MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
 from .statistics import StatisticsProcessor, load_lookup
+from ._statistics.specialized_lookup import default_lookup_path
 from .system import MolStatSystem, ExcelRefreshStatus
 
 
@@ -178,9 +179,20 @@ class DefaultServices:
         for definition in registry.for_job("statistics") if require_statistics else ():
             capability = definition.capability("statistics")
             lookup = self.settings.statistics_lookup_paths.get(definition.key)
+            if lookup is None and capability.processor_profile in {"flow", "fish", "pre"}:
+                lookup = default_lookup_path(capability.processor_profile)
+            if lookup is None and capability.processor_profile == "lege":
+                lookup = Path("")
             if lookup is None:
                 raise ValueError(f"Lookup-fil mangler for {definition.display_name}.")
-            load_lookup(lookup)
+            if capability.processor_profile in {"flow", "fish", "pre"}:
+                from ._statistics.specialized_lookup import validate_lookup
+                validate_lookup(
+                    lookup, capability.processor_profile,
+                    set(definitions[definition.key].unit.analysis_codes),
+                )
+            elif capability.processor_profile != "lege":
+                load_lookup(lookup)
             statistics_processors[definition.key] = StatisticsProcessor(
                 lookup, profile=capability.processor_profile, database=database,
                 report_ids={role: report["report_id"] for role, report in definitions[definition.key].payload["statistics"].items()},
@@ -255,13 +267,18 @@ class DefaultServices:
             }
             fields.update(
                 {
-                    f"lookup_{unit.key}": ""
+                    f"lookup_{unit.key}": (
+                        str(default_lookup_path(unit.key))
+                        if unit.key in {"flow", "fish", "pre"} else ""
+                    )
                     for unit in DEFAULT_UNITS.for_job("statistics")
                 }
             )
             fields.update(
                 {
-                    f"enabled_{unit.key}": "true"
+                    f"enabled_{unit.key}": (
+                        "true" if unit.key in self.settings.enabled_units else "false"
+                    )
                     for unit in DEFAULT_UNITS.active()
                 }
             )
@@ -278,7 +295,10 @@ class DefaultServices:
         }
         fields.update(
             {
-                f"lookup_{unit.key}": str(lookups.get(unit.key, ""))
+                f"lookup_{unit.key}": str(
+                    lookups.get(unit.key)
+                    or (default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else "")
+                )
                 for unit in DEFAULT_UNITS.for_job("statistics")
             }
         )
@@ -381,6 +401,15 @@ class DefaultServices:
                 == "true"
             ),
         )
+        updated = replace(updated, statistics_lookup_paths={
+            **updated.statistics_lookup_paths,
+            **{
+                key: default_lookup_path(key)
+                for key in updated.enabled_units
+                if key in {"flow", "fish", "pre"}
+                and key not in updated.statistics_lookup_paths
+            },
+        })
         errors = updated.validate()
         if errors:
             raise ValueError(errors[0])
@@ -494,7 +523,9 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
     if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
         raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
     for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
-        lookup = settings.statistics_lookup_paths.get(unit.key)
+        lookup = settings.statistics_lookup_paths.get(unit.key) or (
+            default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else None
+        )
         if lookup is None or not lookup.is_file():
             raise ValueError(f"Lookup-fil for {unit.display_name} finnes ikke.")
     parsed = urlparse(settings.lvms_url)
@@ -509,7 +540,9 @@ def _unavailable_path_messages(settings: MolStatSettings) -> tuple[str, ...]:
     if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
         unavailable.append("SharePoint-mappe")
     for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
-        lookup = settings.statistics_lookup_paths.get(unit.key)
+        lookup = settings.statistics_lookup_paths.get(unit.key) or (
+            default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else None
+        )
         if lookup is None or not lookup.is_file():
             unavailable.append(f"Lookup-fil for {unit.display_name}")
     for key, source in settings.unit_config_paths.items():

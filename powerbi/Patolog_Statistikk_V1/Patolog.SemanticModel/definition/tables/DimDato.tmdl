@@ -1,0 +1,71 @@
+table DimDato
+	lineageTag: 84779f01-1b5a-48b6-9f2e-f9ec6b7f5b2c
+
+	column 'Dato'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: Dato
+		formatString: dd.MM.yyyy HH:mm
+
+	column 'År'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: År
+
+	column 'MånedNr'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: MånedNr
+
+	column 'Måned'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Måned
+		sortByColumn: MånedNr
+
+	column 'ÅrMåned'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: ÅrMåned
+		sortByColumn: ÅrMånedSort
+
+	column 'ÅrMånedSort'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: ÅrMånedSort
+
+	column 'Uke'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: Uke
+
+	column 'Ukeår'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: Ukeår
+
+	column 'ÅrUke'
+		dataType: string
+		summarizeBy: none
+		sourceColumn: ÅrUke
+		sortByColumn: ÅrUkeSort
+
+	column 'UkeStart'
+		dataType: dateTime
+		summarizeBy: none
+		sourceColumn: UkeStart
+		formatString: dd.MM.yyyy HH:mm
+
+	column 'ÅrUkeSort'
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: ÅrUkeSort
+
+	partition DimDato = m
+		mode: import
+		source =
+				let
+				    Raw = Csv.Document(File.Contents("C:\Users\molpa\Documents\MolStat\powerbi\Patolog_Statistikk_V1\TemplateData\DimDato.csv"), [Delimiter=";",Encoding=65001,QuoteStyle=QuoteStyle.Csv]),
+				    Headers = Table.PromoteHeaders(Raw,[PromoteAllScalars=true]),
+				    Typed = Table.TransformColumns(Headers,{{"Dato", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"År", each if _ = "" then null else Int64.From(Number.FromText(_,"en-US")), type nullable number},{"MånedNr", each if _ = "" then null else Int64.From(Number.FromText(_,"en-US")), type nullable number},{"Måned", each if _ = "" then null else _, type nullable text},{"ÅrMåned", each if _ = "" then null else _, type nullable text},{"ÅrMånedSort", each if _ = "" then null else Int64.From(Number.FromText(_,"en-US")), type nullable number},{"Uke", each if _ = "" then null else Int64.From(Number.FromText(_,"en-US")), type nullable number},{"Ukeår", each if _ = "" then null else Int64.From(Number.FromText(_,"en-US")), type nullable number},{"ÅrUke", each if _ = "" then null else _, type nullable text},{"UkeStart", each if _ = "" then null else DateTime.FromText(_, [Culture="en-US"]), type nullable datetime},{"ÅrUkeSort", each if _ = "" then null else Int64.From(Number.FromText(_,"en-US")), type nullable number}})
+				in Typed
