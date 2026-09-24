@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
-from molstat.services import DefaultServices
+from molstat.services import DefaultServices, _unavailable_path_messages
 from molstat._statistics.specialized_lookup import default_lookup_path
 
 
@@ -118,6 +118,29 @@ def test_save_settings_accepts_existing_production_paths(tmp_path: Path) -> None
     assert services.load_settings_fields()["lvms_url"] == (
         "https://lvms.example.invalid/clims/"
     )
+
+
+def test_save_settings_allows_patolog_without_lookup(tmp_path: Path) -> None:
+    sensitive = tmp_path / "sensitive"
+    sharepoint = tmp_path / "sharepoint"
+    sensitive.mkdir()
+    sharepoint.mkdir()
+    services = DefaultServices(tmp_path / "settings.json")
+
+    services.save_settings_fields({
+        "sensitive_root": str(sensitive),
+        "sharepoint_root": str(sharepoint),
+        "lvms_url": "https://lvms.example.invalid/clims/",
+        "enabled_hemato": "false",
+        "enabled_solide": "false",
+        "enabled_lege": "true",
+    })
+
+    assert services.settings.enabled_units == ("lege",)
+    assert "lege" not in services.settings.statistics_lookup_paths
+    assert services.settings.unit_config_paths["lege"].is_file()
+    assert services._build_system(require_statistics=True).statistics_processors["lege"].profile == "lege"
+    assert _unavailable_path_messages(services.settings) == ()
 
 
 def test_job_failure_diagnostic_omits_exception_text(
