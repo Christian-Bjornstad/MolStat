@@ -23,10 +23,15 @@ erstatter et eventuelt delvis uttrekk av samme måned i de behandlede tallene.
 `prosess.csv` publiseres i den konfigurerte SharePoint-mappen `lege`.
 Prøvenivåfilene for Power BI lagres **bare** på K-sensitivt område under
 `processed/lege/powerbi/FactPatologRolle.csv` og
-`processed/lege/powerbi/FactMakro.csv`. De inneholder prøvenummer og må ikke
+`processed/lege/powerbi/FactMakro.csv`. MolStat skriver også
+`DimPatolog.csv` fra valgt legeregister og `DimDato.csv` fra 2024 til utgangen
+av neste år i samme private mappe. Faktafilene inneholder prøvenummer og må ikke
 flyttes til den vanlige SharePoint-mappen. Den eksisterende PBIX-en må peke
-mot disse to filene på jobb-PC-en; legedimensjonen i PBIX-en har de korrigerte
-navnene.
+mot disse filene på jobb-PC-en. Den tomme rapportmalen
+`powerbi/Patolog_Statistikk_V1/Patolog_Statistikk_MolStat.pbit` har allerede
+kildene satt opp med parametrene `MolStatPublicRoot` og `MolStatPrivateRoot`.
+Åpne malen på jobb-PC-en, angi den konfigurerte SharePoint-roten og den private
+`processed/lege/powerbi`-mappen, oppdater og lagre som PBIX på godkjent område.
 
 MolStat validerer CSV-kolonnene før et månedsuttak arkiveres. Testene dekker
 månedlig gjenopptak, skjemafeltene i LVMS, privat lagring og behandling av

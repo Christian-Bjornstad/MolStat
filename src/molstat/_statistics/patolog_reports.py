@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import csv
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from .lege_lookup import load_lege_lookup
@@ -81,7 +81,8 @@ def _write(path: Path, fields: tuple[str, ...], rows: list[dict[str, object]]) -
 
 
 def process(archive_dir: Path, lookup_path: Path, output_dir: Path) -> dict[str, Path]:
-    users = {row["Brukernavn"] for row in load_lege_lookup(lookup_path)}
+    doctors = load_lege_lookup(lookup_path)
+    users = {row["Brukernavn"] for row in doctors}
     macro_times: dict[str, list[datetime]] = defaultdict(list)
     macro_rows: dict[tuple[str, ...], dict[str, object]] = {}
     for path in _latest(archive_dir, MACRO_STEM):
@@ -129,7 +130,27 @@ def process(archive_dir: Path, lookup_path: Path, output_dir: Path) -> dict[str,
                           MakroTid=_stamp(macro),
                           MakroSvartidDager=(approved - macro).total_seconds() / 86400 if macro else ""))
     result = {"FactPatologRolle.csv": output_dir / "FactPatologRolle.csv",
-              "FactMakro.csv": output_dir / "FactMakro.csv"}
+              "FactMakro.csv": output_dir / "FactMakro.csv",
+              "DimPatolog.csv": output_dir / "DimPatolog.csv",
+              "DimDato.csv": output_dir / "DimDato.csv"}
     _write(result["FactPatologRolle.csv"], FACT_FIELDS, facts)
     _write(result["FactMakro.csv"], MACRO_FIELDS, list(macro_rows.values()))
+    _write(result["DimPatolog.csv"], ("Brukernavn", "Navn", "Faggruppe"), doctors)
+    months = ("januar", "februar", "mars", "april", "mai", "juni", "juli",
+              "august", "september", "oktober", "november", "desember")
+    start, end = date(2024, 1, 1), date(datetime.now().year + 2, 1, 1)
+    calendar_rows: list[dict[str, object]] = []
+    day = start
+    while day < end:
+        iso_year, iso_week, _ = day.isocalendar()
+        calendar_rows.append({
+            "Dato": day.isoformat(), "År": day.year, "MånedNr": day.month,
+            "Måned": months[day.month - 1], "ÅrMåned": day.strftime("%Y-%m"),
+            "ÅrMånedSort": day.year * 100 + day.month, "Uke": iso_week,
+            "Ukeår": iso_year, "ÅrUke": f"{iso_year}-U{iso_week:02d}",
+            "UkeStart": (day - timedelta(days=day.weekday())).isoformat(),
+            "ÅrUkeSort": iso_year * 100 + iso_week,
+        })
+        day += timedelta(days=1)
+    _write(result["DimDato.csv"], tuple(calendar_rows[0]), calendar_rows)
     return result

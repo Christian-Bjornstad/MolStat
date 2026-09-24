@@ -1,12 +1,25 @@
 # Patologstatistikk
 
+## MolStat-mal
+
+Åpne `Patolog_Statistikk_MolStat.pbit` på jobb-PC-en. Angi `MolStatPublicRoot`
+som roten over `lege`-mappen i SharePoint og `MolStatPrivateRoot` som
+`<K-sensitiv>/processed/lege/powerbi`. Den siste mappen får
+`FactPatologRolle.csv`, `FactMakro.csv`, `DimPatolog.csv` og `DimDato.csv` fra
+MolStat. Oppdater og lagre som PBIX på godkjent område. Malen har ti sider,
+inkludert Prosessvolum, og inneholder ingen cached prøvedata. Den tidligere
+`Patolog_Statistikk_V2.pbix` inneholder eldre data og lokale filbaner.
+
+Ved første legekjøring må MolStat fullføre månedsvis historikk før alle
+årstall vises. `prosess.csv` blir publisert separat i SharePoint.
+
 ## Prosessvolum (V2)
 
 Siden **Prosessvolum** bruker MolStat-filen `lege/prosess.csv` med månedsaggregater fra LVMS-rapporten `PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU`. Feltene er registrerte prøver (`Distinct_SampleId`), blokker og glass. Hemato Flow er prosess `HEMATO` i lab `OU-PAT-SPES-RA`; øvrige `HEMATO`-rader vises som Hemato uten Flow. Siden har filtre for måned, prosessgruppe, profil og lab. Tallene er summer av distinkte verdier **per LVMS-kilderad**; de må ikke tolkes som distinkt antall på tvers av lab eller profil.
 
 Aktiver enheten **Patologer** i MolStat. Ved første kjøring hentes alle manglende hele måneder fra januar 2024 og frem til forrige måned, ett LVMS-uttrekk per måned. Hver ferdig måned arkiveres med én gang. Hvis kjøringen avbrytes, starter neste kjøring på første manglende måned. Deretter hentes inneværende måned til dagens dato og hele forrige måned ved hver kjøring. Nyeste uttrekk for hver måned brukes, slik at gjentatte kjøringer ikke dobbelttelles. Etter fullført kjøring publiseres `prosess.csv` i SharePoint-mappen `lege`; råfilene lagres i K-sensitiv MolStat-mappe. Førstegangskjøringen kan ta tid fordi den åpner LVMS én gang per måned.
 
-Åpne `Patolog_Statistikk_V2.pbit` på jobb-PC-en. Filen er en tom rapportmal uten pasientdata. Sett Power Query-kilden `FactProsess` til den publiserte `lege/prosess.csv`, og tilpass de øvrige lokale kildebanene før oppdatering. Den lokale `Patolog_Statistikk_V2.pbix` inneholder cached data fra tidligere patologuttrekk og skal ikke legges i Git.
+Den eldre `Patolog_Statistikk_V2.pbit` har lokale kildebaner. Bruk MolStat-malen ovenfor for ny oppdatering.
 
 Førsteversjon basert på de lokale LV-uttrekkene i Downloads/lege og det medfølgende legeregisteret. Originalrapporten og kildefilene er ikke endret. Rapporten er ikke publisert eller koblet til eksterne tjenester.
 
@@ -20,7 +33,7 @@ Medianen teller hver prøve én gang i gjeldende filterutvalg, og bruker siste r
 
 Farget → godkjent bruker godkjenning minus siste ferdig-farget-tid. Negative og manglende intervaller blir blanke. Makro → godkjent kobler siste makrohendelse på samme prøvenummer senest ved godkjenning. Dette bekrefter ikke at hendelsen tilhører samme diagnostiske episode; koblingen er foreløpig. Det er ikke målt personlig arbeidstid.
 
-Produksjon følger godkjenningsdato og dekker august til 17. september 2026. Makro følger makrodato og dekker januar til 17. september 2026. Ingen individuell svarfrist, pasientforløp, restanse eller kobling til Hemato/Solide er konstruert uten nødvendige kilder.
+Produksjon følger godkjenningsdato og makro følger makrodato. Tilgjengelig periode bestemmes av fullførte MolStat-uttrekk. Ingen individuell svarfrist, pasientforløp, restanse eller kobling til Hemato/Solide er konstruert uten nødvendige kilder.
 
 ## Oppdatering
 

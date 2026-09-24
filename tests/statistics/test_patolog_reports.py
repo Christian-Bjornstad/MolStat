@@ -1,6 +1,6 @@
 import csv
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 import pytest
 
@@ -126,6 +126,17 @@ def test_lege_processor_keeps_patient_facts_private(tmp_path: Path) -> None:
     assert len(rows) == 1
     assert rows[0]["SampleID"] == "PRIVATE-1"
     assert rows[0]["SvartidDager"] == "1.0"
+    with result.private_files["DimPatolog.csv"].open(encoding="utf-8-sig", newline="") as stream:
+        doctors = list(csv.DictReader(stream, delimiter=";"))
+    assert doctors == [
+        {"Brukernavn": "ESP", "Navn": "Eva Sigstad", "Faggruppe": "HEMATO"},
+        {"Brukernavn": "UXYSGA", "Navn": "Øystein Garred", "Faggruppe": "GYN/URO"},
+    ]
+    with result.private_files["DimDato.csv"].open(encoding="utf-8-sig", newline="") as stream:
+        calendar = list(csv.DictReader(stream, delimiter=";"))
+    assert calendar[0]["Dato"] == "2024-01-01"
+    assert any(row["Dato"] == "2026-09-24" for row in calendar)
+    assert calendar[-1]["År"] == str(datetime.now().year + 1)
 
 
 def test_doctor_report_processing_uses_latest_month_snapshot(tmp_path: Path) -> None:
