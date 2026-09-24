@@ -38,7 +38,7 @@ Alle 50 kodene i Excel-arbeidsbokens uttaksliste finnes i aktivitetsregisteret. 
    python tools/process_pre_reports.py --resultater 'C:\sikker\PRE-uttak' --output 'powerbi\Pre_Statistikk_V1\Data'
    ```
 
-4. Kontroller `Data/kontroll.json`: antall kildefiler, ekskluderte koder, kollapsede duplikater og gyldige tider. Oppdater deretter PBIX i Power BI Desktop. `Data/antall.csv` er bare en tom kompatibilitetstabell; alle viste antall kommer fra `resultater.csv`.
+4. Kontroller `Data/kontroll.json`: antall kildefiler, ekskluderte koder, kollapsede duplikater og gyldige tider. Denne manuelle kontrollen oppdaterer bare lokale `Data`-filer; MolStat-malen leser publiserte filer under `MolStatPublicRoot`. `antall.csv` er en tom kompatibilitetstabell; alle viste antall kommer fra `resultater.csv`.
 5. Ved ordinær drift henter MolStat uttaket automatisk. Oppdater Power BI etter at den publiserte resultatfilen er skrevet. Malens filbane angis gjennom `MolStatPublicRoot`.
 
 Ikke legg råuttrekk, kontrollfil med produksjonstall eller pasientdata i Git.

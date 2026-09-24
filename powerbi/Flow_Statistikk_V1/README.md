@@ -42,7 +42,7 @@ Fire prisførte koder finnes ikke i uttakslisten: `FLOW-06-ALT-OU`, `FLOW-36-MC-
    python tools/process_flow_reports.py --antall 'C:\sikker\FLOW-antall.csv' --resultater 'C:\sikker\FLOW-resultater.csv' --output 'powerbi\Flow_Statistikk_V1\Data'
    ```
 
-3. Kontroller `Data/kontroll.json`, særlig ekskluderte analysekoder og antall gyldige svartider. Oppdater PBIX i Power BI Desktop. Rapporten leser de bearbeidede CSV-filene fra `Data` med absolutte lokale stier. Ved flytting av MolStat-mappen må kildebanene endres i Power Query eller modellen bygges på nytt.
+3. Kontroller `Data/kontroll.json`, særlig ekskluderte analysekoder og antall gyldige svartider. Denne manuelle kontrollen oppdaterer bare lokale `Data`-filer; MolStat-malen leser publiserte filer under `MolStatPublicRoot`.
 4. Ved ordinær drift henter MolStat begge uttakene automatisk. Oppdater Power BI etter at begge publiserte CSV-filer er skrevet.
 
-`Data/antall.csv` og `Data/resultater.csv` i leveransen er bare kolonneoverskrifter. Ikke legg pasientdata i Git.
+De lokale `Data/antall.csv` og `Data/resultater.csv` er bare kolonneoverskrifter. Ikke legg pasientdata i Git.

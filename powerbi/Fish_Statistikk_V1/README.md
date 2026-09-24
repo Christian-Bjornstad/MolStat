@@ -29,7 +29,7 @@ Normoppnåelsen i PBIX er **andel enkeltresultater** med gyldig svartid ≤ 5 d�
    python tools/process_fish_reports.py --antall 'C:\sikker\FISH-antall.csv' --resultater 'C:\sikker\FISH-resultater.csv' --output 'powerbi\Fish_Statistikk_V1\Data'
    ```
 
-3. Sjekk `Data/kontroll.json` for rader med ukjent analysekode, antall gyldige svartider og antall innen norm. Oppdater PBIX i Power BI Desktop etter at begge bearbeidede filer er skrevet. Rapporten leser CSV-filene fra den lokale `Data`-mappen ved hjelp av absolutte stier; ved flytting må Power Query-kildene oppdateres.
+3. Sjekk `Data/kontroll.json` for rader med ukjent analysekode, antall gyldige svartider og antall innen norm. Denne manuelle kontrollen oppdaterer bare lokale `Data`-filer; MolStat-malen leser publiserte filer under `MolStatPublicRoot`.
 4. Ved ordinær drift henter MolStat begge uttakene automatisk. Oppdater Power BI etter at begge publiserte CSV-filer er skrevet.
 
 Bearbeidingen skriver ikke `Sample ID` eller `PID` til rapportdataene. Filene `Data/antall.csv` og `Data/resultater.csv` i denne leveransen inneholder bare kolonneoverskrifter. Ikke legg rådata eller pasientdata i Git.
