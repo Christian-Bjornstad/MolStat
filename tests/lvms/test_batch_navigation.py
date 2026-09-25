@@ -138,7 +138,7 @@ class ResponsiveNavigationState:
             return page_contract_payload() if self.stage == "destination" else None
         if "LVMS_NAVIGATION_ANCHOR" not in expression:
             raise AssertionError("unexpected safe expression")
-        if "Definerte rapporter" in expression:
+        if 'const wanted = "Definerte rapporter"' in expression:
             if self.layout == "direct" and self.stage == "landing":
                 return raw_document(
                     "workflow_frame",
@@ -148,7 +148,7 @@ class ResponsiveNavigationState:
                 return raw_document(
                     "top", raw_control("A", "defined_reports", label="defined reports")
                 )
-        if "Eksterne rapporter" in expression and (
+        if 'const wanted = "Eksterne rapporter"' in expression and (
             (self.layout in {"wide", "click_required"} and self.stage == "landing")
             or (self.layout == "click_required" and self.stage == "section_hovered")
             or self.stage == "more_open"
@@ -156,7 +156,7 @@ class ResponsiveNavigationState:
             return raw_document(
                 "top", raw_control("A", "section", label="external reports")
             )
-        if "Mer" in expression and self.layout == "narrow" and self.stage == "landing":
+        if 'const wanted = "Mer"' in expression and self.layout == "narrow" and self.stage == "landing":
             return raw_document("top", raw_control("SPAN", "more", label="more"))
         return None
 
@@ -312,7 +312,8 @@ class BatchNavigationTests(unittest.TestCase):
         self.assertIn('"td.sitemap_TramStopNormText,td,a,button,span"', expression)
         self.assertIn('matches.find((match) => match.control.matches(', expression)
         self.assertIn('"td.sitemap_TramStopNormText"', expression)
-        self.assertIn("tramLine || matches[0]", expression)
+        self.assertIn('matches.find((match) => match.control.matches("a,button"))', expression)
+        self.assertIn("tramLine || interactive || moreSpan", expression)
 
     def test_navigator_handles_direct_wide_and_narrow_responsive_routes(self) -> None:
         expected = {

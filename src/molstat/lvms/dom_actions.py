@@ -88,6 +88,10 @@ class DocumentDomActions:
     def commit_choice(self, control: DocumentControlIdentity) -> None:
         self._activate_and_focus_live(control)
         self._page.press_key("ENTER")
+        if control.control.tag == "INPUT":
+            # LVMS applies the selected choice and rebuilds dependent fields
+            # when the editable input loses focus.
+            self._page.press_key("TAB")
         self._pause()
 
     def choose_text(self, control: DocumentControlIdentity, text: str) -> None:

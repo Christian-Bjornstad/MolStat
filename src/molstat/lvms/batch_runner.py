@@ -275,9 +275,18 @@ def run_report_batch(
                 code = "DOWNLOAD_INCOMPLETE"
             if isinstance(exc, BatchFormError):
                 code = "LVMS_FORM"
+            detail = ""
+            if isinstance(exc, BatchFormError):
+                missing = str(exc).removeprefix("report form control ").removesuffix(" did not appear")
+                if str(exc) == f"report form control {missing} did not appear" and missing in {
+                    "category", "report_id", "report_groups", "analysis_codes",
+                    "created_from", "created_to", "macro_usernames",
+                    "production_usernames", "period_from", "period_to",
+                }:
+                    detail = f"mangler felt: {missing}"
             if isinstance(exc, CdpTimeout) and str(exc) == "SSO did not return to the expected origin":
                 code, safe_to_retry = "LVMS_LOGIN_REQUIRED", False
-            error_reporter(RunFailure(code, current_stage, retryable=timeout and safe_to_retry))
+            error_reporter(RunFailure(code, current_stage, retryable=timeout and safe_to_retry, detail=detail))
         if failure is not None:
             failure(current_stage)
         reason = _safe_failure_reason(exc, current_stage)

@@ -180,7 +180,11 @@ class SettingsPage(QWidget):
     def _validate_config(self, field: QLineEdit, label: QLabel, key: str) -> None:
         try:
             definition = load_unit_file(Path(field.text()), key)
-            counts = ", ".join(f"{name}: {len(report['analysis_codes'])}" for name, report in definition.payload["statistics"].items())
+            statistics = definition.payload["statistics"]
+            if key == "lege":
+                label.setText(f"Gyldig · {len(statistics)} rapporter · uten analysefilter. Legeregister velges separat.")
+                return
+            counts = ", ".join(f"{name}: {len(report['analysis_codes'])}" for name, report in statistics.items())
             backlog = definition.payload.get("backlog")
             label.setText(f"Gyldig · {counts}" + (f" · restanse: {len(backlog['report']['analysis_codes'])}" if backlog else ""))
         except ValueError as exc:

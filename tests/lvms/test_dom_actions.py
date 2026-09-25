@@ -124,7 +124,7 @@ class DocumentDomActionsTests(unittest.TestCase):
 
         sleep.assert_called_once_with(0.75)
 
-    def test_commit_choice_refocuses_report_id_and_sends_enter_once(self) -> None:
+    def test_commit_choice_refocuses_report_id_and_blurs_after_enter(self) -> None:
         page = ChoicePage()
         actions = DocumentDomActions(page, EXPECTED_ORIGIN)  # type: ignore[arg-type]
 
@@ -139,6 +139,7 @@ class DocumentDomActionsTests(unittest.TestCase):
                 ("focus", "a" * 32),
                 ("focus", "a" * 32),
                 ("key", "ENTER"),
+                ("key", "TAB"),
             ],
         )
 

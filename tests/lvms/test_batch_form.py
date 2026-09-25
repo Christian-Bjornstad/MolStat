@@ -337,6 +337,20 @@ class BatchFormTests(unittest.TestCase):
 
         self.assertIsNotNone(result)
 
+    def test_role_discovery_accepts_live_pathology_date_labels(self) -> None:
+        cases = (
+            ("created_from", "Mottatt dato fra og med"),
+            ("created_to", "Mottatt dato til og med"),
+            ("period_from", "Makro utført fra og med dato:"),
+            ("period_to", "Makro utført til og med dato:"),
+            ("period_from", "Godkjent fra og med dato:"),
+            ("period_to", "Godkjent til og med dato:"),
+        )
+        for role, label in cases:
+            with self.subTest(role=role, label=label):
+                payload = raw_control("INPUT", role, label=label.lower(), control_type="text")
+                self.assertIsNotNone(discover_report_role(FakeSafePage(payload), EXPECTED_ORIGIN, role))
+
     def test_populate_advances_in_strict_stage_order(self) -> None:
         state = FormState()
         form = BatchReportForm(

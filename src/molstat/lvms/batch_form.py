@@ -33,17 +33,29 @@ _ROLE_ALIASES = {
         "analyse opprettet fom:",
         "analysebestilling fra og med dato",
         "analysebestilling fra og med dato:",
+        "mottatt dato fra og med",
+        "mottatt dato fra og med:",
     ),
     "created_to": (
         "created to",
         "analyse opprettet tom:",
         "analysebestilling til og med dato",
         "analysebestilling til og med dato:",
+        "mottatt dato til og med",
+        "mottatt dato til og med:",
     ),
     "macro_usernames": ("makro utført av", "makro utført av:"),
     "production_usernames": ("brukernavn", "brukernavn:", "brukernanv", "brukernanv:"),
-    "period_from": ("fra dato", "fra dato:"),
-    "period_to": ("til dato", "til dato:"),
+    "period_from": (
+        "fra dato", "fra dato:",
+        "makro utført fra og med dato", "makro utført fra og med dato:",
+        "godkjent fra og med dato", "godkjent fra og med dato:",
+    ),
+    "period_to": (
+        "til dato", "til dato:",
+        "makro utført til og med dato", "makro utført til og med dato:",
+        "godkjent til og med dato", "godkjent til og med dato:",
+    ),
 }
 _CLEAR_DYNAMIC_ROLES = (
     "analysis_codes",
@@ -253,7 +265,7 @@ class BatchReportForm:
             if control is not None:
                 return control
             self._sleep(0.1)
-        raise BatchFormError("report form did not reach the required stage")
+        raise BatchFormError(f"report form control {role} did not appear")
 
     def wait_until_clear(self) -> None:
         deadline = self._clock() + self._timeout_seconds
@@ -284,8 +296,15 @@ class BatchReportForm:
         ):
             raise BatchFormError("report form input is invalid")
         self._actions.choose_text(page_contract.job_type, job.report_type)
+        # LVMS uses editable choice inputs.  Typing a label alone leaves the
+        # dropdown's underlying value unset until Enter commits the choice.
+        if page_contract.job_type.control.tag == "INPUT":
+            self._actions.commit_choice(page_contract.job_type)
         category = self._wait_for("category")
         self._actions.choose_text(category, job.category)
+        category = self._wait_for("category")
+        if category.control.tag == "INPUT":
+            self._actions.commit_choice(category)
         report_id = self._wait_for("report_id")
         self._actions.choose_text(report_id, job.report_id)
         self._sleep(0.5)
