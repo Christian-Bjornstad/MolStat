@@ -100,17 +100,24 @@ class StatisticsProcessor:
         merged_dir = output_dir / "merged"
         if self.profile == "lege":
             from ._statistics.patolog_process import process
+            from .failures import RunFailure
 
             if len(raw_files) not in {2, 6}:
                 raise ValueError("Patolograpporten krever inneværende og forrige måned.")
             destination = output_dir / "prosess.csv"
-            count = process(raw_files[0].parent, destination)
+            try:
+                count = process(raw_files[0].parent, destination)
+            except ValueError as exc:
+                raise RunFailure("CSV_INVALID", "patolog/process/process_data") from exc
             private_files = None
             row_counts = {"prosess": count}
             if self.lookup_path != Path(""):
                 from ._statistics.patolog_reports import process as process_doctors
 
-                private_files = process_doctors(raw_files[0].parent, self.lookup_path, output_dir)
+                try:
+                    private_files = process_doctors(raw_files[0].parent, self.lookup_path, output_dir)
+                except ValueError as exc:
+                    raise RunFailure("CSV_INVALID", "patolog/process/doctor_data") from exc
                 for name, path in private_files.items():
                     with path.open(encoding="utf-8-sig") as stream:
                         row_counts[name] = max(sum(1 for _ in stream) - 1, 0)

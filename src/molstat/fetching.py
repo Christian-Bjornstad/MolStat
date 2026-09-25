@@ -148,12 +148,18 @@ class UnifiedLvmsFetcher:
                 end = next_month - timedelta(days=1)
                 job = _statistics_job(unit, report, month, end, usernames=usernames)
                 source = self._run_jobs((job,), unit.key)[0]
-                if report.job_key == "previous":
-                    _read(source)
-                else:
-                    from ._statistics.patolog_reports import validate_source
+                try:
+                    if report.job_key == "previous":
+                        _read(source)
+                    else:
+                        from ._statistics.patolog_reports import validate_source
 
-                    validate_source(source, report.job_key)
+                        validate_source(source, report.job_key)
+                except ValueError as exc:
+                    raise RunFailure(
+                        "CSV_INVALID",
+                        f"patolog/backfill/{report.job_key}/{month.isoformat()}",
+                    ) from exc
                 archive.store(source, ReportRequest(
                     kind="statistics", unit=unit.key, report_name=report.report_id,
                     date_from=month, date_to=end,

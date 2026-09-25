@@ -8,6 +8,7 @@ from molstat._statistics.patolog_reports import process
 from molstat.fetching import UnifiedLvmsFetcher, _archive_has_month
 from molstat.lvms.report_job import batch_filename, load_report_jobs, validate_report_job, ReportJobError
 from molstat.statistics import StatisticsProcessor
+from molstat.failures import RunFailure
 from molstat.unit_settings import default_unit_file, load_unit_file, materialize_snapshot
 
 
@@ -98,6 +99,44 @@ def test_lege_fetch_uses_roster_and_resumes_monthly_doctor_history(tmp_path: Pat
     fetcher.fetch_statistics(("lege",))
     assert len(calls) == 6
     assert all(job.interval.created_from.month in {9, 10} for job in calls)
+
+
+def test_lege_backfill_identifies_invalid_historical_export(tmp_path: Path) -> None:
+    definition = load_unit_file(default_unit_file("lege"))
+    config_root = materialize_snapshot(tmp_path, {"lege": definition})
+
+    def batch(_config, jobs_path, _keys, **kwargs):
+        job = load_report_jobs(jobs_path)[0]
+        output = kwargs["repository_root"] / "rådata"
+        output.mkdir(parents=True)
+        (output / batch_filename(job)).write_text("Invalid export\n", encoding="cp1252")
+        return 0
+
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=config_root / "units.json",
+        backlog_report_path=tmp_path / "unused.json", run_batch=batch,
+        today=lambda: date(2024, 3, 5),
+    )
+    with pytest.raises(RunFailure, match="CSV_INVALID.*patolog/backfill/previous/2024-01"):
+        fetcher.fetch_statistics(("lege",))
+
+
+def test_lege_processor_identifies_invalid_doctor_export(tmp_path: Path) -> None:
+    archive = tmp_path / "raw"
+    archive.mkdir()
+    current = archive / "PAT-PROSESS-CURRENT-OU__2026-09-01__2026-09-02.csv"
+    previous = archive / "PAT-PROSESS-PREVIOUS-OU__2026-08-01__2026-08-31.csv"
+    current.write_text(PROCESS_HEADER, encoding="cp1252")
+    previous.write_text(PROCESS_HEADER, encoding="cp1252")
+    production = archive / "PAT-EGEN-PRODUKSJON-OU__2026-09-01__2026-09-02.csv"
+    production.write_text(PRODUCTION_HEADER +
+                          "SAMPLE;Hovedansvarlig;HISTO;HEMATO;ESP;;INVALID;2\n", encoding="cp1252")
+    macro = archive / "PAT-EGEN-MAKRO-OU__2026-09-01__2026-09-02.csv"
+    macro.write_text(MACRO_HEADER, encoding="cp1252")
+    processor = StatisticsProcessor(_roster(tmp_path / "lege.csv"), profile="lege")
+    with pytest.raises(RunFailure, match="CSV_INVALID.*patolog/process/doctor_data"):
+        processor.process("lege", [current, previous, production, production, macro, macro], tmp_path / "out")
 
 
 def test_lege_processor_keeps_patient_facts_private(tmp_path: Path) -> None:
