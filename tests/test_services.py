@@ -7,6 +7,7 @@ import pytest
 from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from molstat.services import DefaultServices, _unavailable_path_messages
 from molstat._statistics.specialized_lookup import default_lookup_path
+from molstat._statistics.lege_lookup import default_lege_lookup_path
 
 
 def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
@@ -21,7 +22,7 @@ def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
         "lookup_flow": str(default_lookup_path("flow")),
         "lookup_fish": str(default_lookup_path("fish")),
         "lookup_pre": str(default_lookup_path("pre")),
-        "lookup_lege": "",
+        "lookup_lege": str(default_lege_lookup_path()),
         "enabled_hemato": "true",
         "enabled_solide": "true",
         "enabled_flow": "false",
@@ -120,7 +121,7 @@ def test_save_settings_accepts_existing_production_paths(tmp_path: Path) -> None
     )
 
 
-def test_save_settings_allows_patolog_without_lookup(tmp_path: Path) -> None:
+def test_save_settings_uses_bundled_patolog_lookup(tmp_path: Path) -> None:
     sensitive = tmp_path / "sensitive"
     sharepoint = tmp_path / "sharepoint"
     sensitive.mkdir()
@@ -137,7 +138,10 @@ def test_save_settings_allows_patolog_without_lookup(tmp_path: Path) -> None:
     })
 
     assert services.settings.enabled_units == ("lege",)
-    assert "lege" not in services.settings.statistics_lookup_paths
+    lookup = services.settings.statistics_lookup_paths["lege"]
+    assert lookup.is_relative_to(sensitive / "config" / "lookups" / "lege")
+    assert lookup.read_bytes() == default_lege_lookup_path().read_bytes()
+    assert services.load_settings_fields()["lookup_lege"] == str(lookup)
     assert services.settings.unit_config_paths["lege"].is_file()
     assert services._build_system(require_statistics=True).statistics_processors["lege"].profile == "lege"
     assert _unavailable_path_messages(services.settings) == ()

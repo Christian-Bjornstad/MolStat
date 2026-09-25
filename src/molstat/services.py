@@ -32,6 +32,7 @@ from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden
 from .schedule import due_jobs
 from .statistics import StatisticsProcessor, load_lookup
 from ._statistics.specialized_lookup import default_lookup_path
+from ._statistics.lege_lookup import default_lege_lookup_path, validate_lege_lookup
 from .system import MolStatSystem, ExcelRefreshStatus
 
 
@@ -174,7 +175,7 @@ class DefaultServices:
             work_root=self.settings.sensitive_root / "work" / "fetch",
             units_path=config_root / "units.json",
             backlog_report_path=config_root / "hemato" / "backlog-report.json",
-            lege_lookup_path=self.settings.statistics_lookup_paths.get("lege"),
+            lege_lookup_path=self.settings.statistics_lookup_paths.get("lege") or default_lege_lookup_path(),
         )
         statistics_processors, publishers = {}, {}
         for definition in registry.for_job("statistics") if require_statistics else ():
@@ -183,7 +184,7 @@ class DefaultServices:
             if lookup is None and capability.processor_profile in {"flow", "fish", "pre"}:
                 lookup = default_lookup_path(capability.processor_profile)
             if lookup is None and capability.processor_profile == "lege":
-                lookup = Path("")
+                lookup = default_lege_lookup_path()
             if lookup is None:
                 raise ValueError(f"Lookup-fil mangler for {definition.display_name}.")
             if capability.processor_profile in {"flow", "fish", "pre"}:
@@ -192,9 +193,7 @@ class DefaultServices:
                     lookup, capability.processor_profile,
                     set(definitions[definition.key].unit.analysis_codes),
                 )
-            elif capability.processor_profile == "lege" and lookup != Path(""):
-                from ._statistics.lege_lookup import validate_lege_lookup
-
+            elif capability.processor_profile == "lege":
                 validate_lege_lookup(lookup)
             elif capability.processor_profile != "lege":
                 load_lookup(lookup)
@@ -274,7 +273,8 @@ class DefaultServices:
                 {
                     f"lookup_{unit.key}": (
                         str(default_lookup_path(unit.key))
-                        if unit.key in {"flow", "fish", "pre"} else ""
+                        if unit.key in {"flow", "fish", "pre"}
+                        else str(default_lege_lookup_path()) if unit.key == "lege" else ""
                     )
                     for unit in DEFAULT_UNITS.for_job("statistics")
                 }
@@ -302,7 +302,8 @@ class DefaultServices:
             {
                 f"lookup_{unit.key}": str(
                     lookups.get(unit.key)
-                    or (default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else "")
+                    or (default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"}
+                        else default_lege_lookup_path() if unit.key == "lege" else "")
                 )
                 for unit in DEFAULT_UNITS.for_job("statistics")
             }
@@ -414,6 +415,9 @@ class DefaultServices:
                 if key in {"flow", "fish", "pre"}
                 and key not in updated.statistics_lookup_paths
             },
+            **({"lege": default_lege_lookup_path()}
+               if "lege" in updated.enabled_units and "lege" not in updated.statistics_lookup_paths
+               else {}),
         })
         errors = updated.validate()
         if errors:
@@ -529,12 +533,10 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
         raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
     for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
         if unit.key == "lege":
-            if lookup := settings.statistics_lookup_paths.get("lege"):
-                if not lookup.is_file():
-                    raise ValueError("Legeregister for Patologer finnes ikke.")
-                from ._statistics.lege_lookup import validate_lege_lookup
-
-                validate_lege_lookup(lookup)
+            lookup = settings.statistics_lookup_paths.get("lege") or default_lege_lookup_path()
+            if not lookup.is_file():
+                raise ValueError("Legeregister for Patologer finnes ikke.")
+            validate_lege_lookup(lookup)
             continue
         lookup = settings.statistics_lookup_paths.get(unit.key) or (
             default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else None
@@ -554,8 +556,8 @@ def _unavailable_path_messages(settings: MolStatSettings) -> tuple[str, ...]:
         unavailable.append("SharePoint-mappe")
     for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
         if unit.key == "lege":
-            lookup = settings.statistics_lookup_paths.get("lege")
-            if lookup is not None and not lookup.is_file():
+            lookup = settings.statistics_lookup_paths.get("lege") or default_lege_lookup_path()
+            if not lookup.is_file():
                 unavailable.append("Legeregister for Patologer")
             continue
         lookup = settings.statistics_lookup_paths.get(unit.key) or (

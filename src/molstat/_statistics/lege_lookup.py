@@ -11,6 +11,10 @@ _USERNAME = re.compile(r"[A-Za-z0-9._-]{1,80}")
 _COLUMNS = ("Brukernavn", "Navn", "Faggruppe")
 
 
+def default_lege_lookup_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "defaults" / "lookups" / "lege.csv"
+
+
 def load_lege_lookup(path: Path) -> list[dict[str, str]]:
     """Accept the supplied comma CSV and exported semicolon CSV, without rewriting it."""
     if path.suffix.lower() != ".csv" or path.stat().st_size > 1_000_000:
