@@ -197,6 +197,36 @@ def test_best_extraction_priority(tmp_path: Path) -> None:
     assert _best_extraction("S1", "RNA", godk, late) is None
 
 
+def test_best_extraction_prefers_generic_then_latest_completion() -> None:
+    from datetime import datetime
+    from molstat.statistics import _best_extraction
+
+    candidates = [
+        {"nukleinsyre": "DNA", "ferdig": datetime(2026, 9, 24)},
+        {"nukleinsyre": "Ukjent/generell", "ferdig": datetime(2026, 9, 23)},
+        {"nukleinsyre": "Ukjent/generell", "ferdig": datetime(2026, 9, 22)},
+    ]
+    chosen = _best_extraction("SYNTHETIC", "RNA", datetime(2026, 9, 25), candidates)
+    assert chosen["nukleinsyre"] == "Ukjent/generell"
+    assert chosen["ferdig"] == datetime(2026, 9, 23)
+
+
+def test_load_lookup_accepts_inline_strings_without_shared_string_table(tmp_path: Path) -> None:
+    from xlsxwriter import Workbook
+
+    path = tmp_path / "inline.xlsx"
+    with Workbook(path, {"constant_memory": True}) as workbook:
+        sheet = workbook.add_worksheet()
+        sheet.write_row(0, 0, ["Analyse", "Nukleinsyre", "Rapportgruppe", "Svarfrist"])
+        sheet.write_row(1, 0, ["SYNTHETIC-OU", "DNA", "Synthetic group", 21])
+    with zipfile.ZipFile(path) as archive:
+        assert "xl/sharedStrings.xml" not in archive.namelist()
+    assert load_lookup(path) == {
+        "SYNTHETIC-OU": {"Analyse": "SYNTHETIC-OU", "Nukleinsyre": "DNA",
+                         "Rapportgruppe": "Synthetic group", "Svarfrist": "21"}
+    }
+
+
 def test_process_reports_golden_flow(tmp_path: Path) -> None:
     lookup_path = make_lookup(tmp_path)
 

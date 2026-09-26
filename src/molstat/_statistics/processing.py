@@ -146,7 +146,7 @@ def load_lookup(path: Path) -> dict[str, dict[str, str]]:
     rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
     with zipfile.ZipFile(path) as archive:
         shared: list[str] = []
-        try:
+        if "xl/sharedStrings.xml" in archive.namelist():
             root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
             for item in root.findall(f"{namespace}si"):
                 shared.append(
@@ -155,15 +155,10 @@ def load_lookup(path: Path) -> dict[str, dict[str, str]]:
                         for node in item.iter(f"{namespace}t")
                     )
                 )
-            sheet_names = [
-                name
-                for name in archive.namelist()
-                if name.startswith("xl/worksheets/sheet")
-            ]
-            sheet_names.sort()
-            sheet_root = ElementTree.fromstring(archive.read(sheet_names[0]))
-        except KeyError:
-            return {}
+        sheet_names = sorted(
+            name for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet")
+        )
         workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
         rels = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
         target_map = {
@@ -263,14 +258,14 @@ def _best_extraction(
         if resultat_nukleinsyre and nukleinsyre == resultat_nukleinsyre:
             priority = 1
             # cannot be beaten: priority 1 + latest finished (first in scan)
-            best = (priority, -index, extraction)
+            best = (priority, index, extraction)
             break
         elif nukleinsyre == "Ukjent/generell":
             priority = 2
         else:
             priority = 3
-        candidate = (priority, -index, extraction)
-        if best is None or candidate[:2] > best[:2]:
+        candidate = (priority, index, extraction)
+        if best is None or candidate[:2] < best[:2]:
             best = candidate
     if best is None:
         return None

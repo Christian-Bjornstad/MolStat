@@ -63,7 +63,9 @@ def test_new_unit_jobs_use_lvms_report_id_and_separate_archive_stem():
         assert all(tuple(job.analysis_codes) == unit.analysis_codes for job in jobs)
 
 
-def test_new_units_can_be_enabled_in_molstat_settings(tmp_path):
+def test_new_units_can_be_enabled_in_molstat_settings(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
     sensitive = tmp_path / "sensitive"
     sharepoint = tmp_path / "sharepoint"
     sensitive.mkdir()
@@ -71,7 +73,7 @@ def test_new_units_can_be_enabled_in_molstat_settings(tmp_path):
     service = DefaultServices(tmp_path / "settings.json")
     service.save_settings_fields({
         "sensitive_root": str(sensitive), "sharepoint_root": str(sharepoint),
-        "lvms_url": "https://lvms.example.invalid",
+        "lvms_url": "https://lvms.test/clims/",
         "enabled_hemato": "false", "enabled_solide": "false",
         "enabled_flow": "true", "enabled_fish": "true", "enabled_pre": "true",
     })
@@ -79,6 +81,7 @@ def test_new_units_can_be_enabled_in_molstat_settings(tmp_path):
     assert all(service.settings.statistics_lookup_paths[key].is_relative_to(sensitive) for key in LOOKUPS)
     system = service._build_system(require_statistics=True)
     assert tuple(unit.key for unit in system.units.for_job("statistics")) == ("flow", "fish", "pre")
+    assert (local / "MolStat" / "lvms-config.json").is_file()
 
 
 @pytest.mark.parametrize("key,code", [("flow", "FLOW-02-OU"), ("fish", "FISH-ALKBA-OU")])
