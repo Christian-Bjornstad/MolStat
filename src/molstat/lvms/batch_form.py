@@ -62,6 +62,15 @@ _CLEAR_DYNAMIC_ROLES = (
     "created_from",
     "created_to",
 )
+_GRIDCELL_PARAMETER_ROLES = frozenset({
+    "analysis_codes",
+    "created_from",
+    "created_to",
+    "macro_usernames",
+    "production_usernames",
+    "period_from",
+    "period_to",
+})
 _ROLE_TAGS = {
     "category": frozenset({"INPUT", "SELECT"}),
     "report_id": frozenset({"INPUT", "SELECT"}),
@@ -228,7 +237,7 @@ def discover_report_role(
         or control.role.lower() in {"grid", "treegrid"}
         or (
             control.role.lower() == "gridcell"
-            and role not in _CLEAR_DYNAMIC_ROLES
+            and role not in _GRIDCELL_PARAMETER_ROLES
         )
         or not any(label == alias or label.startswith(alias + " ") for alias in aliases)
     ):

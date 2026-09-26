@@ -234,6 +234,7 @@ class SyntheticPage:
             )
             destination.write_bytes(b"metric,count\nsynthetic,1\n")
         elif element_id in {
+            "report-type",
             "report-id",
             "notes",
             "analyses",
@@ -269,7 +270,8 @@ class SyntheticPage:
         self.values[self.focused] = text
 
     def press_key(self, key: str) -> None:
-        if key != "ENTER" or self.focused != "report-id":
+        allowed = {("report-type", "ENTER"), ("report-type", "TAB"), ("report-id", "ENTER")}
+        if (self.focused, key) not in allowed:
             raise AssertionError(f"unexpected synthetic key {key}")
 
 

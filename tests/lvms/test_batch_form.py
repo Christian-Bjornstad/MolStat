@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+import pytest
+
 from molstat.lvms.batch_controls import DocumentControlIdentity
 from molstat.lvms.batch_form import (
     BatchFormError,
@@ -15,6 +17,27 @@ from molstat.lvms.control_identity import ControlIdentity
 
 EXPECTED_ORIGIN = "https://lvms.example.invalid"
 OTHER_ORIGIN = "https://other.example.invalid"
+
+
+@pytest.mark.parametrize(
+    ("role", "label"),
+    [
+        ("macro_usernames", "makro utført av"),
+        ("production_usernames", "brukernavn"),
+        ("period_from", "godkjent fra og med dato:"),
+        ("period_to", "makro utført til og med dato:"),
+    ],
+)
+def test_doctor_report_accepts_gridcell_parameters(role: str, label: str) -> None:
+    payload = raw_control(
+        "INPUT", role, label=label, control_type="text", role="gridcell"
+    )
+
+    result = discover_report_role(FakeSafePage(payload), EXPECTED_ORIGIN, role)
+
+    assert result is not None
+    assert result.control.element_id == role
+    assert result.control.role == "gridcell"
 
 
 def raw_control(
