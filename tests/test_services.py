@@ -121,7 +121,11 @@ def test_save_settings_accepts_existing_production_paths(tmp_path: Path) -> None
     )
 
 
-def test_save_settings_uses_bundled_patolog_lookup(tmp_path: Path) -> None:
+def test_save_settings_uses_bundled_patolog_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = tmp_path / "local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
     sensitive = tmp_path / "sensitive"
     sharepoint = tmp_path / "sharepoint"
     sensitive.mkdir()
@@ -131,7 +135,7 @@ def test_save_settings_uses_bundled_patolog_lookup(tmp_path: Path) -> None:
     services.save_settings_fields({
         "sensitive_root": str(sensitive),
         "sharepoint_root": str(sharepoint),
-        "lvms_url": "https://lvms.example.invalid/clims/",
+        "lvms_url": "https://lvms.test/clims/",
         "enabled_hemato": "false",
         "enabled_solide": "false",
         "enabled_lege": "true",
@@ -144,6 +148,7 @@ def test_save_settings_uses_bundled_patolog_lookup(tmp_path: Path) -> None:
     assert services.load_settings_fields()["lookup_lege"] == str(lookup)
     assert services.settings.unit_config_paths["lege"].is_file()
     assert services._build_system(require_statistics=True).statistics_processors["lege"].profile == "lege"
+    assert (local / "MolStat" / "lvms-config.json").is_file()
     assert _unavailable_path_messages(services.settings) == ()
 
 
@@ -183,7 +188,7 @@ def test_system_build_wires_exact_backlog_publication_policy(
         {
             "sensitive_root": str(sensitive),
             "sharepoint_root": str(sharepoint),
-            "lvms_url": "https://lvms.example.invalid/clims/",
+            "lvms_url": "https://lvms.test/clims/",
             "lookup_hemato": str(hemato),
             "lookup_solide": str(solide),
         }
