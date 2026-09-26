@@ -1,4 +1,6 @@
 import csv
+import hashlib
+import os
 from pathlib import Path
 import re
 
@@ -115,3 +117,65 @@ def test_invalid_backlog_export_preserves_previous_public_file(
         publisher.publish({"restansehistorikk.csv": bad_source}, destination)
 
     assert target.read_bytes() == previous
+
+
+@pytest.mark.parametrize("locked_name", ["antall.csv", "resultater.csv"])
+def test_backup_cleanup_failure_keeps_complete_new_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog, locked_name: str,
+) -> None:
+    destination = tmp_path / "sharepoint"
+    destination.mkdir()
+    files = {}
+    for name in ("antall.csv", "resultater.csv"):
+        (destination / name).write_text("previous", encoding="utf-8")
+        files[name] = _write_csv(tmp_path / name, ["Analyse"], [["SYNTHETIC"]])
+    publisher = SharePointPublisher(PublicationPolicy(
+        {name: frozenset({"Analyse"}) for name in files}, (),
+    ))
+    original_unlink = Path.unlink
+
+    def fail_locked_backup(path, *args, **kwargs):
+        if path.suffix == ".bak" and path.name.startswith(f".{locked_name}."):
+            raise PermissionError("Synthetic backup lock")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_locked_backup)
+
+    result = publisher.publish(files, destination)
+
+    for name, source in files.items():
+        assert (destination / name).read_bytes() == source.read_bytes()
+        assert result.files[name].sha256 == hashlib.sha256(source.read_bytes()).hexdigest()
+    assert len(list(destination.glob("*.bak"))) == 1
+    assert "backup" in caplog.text.lower()
+
+
+def test_failed_second_install_restores_entire_previous_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "sharepoint"
+    destination.mkdir()
+    files = {}
+    previous = {}
+    for name in ("antall.csv", "resultater.csv"):
+        previous[name] = f"previous {name}".encode()
+        (destination / name).write_bytes(previous[name])
+        files[name] = _write_csv(tmp_path / name, ["Analyse"], [["SYNTHETIC"]])
+    publisher = SharePointPublisher(PublicationPolicy(
+        {name: frozenset({"Analyse"}) for name in files}, (),
+    ))
+    original_replace = os.replace
+
+    def fail_second_install(source, target):
+        if Path(source).suffix == ".tmp" and Path(target).name == "resultater.csv":
+            raise PermissionError("Synthetic install failure")
+        return original_replace(source, target)
+
+    monkeypatch.setattr(os, "replace", fail_second_install)
+
+    with pytest.raises(PermissionError, match="Synthetic install failure"):
+        publisher.publish(files, destination)
+
+    assert {name: (destination / name).read_bytes() for name in files} == previous
+    assert not list(destination.glob("*.bak"))
+    assert not list(destination.glob("*.tmp"))

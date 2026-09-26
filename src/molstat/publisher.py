@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 import hashlib
+import logging
 import os
 from pathlib import Path
 import re
@@ -68,8 +69,6 @@ class SharePointPublisher:
                 os.replace(staged[output_name][0], target)
                 installed.append(output_name)
 
-            for backup in backups.values():
-                backup.unlink(missing_ok=True)
         except BaseException:
             for output_name in reversed(installed):
                 (destination / output_name).unlink(missing_ok=True)
@@ -80,6 +79,16 @@ class SharePointPublisher:
         finally:
             for temporary, _digest in staged.values():
                 temporary.unlink(missing_ok=True)
+
+        # All targets are now installed. Cleanup must not roll back a committed
+        # publication: earlier backups may already have been removed.
+        for backup in backups.values():
+            try:
+                backup.unlink(missing_ok=True)
+            except OSError:
+                logging.getLogger(__name__).warning(
+                    "Publisering fullført, men en backupfil kunne ikke slettes."
+                )
 
         return PublicationResult(
             files={
