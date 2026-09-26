@@ -287,3 +287,94 @@ def test_manual_excel_regeneration_works_with_real_workbook_writer(tmp_path):
     services.settings = replace(services.settings, sensitive_root=tmp_path)
     assert services.regenerate_excel() == {"excel_published": True}
     assert (tmp_path / "Prøvesøk.xlsx").is_file()
+
+
+@pytest.mark.parametrize("custom_runtime", [False, True])
+def test_changed_lvms_url_updates_runtime_without_losing_paths(tmp_path, custom_runtime):
+    from dataclasses import replace
+    from molstat.lvms.config import load_app_config
+
+    local = tmp_path / "local"
+    local.mkdir()
+    runtime = local / "custom-runtime.json" if custom_runtime else local / "MolStat" / "lvms-config.json"
+    runtime.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "landing_url": "https://old.internal/clims/",
+        "profile_directory": str(local / "custom-profile"),
+        "download_directory": str(local / "custom-downloads"),
+        "operator_note": "preserve custom fields",
+    }
+    if custom_runtime:
+        payload["expected_origin"] = "https://old.internal"
+    runtime.write_text(json.dumps(payload), encoding="utf-8")
+    services = DefaultServices(tmp_path / "settings.json")
+    services.settings = replace(
+        services.settings,
+        lvms_config_path=runtime if custom_runtime else None,
+        lvms_url="https://new.internal:8443/clims/",
+    )
+
+    assert services._ensure_lvms_config(local / "MolStat") == runtime
+
+    updated = json.loads(runtime.read_text(encoding="utf-8"))
+    expected = {
+        **payload,
+        "landing_url": "https://new.internal:8443/clims/",
+    }
+    if custom_runtime:
+        expected["expected_origin"] = "https://new.internal:8443"
+    assert updated == expected
+    validated = load_app_config(
+        runtime, repository_root=tmp_path / "repository", allowed_local_root=local
+    )
+    assert validated.expected_origin == "https://new.internal:8443"
+
+
+@pytest.mark.parametrize("url", [
+    "http://new.internal/clims/",
+    "https://name:secret@new.internal/clims/",
+    "https://new.internal/clims/?token=secret",
+])
+def test_invalid_changed_lvms_url_preserves_runtime(tmp_path, url):
+    from dataclasses import replace
+
+    runtime = tmp_path / "runtime.json"
+    original = json.dumps({
+        "landing_url": "https://old.internal/clims/",
+        "profile_directory": str(tmp_path / "profile"),
+        "download_directory": str(tmp_path / "downloads"),
+    })
+    runtime.write_text(original, encoding="utf-8")
+    services = DefaultServices(tmp_path / "settings.json")
+    services.settings = replace(
+        services.settings, lvms_config_path=runtime, lvms_url=url
+    )
+
+    with pytest.raises(ValueError):
+        services._ensure_lvms_config(tmp_path / "MolStat")
+
+    assert runtime.read_text(encoding="utf-8") == original
+
+
+def test_missing_disabled_lookup_does_not_block_saving_active_unit(tmp_path):
+    sensitive = tmp_path / "sensitive"
+    sharepoint = tmp_path / "sharepoint"
+    sensitive.mkdir()
+    sharepoint.mkdir()
+    services = DefaultServices(tmp_path / "settings.json")
+    missing = tmp_path / "missing-solide.xlsx"
+
+    services.save_settings_fields({
+        "sensitive_root": str(sensitive),
+        "sharepoint_root": str(sharepoint),
+        "lvms_url": "https://lvms.internal/clims/",
+        "enabled_hemato": "false",
+        "enabled_solide": "false",
+        "enabled_lege": "true",
+        "lookup_solide": str(missing),
+    })
+
+    assert services.settings.enabled_units == ("lege",)
+    assert services.settings.statistics_lookup_paths["solide"] == missing
+    assert services.settings.statistics_lookup_paths["lege"].is_file()
+    assert services.settings_path.is_file()

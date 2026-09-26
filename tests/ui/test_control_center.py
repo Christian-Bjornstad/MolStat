@@ -258,6 +258,59 @@ def test_disabled_unit_cannot_be_dispatched(qtbot) -> None:
     )
 
 
+def test_unsaved_activation_does_not_enable_or_dispatch_unit(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    window = MainWindow(orchestrator, DisabledSolideSettingsStore())
+    qtbot.addWidget(window)
+
+    window.settings_page.enabled_fields["solide"].setChecked(True)
+
+    assert not window.overview.unit_cards["solide"].run_button.isEnabled()
+    window._start_job("solide")
+    assert not window._workers
+    assert orchestrator.calls == []
+
+
+def test_unsaved_deactivation_keeps_saved_run_selection(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+
+    for field in window.settings_page.enabled_fields.values():
+        field.setChecked(False)
+
+    assert window.overview.run_all.isEnabled()
+    assert window.overview.unit_cards["hemato"].run_button.isEnabled()
+
+
+def test_saved_activation_updates_run_controls(qtbot) -> None:
+    class PersistingStore(DisabledSolideSettingsStore):
+        def load_settings_fields(self):
+            return self.saved or super().load_settings_fields()
+
+    window = MainWindow(FakeOrchestrator(), PersistingStore())
+    qtbot.addWidget(window)
+    window.settings_page.enabled_fields["solide"].setChecked(True)
+    window._save_settings()
+
+    assert window.overview.unit_cards["solide"].run_button.isEnabled()
+
+
+def test_failed_save_keeps_previous_run_selection(qtbot) -> None:
+    class RejectingStore(DisabledSolideSettingsStore):
+        def save_settings_fields(self, values):
+            raise ValueError("Synthetic invalid configuration")
+
+    window = MainWindow(FakeOrchestrator(), RejectingStore())
+    qtbot.addWidget(window)
+    window.settings_page.enabled_fields["solide"].setChecked(True)
+    window.settings_page.enabled_fields["hemato"].setChecked(False)
+    window._save_settings()
+
+    assert not window.overview.unit_cards["solide"].run_button.isEnabled()
+    assert window.overview.unit_cards["hemato"].run_button.isEnabled()
+    assert "Synthetic invalid configuration" in window.statusBar().currentMessage()
+
+
 def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
     window = MainWindow(FakeOrchestrator(), None)
     qtbot.addWidget(window)

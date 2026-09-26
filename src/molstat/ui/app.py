@@ -78,6 +78,10 @@ class MainWindow(QMainWindow):
         self.stack.setObjectName("page-stack")
         self.overview = OverviewPage()
         self.settings_page = SettingsPage()
+        self._saved_enabled_units = {
+            key for key, field in self.settings_page.enabled_fields.items()
+            if field.isChecked()
+        }
         self.diagnostics = DiagnosticsPage()
         self.diagnostics.set_configuration_error(configuration_error)
         self.stack.addWidget(self.overview)
@@ -100,8 +104,6 @@ class MainWindow(QMainWindow):
         self.settings_page.save_button.clicked.connect(self._save_settings)
         self.settings_page.import_button.clicked.connect(self._import_settings)
         self.settings_page.export_button.clicked.connect(self._export_settings)
-        for field in self.settings_page.enabled_fields.values():
-            field.toggled.connect(self._refresh_overview_status)
         self._load_settings()
         self._refresh_overview_status()
         self._navigate(0)
@@ -267,11 +269,7 @@ class MainWindow(QMainWindow):
                 )
 
     def _enabled_unit_keys(self) -> set[str]:
-        return {
-            key
-            for key, field in self.settings_page.enabled_fields.items()
-            if field.isChecked()
-        }
+        return set(self._saved_enabled_units)
 
     def _load_settings(self) -> None:
         if self.settings_store is None or not hasattr(
@@ -290,7 +288,11 @@ class MainWindow(QMainWindow):
             field.setValue(int(values.get(key, field.value())))
         for key, field in self.settings_page.enabled_fields.items():
             field.setChecked(values.get(f"enabled_{key}", "true") == "true")
-        self._refresh_run_button_states()
+        self._saved_enabled_units = {
+            key for key, field in self.settings_page.enabled_fields.items()
+            if field.isChecked()
+        }
+        self._refresh_overview_status()
 
     def _save_settings(self) -> None:
         if self._workers:

@@ -33,6 +33,7 @@ from .schedule import due_jobs
 from .statistics import StatisticsProcessor, load_lookup
 from ._statistics.specialized_lookup import default_lookup_path
 from ._statistics.lege_lookup import default_lege_lookup_path, validate_lege_lookup
+from .lvms.config import validate_app_config as validate_lvms_config
 from .system import MolStatSystem, ExcelRefreshStatus
 
 
@@ -441,6 +442,8 @@ class DefaultServices:
             config_paths[key] = destination
         lookup_paths = dict(updated.statistics_lookup_paths)
         for key, source in lookup_paths.items():
+            if key not in updated.enabled_units and not source.is_file():
+                continue
             with source.open("rb") as stream:
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()
             destination = updated.sensitive_root / "config" / "lookups" / key / f"{digest}{source.suffix.lower()}"
@@ -478,6 +481,23 @@ class DefaultServices:
     def _ensure_lvms_config(self, local_root: Path) -> Path:
         path = self.settings.lvms_config_path or local_root / "lvms-config.json"
         if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("LVMS-oppsettet må være et JSON-objekt.")
+            if self.settings.lvms_url and payload.get("landing_url") != self.settings.lvms_url:
+                payload["landing_url"] = self.settings.lvms_url
+                # The origin is derived from the newly selected URL. Preserve
+                # other local runtime fields and validate before replacing it.
+                had_origin = "expected_origin" in payload
+                payload.pop("expected_origin", None)
+                validated = validate_lvms_config(
+                    payload,
+                    repository_root=Path(__file__).resolve().parents[2],
+                    allowed_local_root=local_root.parent,
+                )
+                if had_origin:
+                    payload["expected_origin"] = validated.expected_origin
+                write_json(path, payload)
             return path
         if not self.settings.lvms_url:
             raise ValueError("LVMS-adresse mangler.")
