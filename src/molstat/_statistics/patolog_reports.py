@@ -42,7 +42,7 @@ def validate_source(path: Path, role: str) -> None:
 
 
 def _latest(archive_dir: Path, stem: str) -> tuple[Path, ...]:
-    selected: dict[date, tuple[date, int, Path]] = {}
+    selected: dict[date, tuple[date, int, int, Path]] = {}
     for path in archive_dir.glob(f"{stem}__*.csv"):
         match = _ARCHIVE.search(path.name)
         if match is None:
@@ -50,10 +50,10 @@ def _latest(archive_dir: Path, stem: str) -> tuple[Path, ...]:
         start, end = date.fromisoformat(match.group(1)), date.fromisoformat(match.group(2))
         if start.day != 1 or (start.year, start.month) != (end.year, end.month):
             continue
-        key = (end, path.stat().st_mtime_ns, path)
-        if start not in selected or key[:2] > selected[start][:2]:
+        key = (end, path.stat().st_mtime_ns, int(match.group(3) or 1), path)
+        if start not in selected or key[:3] > selected[start][:3]:
             selected[start] = key
-    return tuple(item[2] for _, item in sorted(selected.items()))
+    return tuple(item[3] for _, item in sorted(selected.items()))
 
 
 def _moment(value: str) -> datetime | None:

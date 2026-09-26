@@ -80,6 +80,32 @@ uten nytt uttrekk/import. En eldre feil kan ikke overskrive en nyere vellykket
 kandidat. Endrede kandidater avvises og personvernkontroll kjøres igjen.
 SharePoint-filnavn og kolonner beholder dagens kontrakter.
 
+Når alle nye SharePoint-filer er installert, er publiseringen fullført.
+Hvis en midlertidig backupfil er låst under etterfølgende opprydding,
+beholdes de nye filene og en advarsel skrives til loggen. En slik
+oppryddingsfeil skal ikke rulle tilbake en ferdig publisering.
+
+## Innstillinger og historikk etter feilrettingene 26. september 2026
+
+Kjøreknappene følger sist lagrede enhetsvalg. Endringer i avkryssingene
+trer i kraft med «Valider og lagre». En manglende lookup-fil for en
+deaktivert enhet hindrer ikke lagring av resten av oppsettet. Filen må
+være tilgjengelig før enheten aktiveres igjen.
+
+En lagret endring av LVMS-adressen tas i bruk ved neste oppsett av kjøringen.
+Det er ikke nødvendig å slette den lokale nettleserkonfigurasjonen.
+
+For Patologer kontrolleres historiske produksjons- og makrorapporter mot
+legelisten som ble brukt ved uttrekket. Når listen utvides, hentes manglende
+måneder på nytt. Eldre arkiver uten dokumentert legedekning hentes på nytt
+én gang; første kjøring etter oppgraderingen kan derfor ta lengre tid.
+Validerte uttrekk beholdes, slik at en avbrutt kjøring kan fortsette.
+
+Lookup-arbeidsbøker støtter også XLSX-filer med tekst direkte i cellene.
+Når en ekstraksjon med samme nukleinsyre mangler, prioriteres en generell
+ekstraksjon foran en ekstraksjon med annen nukleinsyre. Ny behandling
+beregner statistikken på nytt fra råarkivet.
+
 ## Excel og feilkoder
 
 «Oppdater Excel-søk» regenererer arbeidsboken fra databasen uten LVMS.

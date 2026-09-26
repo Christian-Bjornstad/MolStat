@@ -191,3 +191,132 @@ def test_doctor_report_processing_uses_latest_month_snapshot(tmp_path: Path) -> 
     text = paths["FactPatologRolle.csv"].read_text(encoding="utf-8-sig")
     assert "NEW" in text
     assert "OLD" not in text
+
+
+def test_doctor_report_prefers_latest_revision_when_file_times_tie(tmp_path: Path) -> None:
+    import os
+
+    roster = _roster(tmp_path / "lege.csv")
+    for revision, sample in (("", "OLD"), ("__r2", "NEW")):
+        path = tmp_path / f"PAT-EGEN-PRODUKSJON-OU__2026-09-01__2026-09-30{revision}.csv"
+        path.write_text(PRODUCTION_HEADER +
+                        f"{sample};Hovedansvarlig;HISTO;HEMATO;ESP;;02.09.2026;1\n",
+                        encoding="cp1252")
+        os.utime(path, ns=(1_000_000_000, 1_000_000_000))
+    paths = process(tmp_path, roster, tmp_path / "out")
+    content = paths["FactPatologRolle.csv"].read_text(encoding="utf-8-sig")
+    assert "NEW" in content
+    assert "OLD" not in content
+
+
+def _history_fetcher(tmp_path: Path):
+    definition = load_unit_file(default_unit_file("lege"))
+    config_root = materialize_snapshot(tmp_path, {"lege": definition})
+    roster = tmp_path / "roster.csv"
+    calls = []
+    fail_roles = set()
+
+    def batch(_config, jobs_path, _keys, **kwargs):
+        job = load_report_jobs(jobs_path)[0]
+        calls.append(job)
+        if job.interval.created_from.month == 8 and job.job_key in fail_roles:
+            return 2
+        output = kwargs["repository_root"] / "rådata"
+        output.mkdir(parents=True)
+        if job.job_key == "production":
+            content = PRODUCTION_HEADER + "".join(
+                f"SYNTHETIC-{user};Hovedansvarlig;HISTO;HEMATO;{user};01.08.2026;02.08.2026;1\n"
+                for user in job.usernames
+            )
+        elif job.job_key == "macro":
+            content = MACRO_HEADER + "".join(
+                f"SYNTHETIC-{user};Normal;HEMATO;01.08.2026;{user};\n"
+                for user in job.usernames
+            )
+        else:
+            content = PROCESS_HEADER
+        (output / batch_filename(job)).write_text(content, encoding="cp1252")
+        return 0
+
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=config_root / "units.json",
+        backlog_report_path=tmp_path / "unused.json", run_batch=batch,
+        today=lambda: date(2026, 10, 5), history_from=date(2026, 8, 1),
+        lege_lookup_path=roster,
+    )
+    return fetcher, roster, calls, fail_roles
+
+
+def _set_users(roster: Path, *users: str) -> None:
+    roster.write_text("Brukernavn,Navn,Faggruppe\n" + "".join(
+        f"{user},Synthetic {user},HEMATO\n" for user in users
+    ), encoding="cp1252")
+
+
+def test_history_refetches_expanded_roster_and_retains_previous_doctors(tmp_path: Path) -> None:
+    fetcher, roster, calls, _ = _history_fetcher(tmp_path)
+    _set_users(roster, "USERA")
+    fetcher.fetch_statistics(("lege",))
+    calls.clear()
+    _set_users(roster, "USERB")
+    fetcher.fetch_statistics(("lege",))
+
+    history = [job for job in calls if job.interval.created_from.month == 8]
+    assert {job.job_key for job in history} == {"production", "macro"}
+    assert all(set(job.usernames) == {"USERA", "USERB"} for job in history)
+    _set_users(roster, "USERA", "USERB")
+    outputs = process(tmp_path / "raw" / "statistics" / "lege", roster, tmp_path / "out")
+    for name in ("FactPatologRolle.csv", "FactMakro.csv"):
+        assert "SYNTHETIC-USERA" in outputs[name].read_text(encoding="utf-8-sig")
+        assert "SYNTHETIC-USERB" in outputs[name].read_text(encoding="utf-8-sig")
+    calls.clear()
+    fetcher.fetch_statistics(("lege",))
+    assert all(job.interval.created_from.month != 8 for job in calls)
+
+
+@pytest.mark.parametrize("end", ["2026-08-15", "2026-08-31"])
+def test_legacy_doctor_history_without_filter_coverage_is_refetched(tmp_path: Path, end: str) -> None:
+    fetcher, roster, calls, _ = _history_fetcher(tmp_path)
+    _set_users(roster, "USERB")
+    archive = tmp_path / "raw" / "statistics" / "lege"
+    archive.mkdir(parents=True)
+    legacy = archive / f"PAT-EGEN-PRODUKSJON-OU__2026-08-01__{end}.csv"
+    legacy.write_text(PRODUCTION_HEADER +
+                      "SYNTHETIC-USERA;Hovedansvarlig;HISTO;HEMATO;USERA;;02.08.2026;1\n",
+                      encoding="cp1252")
+    fetcher.fetch_statistics(("lege",))
+    production = [job for job in calls if job.job_key == "production" and job.interval.created_from.month == 8]
+    assert len(production) == 1
+    assert set(production[0].usernames) == {"USERA", "USERB"}
+
+
+def test_roster_expansion_resumes_only_unfinished_report_after_failure(tmp_path: Path) -> None:
+    fetcher, roster, calls, fail_roles = _history_fetcher(tmp_path)
+    _set_users(roster, "USERA")
+    fetcher.fetch_statistics(("lege",))
+    _set_users(roster, "USERA", "USERB")
+    fail_roles.add("macro")
+    with pytest.raises(RunFailure):
+        fetcher.fetch_statistics(("lege",))
+    fail_roles.clear()
+    calls.clear()
+    fetcher.fetch_statistics(("lege",))
+    history = [job for job in calls if job.interval.created_from.month == 8]
+    assert [job.job_key for job in history] == ["macro"]
+    assert set(history[0].usernames) == {"USERA", "USERB"}
+
+
+def test_changed_doctor_archive_requires_new_coverage(tmp_path: Path) -> None:
+    fetcher, roster, calls, _ = _history_fetcher(tmp_path)
+    _set_users(roster, "USERA")
+    fetcher.fetch_statistics(("lege",))
+    archive = tmp_path / "raw" / "statistics" / "lege"
+    production = next(archive.glob("PAT-EGEN-PRODUKSJON-OU__*.csv"))
+    with production.open("a", encoding="cp1252") as stream:
+        stream.write("SYNTHETIC-USERB;Hovedansvarlig;HISTO;HEMATO;USERB;;02.08.2026;1\n")
+    calls.clear()
+    fetcher.fetch_statistics(("lege",))
+    history = [job for job in calls if job.interval.created_from.month == 8]
+    assert [job.job_key for job in history] == ["production"]
+    assert set(history[0].usernames) == {"USERA", "USERB"}

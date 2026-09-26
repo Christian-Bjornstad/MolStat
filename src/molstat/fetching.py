@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -143,27 +144,42 @@ class UnifiedLvmsFetcher:
             for report in reports:
                 if report.job_key == "previous" and month in completed:
                     continue
-                if report.job_key != "previous" and _archive_has_month(archive_dir, report.report_id, month):
-                    continue
+                requested_users = usernames
+                if report.job_key != "previous":
+                    known_users, covered_users = _doctor_month_coverage(
+                        archive_dir, report.report_id, report.job_key, month,
+                    )
+                    requested_users = tuple(sorted(known_users | set(usernames)))
+                    if set(requested_users) <= covered_users:
+                        continue
                 end = next_month - timedelta(days=1)
-                job = _statistics_job(unit, report, month, end, usernames=usernames)
+                job = _statistics_job(unit, report, month, end, usernames=requested_users)
                 source = self._run_jobs((job,), unit.key)[0]
                 try:
                     if report.job_key == "previous":
                         _read(source)
                     else:
-                        from ._statistics.patolog_reports import validate_source
+                        # Validate every row before recording historical completion.
+                        from ._statistics.patolog_reports import _read as read_doctors
 
-                        validate_source(source, report.job_key)
+                        for _ in read_doctors(source, report.job_key):
+                            pass
                 except ValueError as exc:
                     raise RunFailure(
                         "CSV_INVALID",
                         f"patolog/backfill/{report.job_key}/{month.isoformat()}",
                     ) from exc
-                archive.store(source, ReportRequest(
+                archived = archive.store(source, ReportRequest(
                     kind="statistics", unit=unit.key, report_name=report.report_id,
                     date_from=month, date_to=end,
                 ))
+                if report.job_key != "previous":
+                    from .unit_settings import write_json
+
+                    write_json(archived.path.with_suffix(".coverage.json"), {
+                        "sha256": archived.sha256,
+                        "usernames": list(requested_users),
+                    })
                 source.unlink()
             month = next_month
 
@@ -248,6 +264,57 @@ def _archive_has_month(archive_dir: Path, stem: str, month: date) -> bool:
                 and date.fromisoformat(match.group(2)) == _month_end(month)):
             return True
     return False
+
+
+def _doctor_month_coverage(
+    archive_dir: Path, stem: str, role: str, month: date,
+) -> tuple[set[str], set[str]]:
+    """Return cumulative known users and proven coverage of the newest snapshot.
+
+    Legacy exports prove which users had rows, but not which users were queried.
+    Their observed users are retained when a refreshed snapshot is requested.
+    Only hash-bound metadata can prove that a doctor with zero rows was fetched.
+    """
+    from ._statistics.patolog_reports import _read
+    from ._statistics.patolog_process import _text
+
+    known: set[str] = set()
+    newest: tuple[int, int] | None = None
+    covered: set[str] = set()
+    for path in archive_dir.glob(f"{stem}__{month.isoformat()}__*.csv"):
+        match = _WINDOW.search(path.name)
+        if match is None or date.fromisoformat(match.group(2)).replace(day=1) != month:
+            continue
+        metadata = path.with_suffix(".coverage.json")
+        users: set[str] = set()
+        try:
+            payload = json.loads(metadata.read_text(encoding="utf-8"))
+            values = payload.get("usernames")
+            if isinstance(values, list) and all(
+                isinstance(user, str) and re.fullmatch(r"[A-Z0-9._-]{1,80}", user)
+                for user in values
+            ):
+                with path.open("rb") as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                if digest == payload.get("sha256"):
+                    users = set(values)
+        except (OSError, ValueError, AttributeError):
+            pass  # Missing, damaged or outdated coverage requires a new export.
+        known.update(users)
+        if not users:
+            column = "Godkjent av" if role == "production" else "Makro av"
+            try:
+                for row in _read(path, role):
+                    user = _text(row.get(column)).upper()
+                    if re.fullmatch(r"[A-Z0-9._-]{1,80}", user):
+                        known.add(user)
+            except ValueError:
+                pass  # Invalid old exports must not prevent a corrective fetch.
+        revision = re.search(r"__r(\d+)\.csv$", path.name)
+        key = (path.stat().st_mtime_ns, int(revision.group(1)) if revision else 1)
+        if date.fromisoformat(match.group(2)) == _month_end(month) and (newest is None or key > newest):
+            newest, covered = key, users
+    return known, covered
 
 
 def _month_end(month: date) -> date:
