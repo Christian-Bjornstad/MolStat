@@ -1,6 +1,11 @@
 # MolStat
 
-Appens nye enhetsfiler, mappeoppsett og feilretting er beskrevet i
+Kontrollsenteret har en oversikt over aktive enheter, innstillinger for én
+enhet om gangen og manuell import av LVMS-uttrekk.
+[Fornyelsen 7. oktober 2026](docs/APP-FORNYELSE-2026-10-07.md) beskriver
+endringene, bruksmåten og verifikasjonen.
+
+Appens enhetsfiler, mappeoppsett og feilretting er beskrevet i
 [enhetsfiler og drift](docs/APP-OPPSETT.md). Innstillinger validerer rapport-
 og analyselister. Oversikten kan regenerere Excel og prøve publisering igjen.
 
@@ -15,14 +20,32 @@ diagnostikk og flyttbare innstillinger i ett grensesnitt.
 |---|---|---|
 | Hemato | Ja | Statistikk og Prøveflyt/restanse |
 | Solide | Ja | Statistikk |
-| Lege | Kommer | Deaktivert plassholder |
-| Flow | Kommer | Deaktivert plassholder |
-| Pre | Kommer | Deaktivert plassholder |
+| Patologer | Ja | Månedlig prosess-, produksjons- og makrostatistikk |
+| Flow | Ja | Statistikk |
+| FISH | Ja | Statistikk |
+| Pre | Ja | Statistikk |
 | Hist | Kommer | Deaktivert plassholder |
 
-`Kjør alt` starter alle ferdige funksjoner for aktiverte enheter. En feil i én
-funksjon stopper ikke de øvrige; kontrollappen viser da at kjøringen er delvis
-fullført. Knappene `Hemato` og `Solide` kjører bare den valgte enheten.
+`Kjør aktive enheter` starter alle ferdige funksjoner for aktiverte enheter. En feil i én
+funksjon stopper ikke de øvrige; kontrollappen viser resultat for hver
+enhet og funksjon. Ugyldig JSON eller lookup for én enhet blokkerer bare de
+berørte funksjonene. Enhetsknappene kjører bare den valgte enheten.
+
+## Manuell import
+
+Velg **Manuell import** når automatisk henting fra LVMS ikke fungerer.
+Velg en aktiv enhet, rapporttype og samme periode som i LVMS. Velg deretter
+én original CSV-fil for hver rapportrolle, og trykk **Valider og importer**.
+
+MolStat kontrollerer hele filsettet og tidligere statistikkarkiv før det
+behandles. Originalfilene beholdes. Importen bruker samme register,
+publiseringskontroll og Excel-eksport som automatisk kjøring. Manuell
+behandling krever tilgjengelige datamapper og gyldig enhetsoppsett, og kan
+kjøres uten en fungerende LVMS-forbindelse.
+
+Restanse må være en komplett liste fra **01.01.2024 til dagens dato**.
+Et deluttrekk kan ikke erstatte restansens nåtilstand. Patologer krever
+prosess-, produksjons- og makrofiler for valgt måned og forrige måned.
 
 ## Sikker dataflyt
 
@@ -112,7 +135,8 @@ blokkerer kjøring og beskrives med feltnavn i appen.
 
 ## Kjøring og automatisering
 
-Kontrollappen støtter `Kjør alt`, `Hemato` og `Solide`. Windows Task Scheduler
+Kontrollappen støtter `Kjør aktive enheter` og separat kjøring av hver aktiv enhet.
+Windows Task Scheduler
 bruker fortsatt de kompatible CLI-målene:
 
 - `statistics` én gang daglig ved `statistics_hour`;
@@ -122,7 +146,9 @@ bruker fortsatt de kompatible CLI-målene:
 Standardverdiene er henholdsvis kl. 05:00 og hver time kl. 06:00–18:00.
 Klokkeslettene følger den lagrede/importerte innstillingsfilen når automatikken
 installeres, og `auto` bruker de samme verdiene. Samtidige skrivere stoppes av
-en tidsbegrenset SQLite-lease; Windows-oppgavene bruker også `IgnoreNew`.
+en SQLite-lease som fornyes mens kjøringen pågår, også ved lange historiske
+uttrekk. En kjøring som mister låsen stoppes før den kan skrive videre.
+Windows-oppgavene bruker også `IgnoreNew`.
 
 ## Flytte innstillinger mellom PC-er
 

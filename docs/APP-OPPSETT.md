@@ -18,10 +18,14 @@ tilpasninger før uttrekk.
 
 ## Redigere analyser
 
-Velg JSON-fil under «Analyser og rapporter» i Innstillinger. «Valider fil»
+Åpne «Innstillinger → Enheter» og velg én enhet i listen. Her finnes
+aktivering, JSON-fil og lookup samlet. «Valider fil»
 viser kodetall og konkrete feil. «Valider og lagre» aktiverer oppsettet samlet.
 Ugyldige filer erstatter ikke gjeldende innstillinger. «Åpne filmappe» åpner
 mappen med aktiv fil. Maler følger installasjonen under `molstat/defaults/units`.
+I kildekoden er `config/units/<enhet>.json` de aktive enhetsmalene.
+`config/units.json` beholdes bare for overføring av eldre oppsett; den skal
+ikke vedlikeholdes som en ekstra kopi av de nye enhetsfilene.
 
 Filseksjoner:
 
@@ -44,11 +48,13 @@ CSV-skilletegnet er et eget felt; vanlige LVMS-uttrekk bruker `"delimiter": ";"`
 
 Rapportkodelisten bestemmer henting; restansens analyseliste bestemmer
 klassifisering. Oppdater begge ved relevante endringer. Deaktivering eller
-fjerning av analyser sletter ikke historikk. Statistikkprofiler er `hemato`
-og `solide`; nye beregningsregler krever fortsatt programkode.
+fjerning av analyser sletter ikke historikk. Statistikkprofiler er `hemato`,
+`solide`, `flow`, `fish`, `pre` og `lege`; nye beregningsregler krever fortsatt
+programkode. Patologers arkiv-ID-er er faste; hente-ID-er kan tilpasses LVMS.
 
 Filene leses før neste kjøring. Samme validerte snapshot brukes gjennom hele
-kjøringen. En ugyldig direkte redigering blokkerer neste kjøring. For
+kjøringen. En ugyldig direkte redigering blokkerer berørte funksjoner i den
+enheten; de øvrige enhetene kan fortsatt kjøre. For
 tilbakeføring velger du en tidligere gyldig fil og lagrer på nytt.
 
 ## Mapper
@@ -63,6 +69,7 @@ K-sensitiv rot/
   data/backups/
   raw/statistics/<enhet>/
   work/fetch/<kjøring>/
+  work/manual-import/<midlertidig import>/
   processed/<enhet>/statistics/<kjøring>/
   processed/<enhet>/backlog/<kjøring>/
   Prøvesøk.xlsx
@@ -79,6 +86,39 @@ og hash. «Prøv publisering igjen» bruker siste ventende kandidat per enhet/jo
 uten nytt uttrekk/import. En eldre feil kan ikke overskrive en nyere vellykket
 kandidat. Endrede kandidater avvises og personvernkontroll kjøres igjen.
 SharePoint-filnavn og kolonner beholder dagens kontrakter.
+
+## Oversikt og manuell import
+
+Oversikten viser aktive enheter først. Søk etter navn eller filtrer på enheter
+som trenger oppfølging. Hvert enhetskort viser resultat per funksjon, slik at
+en restansefeil ikke skjuler vellykket statistikk eller merker andre enheter
+som feilet. Resultatene leses fra databasen når kontrollsenteret åpnes igjen.
+«Oppsett» på kortet åpner den aktuelle enheten i Innstillinger.
+
+«Manuell import» kan brukes når LVMS-henting eller uttrekksautomatikken
+svikter. Velg aktiv enhet, funksjon og uttrekksperiode. Velg en original CSV
+for hver rapportrolle som skjemaet viser. Filene må komme fra samme uttrekk
+og dekke den valgte perioden. Importen validerer kolonner, rader, datoer og
+hele filsettet før behandling. Originalfilene blir liggende der du valgte dem;
+MolStat bruker kopier i den sensitive arbeidsmappen.
+
+Restanse krever et komplett uttrekk fra 01.01.2024 til dagens dato. Det er
+nåtilstanden som erstattes, og et deluttrekk ville feilaktig fjerne andre
+åpne analyser. For Patologer velges prosess-, produksjons- og makrouttrekk
+for valgt måned og forrige måned, seks filer samlet.
+
+Statistikkimport bruker det eksisterende råarkivet og databasen, og oppdaterer
+publisering og Excel på samme måte som automatisk kjøring. Et nytt uttrekk for
+nøyaktig samme datointervall brukes foran eldre revisjoner; tidligere råfiler
+beholdes. Ugyldig historisk rådata må rettes før et nytt manuelt statistikksett
+kan importeres. Manuell behandling krever gyldige datamapper og enhetsfiler,
+men ingen tilgjengelig LVMS-forbindelse.
+
+Manuell, automatisk og planlagt kjøring bruker samme databaselås. Låsen fornyes
+under lange uttrekk. Før oppdatering av database eller delte resultatfiler
+kontrolleres eierskapet, slik at en kjøring som har mistet låsen ikke kan
+skrive over en annen kjørings resultater. Kontrollsenteret må fullføre aktiv
+kjøring før det kan lukkes eller endre innstillingene.
 
 Når alle nye SharePoint-filer er installert, er publiseringen fullført.
 Hvis en midlertidig backupfil er låst under etterfølgende opprydding,
@@ -124,6 +164,7 @@ og flere samtidige søk bygger videre på eksisterende arbeidsbok.
 | `DOWNLOAD_INCOMPLETE` | Kontroller rapportstatus før nytt manuelt uttrekk |
 | `BROWSER_CLEANUP` | Kontroller nettleseren før ny kjøring |
 | `DB_BUSY` | Vent til annen kjøring er ferdig |
+| `DB_LEASE_LOST` | Kjøringen stoppet etter tap av databaselåsen; kontroller forbindelse og annen kjøring før nytt forsøk |
 | `DB_ACCESS` | Kontroller nettverkssti og database-/journalrettigheter |
 | `DB_LOCATION` | Velg roten som inneholder `data` |
 | `EXCEL_REFRESH_FAILED` | Lukk arbeidsboken og prøv igjen |
