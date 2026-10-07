@@ -1,6 +1,5 @@
 import csv
 from datetime import date
-from pathlib import Path
 
 import pytest
 
@@ -14,12 +13,7 @@ from molstat.publisher import PublicationPolicy, SharePointPublisher, default_fo
 from molstat.unit_settings import default_unit_file, load_unit_file
 
 
-ROOT = Path(__file__).resolve().parents[2]
-LOOKUPS = {
-    "flow": ROOT / "powerbi/Flow_Statistikk_V1/Data/analyse_lookup.csv",
-    "fish": ROOT / "powerbi/Fish_Statistikk_V1/Data/analyse_lookup.csv",
-    "pre": ROOT / "powerbi/Pre_Statistikk_V1/Data/analyse_lookup.csv",
-}
+LOOKUPS = {profile: default_lookup_path(profile) for profile in ("flow", "fish", "pre")}
 
 
 def archive(folder, report_id, rows):
