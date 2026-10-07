@@ -11,6 +11,7 @@ import shutil
 import tempfile
 from typing import Mapping, Pattern
 from uuid import uuid4
+from ._writer_lease import guarded_output
 
 
 class PrivacyViolation(ValueError):
@@ -43,6 +44,10 @@ class SharePointPublisher:
         files: Mapping[str, Path],
         destination: Path,
     ) -> PublicationResult:
+        with guarded_output():
+            return self._publish(files, destination)
+
+    def _publish(self, files: Mapping[str, Path], destination: Path) -> PublicationResult:
         expected_files = set(self.policy.allowed_columns)
         if set(files) != expected_files:
             raise PrivacyViolation(

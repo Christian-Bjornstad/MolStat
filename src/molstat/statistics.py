@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
+import re
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -151,6 +152,15 @@ class StatisticsProcessor:
             else:
                 counts = pre_reports.process(inputs["resultater"], output_dir, self.lookup_path)
                 antall_count, result_count = 0, counts["activity_rows"]
+            if self.database is not None:
+                interval_from, interval_to = _archive_interval(raw_files)
+                SampleRegistry(self.database).import_batch(
+                    _registry_records(inputs.get("antall"), inputs["resultater"], None),
+                    kind="statistics", unit_key=unit,
+                    date_from=interval_from, date_to=interval_to,
+                    observed_at=self._now(),
+                    source_fingerprint=_combined_fingerprint(tuple(inputs.values())),
+                )
             return StatisticsResult(
                 antall=output_dir / "antall.csv",
                 resultater=output_dir / "resultater.csv",
@@ -209,7 +219,21 @@ def _report_archives(current: Path) -> tuple[Path, ...]:
     report_id, separator, _interval = current.name.partition("__")
     if not separator or not report_id:
         raise ValueError(f"Ugyldig arkivnavn: {current.name}")
-    paths = tuple(sorted(current.parent.glob(f"{report_id}__*.csv")))
+    pattern = re.compile(
+        rf"^{re.escape(report_id)}__(\d{{4}}-\d{{2}}-\d{{2}})__(\d{{4}}-\d{{2}}-\d{{2}})(?:__r(\d+))?\.csv$"
+    )
+    selected: dict[tuple[str, str], tuple[int, Path]] = {}
+    for path in current.parent.glob(f"{report_id}__*.csv"):
+        match = pattern.fullmatch(path.name)
+        if match is None:
+            continue
+        interval = (match.group(1), match.group(2))
+        revision = int(match.group(3) or 1)
+        if interval not in selected or revision > selected[interval][0]:
+            selected[interval] = revision, path
+    # A corrected export covers the same interval. Retain old revisions on
+    # disk for audit, but do not count both versions in the read model.
+    paths = tuple(value[1] for _, value in sorted(selected.items()))
     if not paths:
         raise ValueError(f"Fant ingen arkiver for {report_id}.")
     return paths
@@ -242,9 +266,9 @@ def _first_value(row: Mapping[str, str], names: Sequence[str]) -> str:
 
 
 def _registry_records(
-    ordered: Path,
+    ordered: Path | None,
     answered: Path,
-    extraction: Path,
+    extraction: Path | None,
 ) -> tuple[RegistryImportItem, ...]:
     records: list[RegistryImportItem] = []
     sources = (
@@ -262,6 +286,8 @@ def _registry_records(
         "approved": ("Tidspunkt.godkjenning",),
     }
     for source_kind, path, event_types in sources:
+        if path is None:
+            continue
         for row in read_lvms_csv(path):
             sample_number = _first_value(row, ("Sample.ID", "SampleID"))
             analysis_code = _first_value(row, ("Analyse",))

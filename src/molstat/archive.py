@@ -8,6 +8,7 @@ import shutil
 import tempfile
 
 from .lvms.report import ReportRequest
+from ._writer_lease import guarded_output
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +22,10 @@ class RawArchive:
         self.sensitive_root = sensitive_root
 
     def store(self, source: Path, request: ReportRequest) -> ArchivedRawFile:
+        with guarded_output():
+            return self._store(source, request)
+
+    def _store(self, source: Path, request: ReportRequest) -> ArchivedRawFile:
         if not source.is_file():
             raise FileNotFoundError(source)
         destination_dir = (

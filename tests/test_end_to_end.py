@@ -23,6 +23,24 @@ import molstat.system as system_module
 from molstat.modules import DEFAULT_UNITS
 
 
+def test_statistics_only_system_returns_safe_empty_public_board(tmp_path):
+    database = MolStatDatabase(tmp_path / "data.sqlite3")
+    system = MolStatSystem(
+        database=database, archive=RawArchive(tmp_path), statistics_processors={},
+        backlog_processor=None, publisher={}, sharepoint_root=tmp_path / "public",
+        work_root=tmp_path / "work", statistics_fetch=lambda _keys: {},
+        backlog_fetch=lambda: None,
+    )
+    now = datetime(2026, 10, 7, 12, 0)
+    assert system.public_snapshot(now) == {
+        "schemaVersion": 1, "generatedAt": now.isoformat(),
+        "unitLabel": "Ingen aktiv restanseenhet", "isStale": True,
+        "totals": {"ready": 0, "awaitingApproval": 0, "inTransit": 0, "overdue": 0},
+        "emptyAnalysisCount": 0, "analyses": [],
+    }
+    assert not database.path.exists()
+
+
 def test_pathologist_facts_stay_in_sensitive_powerbi_folder(tmp_path: Path) -> None:
     sensitive = tmp_path / "sensitive"
     public = tmp_path / "sharepoint"

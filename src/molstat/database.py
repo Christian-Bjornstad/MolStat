@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 from urllib.parse import quote
+from ._writer_lease import WriterLease, active_writer_lease
 
 
 def readonly_uri(path: Path, *, immutable: bool = False) -> str:
@@ -19,8 +20,59 @@ def readonly_uri(path: Path, *, immutable: bool = False) -> str:
 
 class ManagedConnection(sqlite3.Connection):
     """Retain SQLite transaction semantics and always release the file handle."""
+    _writer_guard: WriterLease | None = None
+
+    def _guarded_write(self, operation, sql, parameters):
+        guard = self._writer_guard
+        if guard is None:
+            return operation(sql, parameters)
+        if self.in_transaction:
+            if guard.lost.is_set():
+                guard.assert_owned(self)
+            return operation(sql, parameters)
+        # Autocommit mutations need the same token fence as explicit imports.
+        sqlite3.Connection.execute(self, "BEGIN IMMEDIATE")
+        try:
+            guard.assert_owned(self)
+            result = operation(sql, parameters)
+            guard.renew_locked(self)
+            sqlite3.Connection.execute(self, "COMMIT")
+            return result
+        except BaseException:
+            sqlite3.Connection.execute(self, "ROLLBACK")
+            raise
+
+    def execute(self, sql, parameters=()):
+        command = sql.lstrip().split(None, 1)[0].upper() if sql.strip() else ""
+        guard = self._writer_guard
+        if guard is not None and command == "BEGIN":
+            # A reserved write lock makes the ownership check and all subsequent
+            # import changes atomic with respect to another lease acquisition.
+            result = super().execute("BEGIN IMMEDIATE")
+            try:
+                guard.assert_owned(self)
+            except BaseException:
+                super().execute("ROLLBACK")
+                raise
+            return result
+        if guard is not None and command in ("COMMIT", "END") and self.in_transaction:
+            guard.renew_locked(self)
+        if command in ("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER", "DROP"):
+            return self._guarded_write(super().execute, sql, parameters)
+        return super().execute(sql, parameters)
+
+    def executemany(self, sql, parameters):
+        return self._guarded_write(super().executemany, sql, parameters)
+
+    def commit(self):
+        if self._writer_guard is not None and self.in_transaction:
+            self._writer_guard.renew_locked(self)
+        return super().commit()
+
     def __exit__(self, *args):
         try:
+            if args[0] is None and self._writer_guard is not None and self.in_transaction:
+                self._writer_guard.renew_locked(self)
             return super().__exit__(*args)
         finally:
             self.close()
@@ -271,13 +323,17 @@ class MolStatDatabase:
         self.path = path
         self._now = now
 
-    def _connect(self) -> sqlite3.Connection:
+    def _connect(self, *, guard_lease: bool = True) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path, timeout=30, isolation_level=None, factory=ManagedConnection)
         try:
             connection.execute("PRAGMA busy_timeout = 30000")
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA synchronous = FULL")
+            if guard_lease:
+                connection._writer_guard = active_writer_lease(self.path)
+                if connection._writer_guard:
+                    connection._writer_guard.assert_owned(connection)
         except BaseException:
             connection.close()
             raise
@@ -396,18 +452,18 @@ class MolStatDatabase:
         return {str(row[0]) for row in rows}
 
     @contextmanager
-    def writer_lease(self, owner: str, ttl: timedelta) -> Iterator[None]:
+    def writer_lease(self, owner: str, ttl: timedelta, *, renew: bool = False) -> Iterator[WriterLease | None]:
         if not owner.strip():
             raise ValueError("Lease-eier kan ikke være tom.")
         if ttl <= timedelta(0):
             raise ValueError("Lease-varighet må være positiv.")
 
         token = uuid4().hex
-        acquired_at = _as_utc(self._now())
-        expires_at = acquired_at + ttl
-        with self._connect() as connection:
+        with self._connect(guard_lease=False) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                acquired_at = _as_utc(self._now())
+                expires_at = acquired_at + ttl
                 active = connection.execute(
                     "SELECT owner, expires_at FROM writer_lease WHERE singleton = 1"
                 ).fetchone()
@@ -431,19 +487,33 @@ class MolStatDatabase:
                 connection.execute("ROLLBACK")
                 raise
 
+        body_failed = False
         try:
-            yield
+            if renew:
+                with WriterLease(self, token, ttl).activate() as lease:
+                    yield lease
+            else:
+                yield None
+        except BaseException:
+            body_failed = True
+            raise
         finally:
-            with self._connect() as connection:
-                connection.execute("BEGIN IMMEDIATE")
-                try:
-                    connection.execute(
-                        "DELETE FROM writer_lease WHERE singleton = 1 AND token = ?",
-                        (token,),
-                    )
-                    connection.execute("COMMIT")
-                except BaseException:
-                    connection.execute("ROLLBACK")
+            try:
+                with self._connect(guard_lease=False) as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    try:
+                        connection.execute(
+                            "DELETE FROM writer_lease WHERE singleton = 1 AND token = ?",
+                            (token,),
+                        )
+                        connection.execute("COMMIT")
+                    except BaseException:
+                        connection.execute("ROLLBACK")
+                        raise
+            except Exception:
+                # Lost storage during cleanup must not hide the original
+                # runner/ownership failure that caused this context to exit.
+                if not body_failed:
                     raise
 
     def current_lease_owner(self) -> str | None:

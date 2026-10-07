@@ -18,6 +18,7 @@ from .lvms.report import ReportRequest
 from .modules import DEFAULT_UNITS, JobKind, UnitRegistry
 from .publisher import SharePointPublisher
 from .delivery import deliver
+from ._writer_lease import guarded_output
 
 
 FetchedReport = tuple[ReportRequest, Path]
@@ -59,6 +60,8 @@ class MolStatSystem:
         excel_now: Callable[[], datetime] = datetime.now,
         excel_failure_reporter: Callable[[str, BaseException], None] | None = None,
         units: UnitRegistry = DEFAULT_UNITS,
+        capability_errors: Mapping[tuple[str, JobKind], BaseException] | None = None,
+        fetch_error: BaseException | None = None,
     ) -> None:
         self.database = database
         self.archive = archive
@@ -75,6 +78,8 @@ class MolStatSystem:
         self._excel_failure_reporter = excel_failure_reporter
         self.excel_status: ExcelRefreshStatus | None = None
         self.units = units
+        self.capability_errors = dict(capability_errors or {})
+        self.fetch_error = fetch_error
 
     def run_statistics(self) -> dict[str, int]:
         fetched = self.statistics_fetch(None)
@@ -85,8 +90,10 @@ class MolStatSystem:
         return {"rows": total_rows, "units": len(fetched)}
 
     def run_statistics_unit(self, unit_key: str) -> dict[str, int]:
-        capability = self.units.require(unit_key).capability("statistics")
-        del capability
+        self.units.require(unit_key).capability("statistics")
+        self._require_capability_ready(unit_key, "statistics")
+        if self.fetch_error is not None:
+            raise self.fetch_error
         fetched = self.statistics_fetch((unit_key,))
         if tuple(fetched) != (unit_key,):
             raise RuntimeError(
@@ -100,6 +107,7 @@ class MolStatSystem:
         reports: Sequence[FetchedReport],
     ) -> dict[str, int]:
         capability = self.units.require(unit_key).capability("statistics")
+        self._require_capability_ready(unit_key, "statistics")
         processor = self.statistics_processors.get(unit_key)
         if processor is None:
             raise ValueError(f"Statistikkprosessor mangler for {unit_key}.")
@@ -107,16 +115,17 @@ class MolStatSystem:
         output_dir = self.work_root / unit_key / "statistics" / uuid4().hex
         result = processor.process(unit_key, archived, output_dir)
         if result.private_files:
-            private_root = self.work_root / unit_key / "powerbi"
-            private_root.mkdir(parents=True, exist_ok=True)
-            for name, source in result.private_files.items():
-                destination = private_root / name
-                temporary = private_root / f".{name}.{uuid4().hex}.tmp"
-                try:
-                    shutil.copyfile(source, temporary)
-                    os.replace(temporary, destination)
-                finally:
-                    temporary.unlink(missing_ok=True)
+            with guarded_output():
+                private_root = self.work_root / unit_key / "powerbi"
+                private_root.mkdir(parents=True, exist_ok=True)
+                for name, source in result.private_files.items():
+                    destination = private_root / name
+                    temporary = private_root / f".{name}.{uuid4().hex}.tmp"
+                    try:
+                        shutil.copyfile(source, temporary)
+                        os.replace(temporary, destination)
+                    finally:
+                        temporary.unlink(missing_ok=True)
         active_publisher = (
             self.publisher[unit_key]
             if isinstance(self.publisher, Mapping)
@@ -142,6 +151,9 @@ class MolStatSystem:
 
     def run_backlog_unit(self, unit_key: str) -> dict[str, int]:
         capability = self.units.require(unit_key).capability("backlog")
+        self._require_capability_ready(unit_key, "backlog")
+        if self.fetch_error is not None:
+            raise self.fetch_error
         fetch = getattr(self, "backlog_fetchers", {}).get(unit_key, self.backlog_fetch)
         processor = getattr(self, "backlog_processors", {}).get(unit_key, self.backlog_processor)
         publisher = getattr(self, "backlog_publishers", {}).get(unit_key, self.backlog_publisher)
@@ -202,7 +214,8 @@ class MolStatSystem:
                 self.database,
                 generated_at=generated_at,
             )
-            result = publish_search_workbook(snapshot, self.excel_search_path)
+            with guarded_output():
+                result = publish_search_workbook(snapshot, self.excel_search_path)
         except Exception as exc:
             self.excel_status = ExcelRefreshStatus(
                 "failed",
@@ -228,6 +241,11 @@ class MolStatSystem:
         if job_kind == "backlog":
             return self.run_backlog_unit(unit_key)
         raise ValueError(f"Ukjent kapabilitet: {job_kind}")
+
+    def _require_capability_ready(self, unit_key: str, job_kind: JobKind) -> None:
+        error = self.capability_errors.get((unit_key, job_kind))
+        if error is not None:
+            raise error
 
     def run_unit(self, unit_key: str) -> tuple[CapabilityRun, ...]:
         unit = self.units.require(unit_key)
@@ -271,6 +289,13 @@ class MolStatSystem:
         return CapabilityRun(unit_key, job_kind, summary)
 
     def public_snapshot(self, now: datetime) -> dict[str, object]:
+        if self.backlog_processor is None:
+            from ._backlog.dashboard import DashboardSnapshot
+
+            return DashboardSnapshot(
+                generated_at=now, unit_label="Ingen aktiv restanseenhet",
+                is_stale=True, analyses=(), empty_analysis_count=0,
+            ).to_public_dict()
         return self.backlog_processor.public_snapshot(self.database, now)
 
     def _archive_and_remove(self, fetched: FetchedReport) -> Path:

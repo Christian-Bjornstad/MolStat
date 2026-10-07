@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from dataclasses import replace
 import json
@@ -26,27 +27,35 @@ from .unit_settings import load_active_units, materialize_snapshot, load_unit_fi
 from ._backlog.config import validate_app_config
 from .delivery import retry_pending
 from .excel_search import read_excel_snapshot, publish_search_workbook
-from .modules import DEFAULT_UNITS, configured_registry
-from .orchestrator import MolStatOrchestrator
+from .modules import DEFAULT_UNITS, UnitRegistry, configured_registry
+from .orchestrator import JobResult, MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
 from .statistics import StatisticsProcessor, load_lookup
 from ._statistics.specialized_lookup import default_lookup_path
 from ._statistics.lege_lookup import default_lege_lookup_path, validate_lege_lookup
 from .lvms.config import validate_app_config as validate_lvms_config
-from .system import MolStatSystem, ExcelRefreshStatus
+from .system import CapabilityRun, MolStatSystem, ExcelRefreshStatus
+from .manual_import import ManualImportPlan, ManualImportError
+from ._writer_lease import guarded_output
 
 
 class DefaultServices:
     def __init__(self, settings_path: Path) -> None:
         self.settings_path = settings_path
         self._diagnostics: deque[str] = deque(maxlen=100)
+        self._unit_readiness: dict[str, tuple[str, str]] = {}
+        self._capability_readiness: dict[tuple[str, str], str | None] = {}
         self._settings_exist = settings_path.is_file()
-        self.settings = (
-            MolStatSettings.load(settings_path)
-            if self._settings_exist
-            else MolStatSettings(sensitive_root=Path("."))
-        )
+        self._settings_load_error: str | None = None
+        self.settings = MolStatSettings(sensitive_root=Path("."))
+        if self._settings_exist:
+            try:
+                self.settings = MolStatSettings.load(settings_path)
+            except (ValueError, OSError) as exc:
+                self._settings_exist = False
+                self._settings_load_error = "Innstillingsfilen kunne ikke leses. Originalfilen er bevart. Rett opp eller importer innstillinger."
+                self._record_job_failure("settings_configuration_failed", exc)
 
     def gui(self) -> int:
         from .ui.app import MainWindow, create_application
@@ -96,6 +105,9 @@ class DefaultServices:
         return 0
 
     def auto(self) -> int:
+        if not self._settings_exist:
+            print(json.dumps({"status": "failed", "message": "Konfigurer MolStat først."}, ensure_ascii=False))
+            return 2
         database = self._database()
         now = datetime.now(timezone.utc)
         due = due_jobs(
@@ -141,6 +153,8 @@ class DefaultServices:
         return 0
 
     def _database(self) -> MolStatDatabase:
+        if self._settings_load_error:
+            raise ValueError(self._settings_load_error)
         if (self.settings.sensitive_root / "molstat.sqlite3").is_file():
             raise ValueError("DB_LOCATION: Du har valgt selve databasemappen. Velg MolStat-roten som inneholder data-mappen; eksisterende database er bevart.")
         database = MolStatDatabase(
@@ -155,9 +169,15 @@ class DefaultServices:
         database.migrate()
         return database
 
-    def _build_system(self, *, require_statistics: bool) -> MolStatSystem:
+    def _build_system(
+        self,
+        *,
+        require_statistics: bool,
+        unit_keys: Sequence[str] | None = None,
+        require_lvms: bool = True,
+    ) -> MolStatSystem:
         if not self._settings_exist:
-            raise ValueError("MolStat må konfigureres i Innstillinger.")
+            raise ValueError(self._settings_load_error or "MolStat må konfigureres i Innstillinger.")
         if self.settings.sharepoint_root is None:
             raise ValueError("SharePoint-mappe mangler.")
         errors = self.settings.validate()
@@ -165,48 +185,85 @@ class DefaultServices:
             raise ValueError(errors[0])
         if not self.settings.sensitive_root.is_dir():
             raise ValueError("K-sensitiv mappe er ikke tilgjengelig. Ingen erstatningsdatabase opprettes.")
-        definitions = load_active_units(self.settings.sensitive_root, self.settings.unit_config_paths, self.settings.enabled_units)
+        selected = tuple(self.settings.enabled_units if unit_keys is None else unit_keys)
+        if set(selected) - set(self.settings.enabled_units):
+            raise ValueError("Aktiver enheten i Innstillinger før kjøring.")
+        definitions = {}
+        definition_errors = {}
+        for key in selected:
+            try:
+                definitions.update(load_active_units(
+                    self.settings.sensitive_root, self.settings.unit_config_paths, (key,)
+                ))
+            except Exception as exc:
+                definition_errors[key] = RunFailure("CONFIG_INVALID", "unit_configuration")
+                self._record_job_failure(f"{key}_configuration_failed", exc)
         config_root = materialize_snapshot(self.settings.sensitive_root, definitions)
-        registry = configured_registry(definitions)
+        valid_registry = configured_registry(definitions)
+        valid_by_key = {unit.key: unit for unit in valid_registry}
+        registry = UnitRegistry(tuple(
+            valid_by_key.get(key) or DEFAULT_UNITS.require(key) for key in selected
+        ))
+        capability_errors = {
+            (key, capability.job_kind): error
+            for key, error in definition_errors.items()
+            for capability in registry.require(key).capabilities
+        }
         local_root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "MolStat"
-        lvms_config = self._ensure_lvms_config(local_root)
         database = self._database()
-        fetcher = UnifiedLvmsFetcher(
-            lvms_config_path=lvms_config, sensitive_root=self.settings.sensitive_root,
-            work_root=self.settings.sensitive_root / "work" / "fetch",
-            units_path=config_root / "units.json",
-            backlog_report_path=config_root / "hemato" / "backlog-report.json",
-            lege_lookup_path=self.settings.statistics_lookup_paths.get("lege") or default_lege_lookup_path(),
-        )
+        fetcher, fetch_error = None, None
+        if require_lvms:
+            try:
+                lvms_config = self._ensure_lvms_config(local_root)
+                fetcher = UnifiedLvmsFetcher(
+                    lvms_config_path=lvms_config, sensitive_root=self.settings.sensitive_root,
+                    work_root=self.settings.sensitive_root / "work" / "fetch",
+                    units_path=config_root / "units.json",
+                    backlog_report_path=config_root / "hemato" / "backlog-report.json",
+                    lege_lookup_path=self.settings.statistics_lookup_paths.get("lege") or default_lege_lookup_path(),
+                )
+            except Exception as exc:
+                fetch_error = RunFailure("LVMS_CONFIG_INVALID", "lvms_configuration")
+                self._record_job_failure("lvms_configuration_failed", exc)
+
+        def unavailable_fetch(*args, **kwargs):
+            raise RunFailure("LVMS_CONFIG_INVALID", "fetch_unavailable")
+
+        statistics_fetch = fetcher.fetch_statistics if fetcher else unavailable_fetch
+        backlog_fetch = fetcher.fetch_backlog if fetcher else unavailable_fetch
         statistics_processors, publishers = {}, {}
-        for definition in registry.for_job("statistics") if require_statistics else ():
+        for definition in valid_registry.for_job("statistics") if require_statistics else ():
             capability = definition.capability("statistics")
+            publishers[definition.key] = SharePointPublisher(PublicationPolicy(
+                allowed_columns=capability.allowed_columns, forbidden_patterns=default_forbidden_patterns(),
+            ))
             lookup = self.settings.statistics_lookup_paths.get(definition.key)
             if lookup is None and capability.processor_profile in {"flow", "fish", "pre"}:
                 lookup = default_lookup_path(capability.processor_profile)
             if lookup is None and capability.processor_profile == "lege":
                 lookup = default_lege_lookup_path()
-            if lookup is None:
-                raise ValueError(f"Lookup-fil mangler for {definition.display_name}.")
-            if capability.processor_profile in {"flow", "fish", "pre"}:
-                from ._statistics.specialized_lookup import validate_lookup
-                validate_lookup(
-                    lookup, capability.processor_profile,
-                    set(definitions[definition.key].unit.analysis_codes),
+            try:
+                if lookup is None:
+                    raise ValueError(f"Lookup-fil mangler for {definition.display_name}.")
+                if capability.processor_profile in {"flow", "fish", "pre"}:
+                    from ._statistics.specialized_lookup import validate_lookup
+                    validate_lookup(
+                        lookup, capability.processor_profile,
+                        set(definitions[definition.key].unit.analysis_codes),
+                    )
+                elif capability.processor_profile == "lege":
+                    validate_lege_lookup(lookup)
+                else:
+                    load_lookup(lookup)
+                statistics_processors[definition.key] = StatisticsProcessor(
+                    lookup, profile=capability.processor_profile, database=database,
+                    report_ids={role: report["report_id"] for role, report in definitions[definition.key].payload["statistics"].items()},
                 )
-            elif capability.processor_profile == "lege":
-                validate_lege_lookup(lookup)
-            elif capability.processor_profile != "lege":
-                load_lookup(lookup)
-            statistics_processors[definition.key] = StatisticsProcessor(
-                lookup, profile=capability.processor_profile, database=database,
-                report_ids={role: report["report_id"] for role, report in definitions[definition.key].payload["statistics"].items()},
-            )
-            publishers[definition.key] = SharePointPublisher(PublicationPolicy(
-                allowed_columns=capability.allowed_columns, forbidden_patterns=default_forbidden_patterns(),
-            ))
+            except Exception as exc:
+                capability_errors[(definition.key, "statistics")] = RunFailure("LOOKUP_INVALID", "statistics_configuration")
+                self._record_job_failure(f"{definition.key}_statistics_configuration_failed", exc)
         backlog_processors, backlog_publishers, backlog_fetchers = {}, {}, {}
-        for definition in registry.for_job("backlog"):
+        for definition in valid_registry.for_job("backlog"):
             key = definition.key
             payload = definitions[key].payload["backlog"]
             raw = payload["columns"]
@@ -214,14 +271,18 @@ class DefaultServices:
                                    columns=raw["columns"], completed_values=tuple(raw["completed_values"]),
                                    classifier_version=raw["classifier_version"])
             lookup = self.settings.statistics_lookup_paths.get(key)
-            backlog_processors[key] = BacklogProcessor(validate_app_config(payload["analyses"]), contract,
-                                                       analysis_lookup=load_lookup(lookup) if lookup else {})
             backlog_publishers[key] = SharePointPublisher(PublicationPolicy(
                 allowed_columns=definition.capability("backlog").allowed_columns,
                 forbidden_patterns=default_forbidden_patterns(),
             ))
+            try:
+                backlog_processors[key] = BacklogProcessor(validate_app_config(payload["analyses"]), contract,
+                                                           analysis_lookup=load_lookup(lookup) if lookup else {})
+            except Exception as exc:
+                capability_errors[(key, "backlog")] = RunFailure("LOOKUP_INVALID", "backlog_configuration")
+                self._record_job_failure(f"{key}_backlog_configuration_failed", exc)
             # Preserve the default no-argument hook for existing integrations.
-            backlog_fetchers[key] = (fetcher.fetch_backlog if key == "hemato" else
+            backlog_fetchers[key] = (backlog_fetch if key == "hemato" or fetcher is None else
                                     lambda unit=key: fetcher.fetch_backlog(unit, config_root / unit / "backlog-report.json"))
         system = MolStatSystem(
             database=database, archive=RawArchive(self.settings.sensitive_root),
@@ -232,12 +293,36 @@ class DefaultServices:
             excel_failure_reporter=self._record_job_failure,
             sharepoint_root=self.settings.sharepoint_root,
             work_root=self.settings.sensitive_root / "processed",
-            statistics_fetch=fetcher.fetch_statistics, backlog_fetch=fetcher.fetch_backlog,
+            statistics_fetch=statistics_fetch, backlog_fetch=backlog_fetch,
             units=registry,
+            capability_errors=capability_errors,
+            fetch_error=fetch_error,
         )
         system.backlog_processors = backlog_processors
         system.backlog_publishers = backlog_publishers
         system.backlog_fetchers = backlog_fetchers
+        for unit in registry:
+            considered = tuple(cap for cap in unit.capabilities
+                               if require_statistics or cap.job_kind != "statistics" or unit.key in definition_errors)
+            if not considered:
+                continue
+            for cap in considered:
+                error = capability_errors.get((unit.key, cap.job_kind))
+                self._capability_readiness[(unit.key, cap.job_kind)] = error.code if error else None
+            errors = tuple(self._capability_readiness[(unit.key, cap.job_kind)]
+                           for cap in unit.capabilities
+                           if self._capability_readiness.get((unit.key, cap.job_kind)))
+            if errors:
+                label = "Oppsett må rettes" if len(errors) == len(unit.capabilities) else "Delvis klar"
+                detail = "; ".join(dict.fromkeys(
+                    "Kontroller enhetsfilen i Innstillinger" if code == "CONFIG_INVALID"
+                    else "Kontroller lookup-filen i Innstillinger" for code in errors
+                ))
+                self._unit_readiness[unit.key] = (label, detail)
+            elif fetch_error is not None:
+                self._unit_readiness[unit.key] = ("Manuell import tilgjengelig", "LVMS-oppsettet må rettes for automatisk uttrekk")
+            else:
+                self._unit_readiness[unit.key] = ("Klar", "Oppsettet er validert for denne enheten")
         self._last_system = system
         return system
 
@@ -252,16 +337,77 @@ class DefaultServices:
         }
         runners.update(
             {
-                unit.key: lambda key=unit.key: self._build_system(require_statistics=True).run_unit(key)
+                unit.key: lambda key=unit.key: self._build_system(require_statistics=True, unit_keys=(key,)).run_unit(key)
                 for unit in system.units.active(enabled)
             }
         )
+
         return MolStatOrchestrator(
             system.database,
             runners,
             owner=socket.gethostname() or "molstat-pc",
             failure_reporter=self._record_job_failure,
         )
+
+    def unit_status_fields(self) -> dict[str, tuple[str, str]]:
+        return {
+            key: self._unit_readiness.get(key, ("Ikke kontrollert", "Lagre eller kontroller innstillingene"))
+            for key in self.settings.enabled_units
+        }
+
+    def unit_definitions(self) -> UnitRegistry:
+        system = getattr(self, "_last_system", None)
+        return system.units if system is not None else DEFAULT_UNITS
+
+    def _manual_import_definition(self, unit_key: str):
+        if unit_key not in self.settings.enabled_units:
+            raise ManualImportError("Aktiver enheten i Innstillinger før manuell import.")
+        if not self._settings_exist or not self.settings.sensitive_root.is_dir():
+            raise ManualImportError("Konfigurer en tilgjengelig K-sensitiv mappe før manuell import.")
+        return load_active_units(
+            self.settings.sensitive_root, self.settings.unit_config_paths, (unit_key,)
+        )[unit_key]
+
+    def manual_import_available_jobs(self, unit_key: str) -> tuple[str, ...]:
+        definition = self._manual_import_definition(unit_key)
+        return ("statistics", "backlog") if definition.payload.get("backlog") else ("statistics",)
+
+    def manual_import_roles(self, unit_key: str, job_kind: str) -> tuple[str, ...]:
+        from .manual_import import manual_import_roles
+
+        return manual_import_roles(self._manual_import_definition(unit_key), job_kind)
+
+    def manual_import(self, plan: ManualImportPlan) -> JobResult:
+        from .manual_import import process_manual_import, validate_manual_import
+
+        if plan.unit_key not in self.settings.enabled_units:
+            raise ManualImportError("Aktiver enheten i Innstillinger før manuell import.")
+        if plan.job_kind not in ("statistics", "backlog"):
+            raise ManualImportError("Velg statistikk eller restanse.")
+        if not self._settings_exist or not self.settings.sensitive_root.is_dir():
+            raise ManualImportError("Konfigurer en tilgjengelig K-sensitiv mappe før manuell import.")
+
+        def runner():
+            try:
+                definition = self._manual_import_definition(plan.unit_key)
+                validate_manual_import(plan, definition)
+                system = self._build_system(
+                    require_statistics=plan.job_kind == "statistics",
+                    unit_keys=(plan.unit_key,), require_lvms=False,
+                )
+                error = system.capability_errors.get((plan.unit_key, plan.job_kind))
+                if error is not None:
+                    raise error
+                return process_manual_import(system, plan, definition)
+            except Exception as exc:
+                return (CapabilityRun(plan.unit_key, plan.job_kind, {}, exc),)
+
+        orchestrator = MolStatOrchestrator(
+            self._database(), {plan.unit_key: runner},
+            owner=socket.gethostname() or "molstat-pc",
+            failure_reporter=self._record_job_failure,
+        )
+        return orchestrator.run(plan.unit_key, "manual_import")
 
     def load_settings_fields(self) -> dict[str, str]:
         if not self._settings_exist:
@@ -318,31 +464,45 @@ class DefaultServices:
             }
         )
 
-        fields.update({f"config_{key}": str(self.settings.unit_config_paths.get(key) or self.settings.sensitive_root / "config" / "units" / f"{key}.json") for key in self.settings.enabled_units})
+        for unit in DEFAULT_UNITS.active():
+            configured = self.settings.unit_config_paths.get(unit.key)
+            conventional = self.settings.sensitive_root / "config" / "units" / f"{unit.key}.json"
+            fields[f"config_{unit.key}"] = str(configured or (conventional if conventional.is_file() else ""))
         fields.update({key: str(getattr(self.settings, key)) for key in ("statistics_hour", "backlog_first_hour", "backlog_last_hour")})
         return fields
 
     def regenerate_excel(self) -> dict[str, object]:
+        if self._settings_load_error:
+            raise ValueError(self._settings_load_error)
         database = self._database()
         now = datetime.now()
         snapshot = read_excel_snapshot(database, generated_at=now)
-        result = publish_search_workbook(snapshot, self.settings.sensitive_root / "Prøvesøk.xlsx")
+        with guarded_output():
+            result = publish_search_workbook(snapshot, self.settings.sensitive_root / "Prøvesøk.xlsx")
         if hasattr(self, "_last_system"):
             self._last_system.excel_status = ExcelRefreshStatus(result.status, now)
         if result.status != "published":
             raise RunFailure("EXCEL_REFRESH_FAILED", "excel_publication")
         return {"excel_published": True}
 
-    def retry_publication(self) -> dict[str, object]:
-        system = self._build_system(require_statistics=True)
-        published = 0
+    def retry_publication(self) -> tuple[CapabilityRun, ...]:
+        system = self._build_system(require_statistics=True, require_lvms=False)
+        runs = []
         for unit in system.units:
             for capability in unit.capabilities:
-                publisher = (system.publisher[unit.key] if capability.job_kind == "statistics"
-                             else system.backlog_publishers[unit.key])
-                published += retry_pending(publisher, system.work_root / unit.key / capability.job_kind,
-                                           system.sharepoint_root / capability.sharepoint_folder)
-        return {"published": published}
+                try:
+                    publishers = system.publisher if capability.job_kind == "statistics" else system.backlog_publishers
+                    publisher = publishers.get(unit.key)
+                    if publisher is None:
+                        raise system.capability_errors.get(
+                            (unit.key, capability.job_kind), RunFailure("CONFIG_INVALID", "publication_configuration")
+                        )
+                    published = retry_pending(publisher, system.work_root / unit.key / capability.job_kind,
+                                              system.sharepoint_root / capability.sharepoint_folder)
+                    runs.append(CapabilityRun(unit.key, capability.job_kind, {"published": published}))
+                except Exception as error:
+                    runs.append(CapabilityRun(unit.key, capability.job_kind, {}, error))
+        return tuple(runs)
 
     def overview_status_fields(self) -> dict[str, tuple[str, str]]:
         if not self._settings_exist:
@@ -374,6 +534,10 @@ class DefaultServices:
         statuses["excel"] = (("Tilgjengelig", "Sist oppdatert " + datetime.fromtimestamp(workbook.stat().st_mtime).strftime("%d.%m.%Y %H:%M"))
                              if workbook.is_file() else ("Ikke generert", "Oppdater fra eksisterende database"))
         system = getattr(self, "_last_system", None)
+        if system and system.fetch_error is not None:
+            statuses["lvms"] = ("Oppsett må rettes", "Manuell import kan brukes mens LVMS-oppsettet rettes")
+        else:
+            statuses["lvms"] = ("Konfigurert", "Innlogging og forbindelse kontrolleres ved automatisk uttrekk")
         excel_status = getattr(system, "excel_status", None)
         if excel_status and excel_status.status != "published":
             statuses["excel"] = ("Ikke oppdatert", "Lukk Excel-filen og velg Oppdater Excel-søk")
@@ -463,6 +627,9 @@ class DefaultServices:
         updated.save(self.settings_path)
         self.settings = updated
         self._settings_exist = True
+        self._settings_load_error = None
+        self._unit_readiness.clear()
+        self._capability_readiness.clear()
 
     def export_settings(self, path: Path) -> None:
         self.settings.export_to(path)
@@ -476,6 +643,9 @@ class DefaultServices:
         imported.save(self.settings_path)
         self.settings = imported
         self._settings_exist = True
+        self._settings_load_error = None
+        self._unit_readiness.clear()
+        self._capability_readiness.clear()
         return warnings
 
     def _ensure_lvms_config(self, local_root: Path) -> Path:
@@ -531,7 +701,7 @@ class DefaultServices:
         safe_error = database_failure(error) if isinstance(error, sqlite3.Error) else error
         if isinstance(error, CsvImportError):
             safe_error = RunFailure("CSV_INVALID", "csv_import")
-        message = f"{stage}: {safe_error if isinstance(safe_error, (RunFailure, UnitConfigError)) else type(error).__name__}"
+        message = f"{stage}: {safe_error if isinstance(safe_error, (RunFailure, UnitConfigError, ManualImportError)) else type(error).__name__}"
         self._diagnostics.append(message)
         local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
         local_root = Path(local_text) if local_text else Path.home() / "AppData" / "Local"
