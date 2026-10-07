@@ -123,3 +123,69 @@ def test_settings_persist_validated_unit_file_and_invalid_replacement_is_atomic(
         service.save_settings_fields({**values, "config_hemato": str(bad)})
     assert service.settings_path.read_bytes() == before
     assert service.settings.unit_config_paths["hemato"] == active
+
+
+@pytest.mark.parametrize("section", ["columns", "analyses"])
+def test_backlog_sections_require_supported_integer_schema(tmp_path, section):
+    payload = json.loads(default_unit_file("hemato").read_text(encoding="utf-8"))
+    payload["backlog"][section]["schema_version"] = True
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="schema_version"):
+        load_unit_file(path)
+
+
+def test_backlog_fetch_includes_every_enabled_source_code(tmp_path):
+    payload = json.loads(default_unit_file("hemato").read_text(encoding="utf-8"))
+    payload["backlog"]["report"]["analysis_codes"].remove("AVVENTFLOW-OU")
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="AVVENTFLOW-OU"):
+        load_unit_file(path)
+
+
+def test_backlog_column_mapping_rejects_reusing_same_source_column(tmp_path):
+    payload = json.loads(default_unit_file("hemato").read_text(encoding="utf-8"))
+    mapping = payload["backlog"]["columns"]["columns"]
+    mapping["analysis_code"] = mapping["sample_id"]
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="kolonnenavn"):
+        load_unit_file(path)
+
+
+def test_doctor_report_role_cannot_be_disconnected_from_fetch_job(tmp_path):
+    payload = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))
+    payload["statistics"]["current"]["job_key"] = "typo"
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="job_key"):
+        load_unit_file(path)
+
+
+def test_report_fetch_id_cannot_silently_fall_back_on_wrong_type(tmp_path):
+    payload = json.loads(default_unit_file("hemato").read_text(encoding="utf-8"))
+    payload["statistics"]["antall"]["fetch_report_id"] = 42
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="fetch_report_id"):
+        load_unit_file(path)
+
+
+@pytest.mark.parametrize("role", ["current", "previous", "production", "macro"])
+def test_doctor_profile_rejects_storage_stems_its_processors_cannot_read(tmp_path, role):
+    payload = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))
+    payload["statistics"][role]["report_id"] = "CUSTOM-REPORT-OU"
+    path = tmp_path / "bad.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match=rf"statistics.{role}.report_id"):
+        load_unit_file(path)
+
+
+def test_doctor_profile_still_allows_changing_lvms_fetch_identifier(tmp_path):
+    payload = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))
+    payload["statistics"]["current"]["fetch_report_id"] = "CUSTOM-REPORT-OU"
+    payload["statistics"]["current"]["analysis_codes"] = ["SYNTHETIC-OU"]
+    path = tmp_path / "custom.json"
+    path.write_text(json.dumps(payload))
+    assert load_unit_file(path).unit.report_by_key("current").fetch_report_id == "CUSTOM-REPORT-OU"

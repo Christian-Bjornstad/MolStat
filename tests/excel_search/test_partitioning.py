@@ -1,6 +1,9 @@
 from datetime import datetime
 from pathlib import Path
 import zipfile
+from xml.etree import ElementTree
+
+import pytest
 
 from molstat.excel_search import (
     ExcelAnalysisRow,
@@ -52,3 +55,23 @@ def test_row_guard_partitions_by_year_and_formula_references_every_table(
     assert 'name="tblAnalyser2025"' in table_xml
     assert "Analyser 2024" in search_xml
     assert "Analyser 2025" in search_xml
+
+
+def test_partitioned_search_filters_before_stacking(tmp_path):
+    rows = (_analysis(2024, 1), _analysis(2025, 1))
+    destination = tmp_path / "search.xlsx"
+    generate_search_workbook(ExcelSnapshot(datetime(2026, 9, 10), (), rows),
+                             destination, analysis_row_limit=1)
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    with zipfile.ZipFile(destination) as archive:
+        root = ElementTree.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+    formula = root.find(f".//{namespace}c[@r='K5']/{namespace}f").text
+    assert "_xlfn.VSTACK(_xlfn._xlws.FILTER(IF(" in formula
+    assert '_xlfn.LET(_xlpm.matches,' in formula
+    assert 'INDEX(_xlpm.matches,0,1)<>""' in formula
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, 1_048_576])
+def test_row_limit_cannot_exceed_excel_capacity(limit):
+    with pytest.raises(ValueError):
+        partition_analysis_rows((), row_limit=limit)

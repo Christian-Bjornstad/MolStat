@@ -92,6 +92,23 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
             _object(report, {"job_key", "fetch_report_id", "report_id", "analysis_codes", "comment"}, f"statistics.{name}")
             if not isinstance(report.get("analysis_codes"), list) or (not report["analysis_codes"] and raw.get("profile") != "lege"):
                 raise UnitConfigError(f"statistics.{name}.analysis_codes: listen må ha minst én kode")
+            if "fetch_report_id" in report and (not isinstance(report["fetch_report_id"], str) or not report["fetch_report_id"].strip()):
+                raise UnitConfigError(f"statistics.{name}.fetch_report_id: forventet rapportnavn som tekst")
+            if "comment" in report and not isinstance(report["comment"], str):
+                raise UnitConfigError(f"statistics.{name}.comment: forventet tekst")
+            if raw.get("profile") == "lege" and report.get("job_key") != name:
+                raise UnitConfigError(f"statistics.{name}.job_key: må være {name} for denne rapportrollen")
+            if raw.get("profile") == "lege":
+                from ._statistics.patolog_process import REPORT_STEMS
+                from ._statistics.patolog_reports import PRODUCTION_STEM, MACRO_STEM
+
+                storage_stems = dict(zip(("current", "previous"), REPORT_STEMS))
+                storage_stems.update(production=PRODUCTION_STEM, macro=MACRO_STEM)
+                if report.get("report_id") != storage_stems[name]:
+                    raise UnitConfigError(
+                        f"statistics.{name}.report_id: patologprofilen krever {storage_stems[name]} som arkivnavn. "
+                        "Bruk fetch_report_id for å endre rapporten som hentes fra LVMS."
+                    )
         primary = reports.get("antall") or reports.get("resultater") or reports["current"]
         legacy = {"label": raw["label"], "profile": raw.get("profile"),
                   "analysis_codes": primary["analysis_codes"], "reports": list(reports.values())}
@@ -122,10 +139,12 @@ def _validate_backlog(raw, key):
         raise UnitConfigError("backlog.report.report_groups: minst én gruppe må angis")
     if type(report.get("schema_version")) is not int or report["schema_version"] != 1:
         raise UnitConfigError("backlog.report.schema_version: forventet 1")
-    validate_report_job({**{k: v for k, v in report.items() if k != "schema_version"}, "job_key": "backlog",
-                         "created_from": "01.01.2024", "created_to": "01.01.2024"})
+    job = validate_report_job({**{k: v for k, v in report.items() if k != "schema_version"}, "job_key": "backlog",
+                              "created_from": "01.01.2024", "created_to": "01.01.2024"})
     analyses = raw.get("analyses")
     _object(analyses, {"schema_version", "report_id", "unit", "thresholds", "analyses"}, "backlog.analyses")
+    if type(analyses.get("schema_version")) is not int or analyses["schema_version"] != 1:
+        raise UnitConfigError("backlog.analyses.schema_version: forventet 1")
     _object(analyses.get("unit"), {"key", "label"}, "backlog.analyses.unit")
     _object(analyses.get("thresholds", {}), {"warning_hours", "critical_hours"}, "backlog.thresholds")
     for name, value in analyses.get("thresholds", {}).items():
@@ -149,8 +168,13 @@ def _validate_backlog(raw, key):
             used_codes.add(code)
     if parsed.unit.key != key:
         raise UnitConfigError("backlog.analyses.unit.key: feil enhet")
+    missing_codes = used_codes - set(job.analysis_codes)
+    if missing_codes:
+        raise UnitConfigError("backlog.report.analysis_codes: aktive kildekoder mangler: " + ", ".join(sorted(missing_codes)))
     columns = raw.get("columns")
     _object(columns, {"schema_version", "classifier_version", "delimiter", "encoding", "columns", "completed_values"}, "backlog.columns")
+    if type(columns.get("schema_version")) is not int or columns["schema_version"] != 1:
+        raise UnitConfigError("backlog.columns.schema_version: forventet 1")
     if columns.get("delimiter") not in (",", ";", "\t", "|"):
         raise UnitConfigError("backlog.columns.delimiter: forventet ett skilletegn (, ; tab eller |)")
     codecs.lookup(columns["encoding"])
@@ -161,6 +185,9 @@ def _validate_backlog(raw, key):
     _object(mapping, allowed, "backlog.columns.columns")
     if not {"sample_id", "analysis_code", "created_at", "status"} <= set(mapping) or any(not isinstance(v, str) or not v.strip() for v in mapping.values()):
         raise UnitConfigError("backlog.columns.columns: obligatoriske kolonnenavn mangler")
+    source_names = [value.strip().casefold() for value in mapping.values()]
+    if len(source_names) != len(set(source_names)):
+        raise UnitConfigError("backlog.columns.columns: samme kolonnenavn er koblet til flere felt")
     completed = columns.get("completed_values")
     if not isinstance(completed, list) or not completed or any(not isinstance(v, str) or not v.strip() for v in completed):
         raise UnitConfigError("backlog.columns.completed_values: forventet liste med statuser")
@@ -171,7 +198,7 @@ def write_json(path: Path, payload: dict) -> None:
     temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     try:
         with temporary.open("w", encoding="utf-8", newline="\n") as stream:
-            json.dump(payload, stream, ensure_ascii=False, indent=2)
+            json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())

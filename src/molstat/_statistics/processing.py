@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import csv
 import re
-import zipfile
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from xml.etree import ElementTree
+
+from .xlsx_lookup import read_lookup as read_xlsx_lookup
 
 RAW_ENCODING = "cp1252"
 DELIMITER = ";"
@@ -142,67 +142,7 @@ def read_lvms_csv(path: Path) -> list[dict[str, str]]:
 
 def load_lookup(path: Path) -> dict[str, dict[str, str]]:
     """Read Analyse_lookup.xlsx (stdlib only) keyed by cleaned Analyse."""
-    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
-    rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-    with zipfile.ZipFile(path) as archive:
-        shared: list[str] = []
-        if "xl/sharedStrings.xml" in archive.namelist():
-            root = ElementTree.fromstring(archive.read("xl/sharedStrings.xml"))
-            for item in root.findall(f"{namespace}si"):
-                shared.append(
-                    "".join(
-                        node.text or ""
-                        for node in item.iter(f"{namespace}t")
-                    )
-                )
-        sheet_names = sorted(
-            name for name in archive.namelist()
-            if name.startswith("xl/worksheets/sheet")
-        )
-        workbook = ElementTree.fromstring(archive.read("xl/workbook.xml"))
-        rels = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
-        target_map = {
-            rel.get("Id"): rel.get("Target", "")
-            for rel in rels.iter(f"{rel_ns}Relationship")
-        }
-        sheets = [
-            (sheet.get("name"), target_map.get(sheet.get(f"{rel_ns}id"), ""))
-            for sheet in workbook.iter(f"{namespace}sheet")
-        ]
-        first_target = sheets[0][1].lstrip("/") if sheets else ""
-        if first_target and not first_target.startswith("xl/"):
-            first_target = f"xl/{first_target}"
-        if not first_target:
-            first_target = sheet_names[0] if sheet_names else ""
-        if not first_target:
-            return {}
-        sheet_root = ElementTree.fromstring(archive.read(first_target))
-
-    def cell_text(cell: ElementTree.Element) -> str:
-        value_node = cell.find(f"{namespace}v")
-        if value_node is None or value_node.text is None:
-            inline = cell.find(f"{namespace}is/{namespace}t")
-            return inline.text if inline is not None and inline.text else ""
-        if cell.get("t") == "s":
-            return shared[int(value_node.text)]
-        return value_node.text
-
-    grid: list[list[str]] = []
-    for row in sheet_root.iter(f"{namespace}row"):
-        grid.append([cell_text(cell) for cell in row.findall(f"{namespace}c")])
-    if not grid:
-        return {}
-    header = [clean_text(name) for name in grid[0]]
-    lookup: dict[str, dict[str, str]] = {}
-    for row in grid[1:]:
-        record = {
-            header[i]: clean_text(row[i]) if i < len(row) else ""
-            for i in range(len(header))
-        }
-        key = record.get("Analyse", "")
-        if key and key not in lookup:
-            lookup[key] = record
-    return lookup
+    return read_xlsx_lookup(path, clean_text)
 
 
 def _fmt(dt: datetime | None) -> str:

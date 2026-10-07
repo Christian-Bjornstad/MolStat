@@ -1,5 +1,7 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, Lock
 
 import pytest
 
@@ -178,3 +180,65 @@ def test_settings_reject_nested_sensitive_and_sharepoint_roots(tmp_path, reverse
     if reverse:
         first, second = second, first
     assert MolStatSettings(sensitive_root=first, sharepoint_root=second).validate()
+
+
+def test_settings_load_accepts_utf8_bom(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"sensitive_root":"K:/sensitiv"}', encoding="utf-8-sig")
+    assert MolStatSettings.load(path).sensitive_root == Path("K:/sensitiv")
+
+
+def test_settings_reject_duplicate_json_keys(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"sensitive_root":"K:/one","sensitive_root":"K:/two"}')
+    with pytest.raises(ValueError, match="duplikat"):
+        MolStatSettings.load(path)
+
+
+@pytest.mark.parametrize("updates", [
+    {"statistics_hour": 24}, {"statistics_hour": True},
+    {"backlog_first_hour": 19, "backlog_last_hour": 18},
+    {"sensitive_root": "   "},
+])
+def test_invalid_local_settings_fail_at_load_boundary(tmp_path, updates):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"sensitive_root": "K:/sensitiv", **updates}))
+    with pytest.raises(ValueError):
+        MolStatSettings.load(path)
+
+
+def test_invalid_settings_are_not_saved_over_good_file(tmp_path):
+    path = tmp_path / "settings.json"
+    MolStatSettings(sensitive_root=tmp_path / "sensitive").save(path)
+    before = path.read_bytes()
+    with pytest.raises(ValueError):
+        MolStatSettings(sensitive_root=tmp_path / "sensitive", statistics_hour=99).save(path)
+    assert path.read_bytes() == before
+
+
+def test_versioned_settings_reject_misspelled_fields(tmp_path):
+    payload = MolStatSettings(sensitive_root=tmp_path / "sensitive").to_transfer_payload()
+    payload["units"]["hemato"]["lookup_patth"] = "K:/lookup.xlsx"
+    with pytest.raises(ValueError, match="lookup_patth"):
+        MolStatSettings.from_transfer_payload(payload)
+
+
+def test_simultaneous_settings_saves_do_not_share_temporary_files(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    barrier = Barrier(2)
+    replace_lock = Lock()
+    replace = config.os.replace
+
+    def synchronized_replace(source, destination):
+        barrier.wait(timeout=5)
+        # Windows can reject two simultaneous replacements of one destination.
+        # Serialize only replacement to isolate collisions between candidates.
+        with replace_lock:
+            replace(source, destination)
+
+    monkeypatch.setattr(config.os, "replace", synchronized_replace)
+    candidates = [MolStatSettings(sensitive_root=tmp_path / name) for name in ("one", "two")]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(lambda settings: settings.save(path), candidates))
+    assert MolStatSettings.load(path) in candidates
+    assert not list(tmp_path.glob(".*.tmp"))

@@ -93,8 +93,8 @@ def partition_analysis_rows(
     *,
     row_limit: int = 900_000,
 ) -> dict[str, tuple[ExcelAnalysisRow, ...]]:
-    if row_limit < 1:
-        raise ValueError("Excel-radgrensen må være positiv.")
+    if type(row_limit) is not int or not 1 <= row_limit <= 1_048_575:
+        raise ValueError("Excel-radgrensen må være mellom 1 og 1 048 575 (én rad brukes til overskrifter).")
     if len(rows) <= row_limit:
         return {"Analyser": rows}
     by_year: dict[int, list[ExcelAnalysisRow]] = {}
@@ -243,6 +243,8 @@ def generate_search_workbook(
     """Generate the macro-free registry workbook with multi-value search."""
 
     path = Path(destination)
+    if len(snapshot.samples) > 1_048_575:
+        raise ValueError("Prøveregisteret har flere prøver enn ett Excel-ark kan vise.")
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = xlsxwriter.Workbook(path)
     try:
@@ -315,26 +317,38 @@ def generate_search_workbook(
         if len(detail_ranges) == 1:
             detail_data, detail_keys = detail_ranges[0]
             detail_condition = (
-                f"COUNTIF(INDEX($D$5#,0,1),{detail_keys})>0"
+                f"COUNTIF(INDEX(ANCHORARRAY($D$5),0,1),{detail_keys})>0"
             )
+            detail_formula = f'FILTER(IF({detail_data}="","",{detail_data}),{detail_condition},"Ingen analyser")'
         else:
-            detail_data = "VSTACK(" + ",".join(item[0] for item in detail_ranges) + ")"
-            detail_keys = (
-                "VSTACK(" + ",".join(item[1] for item in detail_ranges) + ")"
+            # Filter before stacking: combining full partitions can exceed Excel's
+            # array row limit even when the selected sample has only a few rows.
+            filtered = ",".join(
+                f'_xlfn._xlws.FILTER(IF({data}="","",{data}),COUNTIF(INDEX(_xlfn.ANCHORARRAY($D$5),0,1),{keys})>0,"")'
+                for data, keys in detail_ranges
             )
-            detail_condition = f"COUNTIF(INDEX($D$5#,0,1),{detail_keys})>0"
+            # Explicit prefixes avoid enabling future-function parsing for every
+            # row in the potentially large workbook. XlsxWriter preserves these.
+            detail_formula = (
+                f'_xlfn.LET(_xlpm.matches,_xlfn.VSTACK({filtered}),'
+                '_xlfn._xlws.FILTER(_xlpm.matches,INDEX(_xlpm.matches,0,1)<>"","Ingen analyser"))'
+            )
         search.write_dynamic_array_formula(
             "K5",
-            f'=IF(COUNTA($A$5:$A$54)=0,"",FILTER({detail_data},'
-            f'{detail_condition},"Ingen analyser"))',
+            f'=IF(COUNTA($A$5:$A$54)=0,"",{detail_formula})',
         )
         search.freeze_panes(4, 3)
         search.set_column("A:A", 28)
         search.set_column("B:B", 16)
         search.set_column("C:C", 3)
-        search.set_column("D:I", 18)
+        search.set_column("D:E", 26, formats["text"])
+        search.set_column("F:G", 18, formats["date"])
+        search.set_column("H:I", 18, formats["body"])
         search.set_column("J:J", 3)
-        search.set_column("K:R", 19)
+        search.set_column("K:M", 26, formats["text"])
+        search.set_column("N:N", 18, formats["date"])
+        search.set_column("O:P", 19, formats["body"])
+        search.set_column("Q:R", 18, formats["date"])
 
         sample_headers = [
             "MolStat-ID", "Prøvenummer", "Først sett", "Sist sett",
@@ -356,10 +370,10 @@ def generate_search_workbook(
                 f"SUMPRODUCT(--(UPPER(TRIM({inputs}))=UPPER(B{excel_row})))>0)"
             )
             prefix = (
-                f"(SUMPRODUCT(--({inputs}<>\"\"),"
+                f"(SUMPRODUCT(--(TRIM({inputs})<>\"\"),"
                 f"--(LEFT(UPPER(A{excel_row}),LEN(TRIM({inputs})))="
                 f"UPPER(TRIM({inputs}))))"
-                f"+SUMPRODUCT(--({inputs}<>\"\"),"
+                f"+SUMPRODUCT(--(TRIM({inputs})<>\"\"),"
                 f"--(LEFT(UPPER(B{excel_row}),LEN(TRIM({inputs})))="
                 f"UPPER(TRIM({inputs}))))>0)"
             )

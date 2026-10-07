@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 SETTINGS_SCHEMA_VERSION = 2
@@ -36,17 +37,23 @@ class MolStatSettings:
             sensitive, public = self.sensitive_root.resolve(), self.sharepoint_root.resolve()
             if sensitive.is_relative_to(public) or public.is_relative_to(sensitive):
                 errors.append("K-sensitiv og SharePoint kan ikke ligge inni hverandre.")
-        if not 0 <= self.statistics_hour <= 23:
+        if type(self.statistics_hour) is not int or not 0 <= self.statistics_hour <= 23:
             errors.append("Klokkeslett for statistikk må være mellom 0 og 23.")
-        if not 0 <= self.backlog_first_hour <= 23:
+        if type(self.backlog_first_hour) is not int or not 0 <= self.backlog_first_hour <= 23:
             errors.append("Første restansetime må være mellom 0 og 23.")
-        if not 0 <= self.backlog_last_hour <= 23:
+        if type(self.backlog_last_hour) is not int or not 0 <= self.backlog_last_hour <= 23:
             errors.append("Siste restansetime må være mellom 0 og 23.")
-        if self.backlog_first_hour > self.backlog_last_hour:
+        if (type(self.backlog_first_hour) is int and type(self.backlog_last_hour) is int
+                and self.backlog_first_hour > self.backlog_last_hour):
             errors.append("Første restansetime kan ikke være etter siste time.")
         unknown = set(self.enabled_units) - set(ACTIVE_UNIT_KEYS)
         if unknown:
             errors.append("Ukjent aktiv enhet: " + ", ".join(sorted(unknown)))
+        if len(self.enabled_units) != len(set(self.enabled_units)):
+            errors.append("Enhetslisten inneholder duplikater.")
+        unknown_paths = (set(self.statistics_lookup_paths) | set(self.unit_config_paths)) - set(ACTIVE_UNIT_KEYS)
+        if unknown_paths:
+            errors.append("Ukjent enhet for filsti: " + ", ".join(sorted(unknown_paths)))
         return tuple(errors)
 
     def to_transfer_payload(self) -> dict[str, object]:
@@ -87,6 +94,7 @@ class MolStatSettings:
         return settings
 
     def save(self, path: Path) -> None:
+        _raise_validation_error(self)
         payload = self.to_transfer_payload()
         payload["lvms_config_path"] = (
             str(self.lvms_config_path)
@@ -96,6 +104,7 @@ class MolStatSettings:
         _write_json_atomic(path, payload)
 
     def export_to(self, path: Path) -> None:
+        _raise_validation_error(self)
         _write_json_atomic(path, self.to_transfer_payload())
 
     @classmethod
@@ -103,8 +112,11 @@ class MolStatSettings:
         payload = _read_json_object(path)
         payload.pop("power_bi_report_url", None)
         if "schema_version" not in payload:
-            return cls._from_legacy_payload(payload)
-        return cls._from_versioned_payload(payload, allow_local_runtime=True)
+            settings = cls._from_legacy_payload(payload)
+        else:
+            settings = cls._from_versioned_payload(payload, allow_local_runtime=True)
+        _raise_validation_error(settings)
+        return settings
 
     @classmethod
     def import_from(cls, path: Path) -> MolStatSettings:
@@ -115,7 +127,7 @@ class MolStatSettings:
     def _from_legacy_payload(
         cls, payload: Mapping[str, object]
     ) -> MolStatSettings:
-        sensitive_root = _required_string(payload, "sensitive_root")
+        sensitive_root = _required_root(payload)
         sharepoint_root = _optional_string(payload, "sharepoint_root")
         lookup_raw = payload.get("statistics_lookup_paths", {})
         if not isinstance(lookup_raw, Mapping):
@@ -134,7 +146,7 @@ class MolStatSettings:
             backlog_last_hour=_legacy_hour(payload, "backlog_last_hour", 18),
             statistics_lookup_paths=lookups,
             lvms_config_path=Path(lvms_config) if lvms_config else None,
-            lvms_url=str(payload.get("lvms_url", "")),
+            lvms_url=_optional_string(payload, "lvms_url") or "",
             enabled_units=DEFAULT_ENABLED_UNIT_KEYS,
         )
         return settings
@@ -149,10 +161,17 @@ class MolStatSettings:
         version = payload.get("schema_version")
         if type(version) is not int or version != SETTINGS_SCHEMA_VERSION:
             raise ValueError("Ukjent skjemaversjon for MolStat-innstillinger.")
+        allowed = {"schema_version", "sensitive_root", "sharepoint_root", "lvms_url", "schedules", "units"}
+        if allow_local_runtime:
+            allowed.add("lvms_config_path")
+        elif "lvms_config_path" in payload:
+            raise ValueError("Overføringsfilen inneholder lokale runtime-data.")
+        _reject_unknown_fields(payload, allowed, "innstillinger")
 
         schedules = payload.get("schedules")
         if not isinstance(schedules, Mapping):
             raise ValueError("Innstillingsfilen mangler gyldige klokkeslett.")
+        _reject_unknown_fields(schedules, {"statistics_hour", "backlog_first_hour", "backlog_last_hour"}, "schedules")
         units = payload.get("units")
         if not isinstance(units, Mapping):
             raise ValueError("Innstillingsfilen mangler gyldige enheter.")
@@ -169,6 +188,7 @@ class MolStatSettings:
             raw_unit = units.get(key, {"enabled": False})
             if not isinstance(raw_unit, Mapping):
                 raise ValueError(f"Innstillingene for {key} må være et objekt.")
+            _reject_unknown_fields(raw_unit, {"enabled", "statistics_lookup_path", "config_path"}, key)
             is_enabled = raw_unit.get("enabled", False)
             if type(is_enabled) is not bool:
                 raise ValueError(f"Aktivering for {key} må være sann eller usann.")
@@ -192,7 +212,7 @@ class MolStatSettings:
             raise ValueError("Overføringsfilen inneholder lokale runtime-data.")
 
         settings = cls(
-            sensitive_root=Path(_required_string(payload, "sensitive_root")),
+            sensitive_root=Path(_required_root(payload)),
             sharepoint_root=(
                 Path(value)
                 if (value := _optional_string(payload, "sharepoint_root"))
@@ -212,12 +232,13 @@ class MolStatSettings:
 
 def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     try:
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -225,12 +246,36 @@ def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
 
 def _read_json_object(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ValueError("Kunne ikke lese MolStat-innstillingene.") from error
+        payload = json.loads(path.read_text(encoding="utf-8-sig"), object_pairs_hook=_unique_json_keys)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Ugyldig JSON i {path.name}, linje {error.lineno}, kolonne {error.colno}.") from error
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"Kunne ikke lese MolStat-innstillingene i {path.name}.") from error
     if not isinstance(payload, dict):
         raise ValueError("MolStat-innstillingene må være et JSON-objekt.")
     return payload
+
+
+def _unique_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"MolStat-innstillingene inneholder duplikat JSON-nøkkel: {key}.")
+        result[key] = value
+    return result
+
+
+def _reject_unknown_fields(payload: Mapping[str, object], allowed: set[str], field: str) -> None:
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ValueError(f"Ukjente felt i {field}: " + ", ".join(sorted(unknown)))
+
+
+def _required_root(payload: Mapping[str, object]) -> str:
+    value = _required_string(payload, "sensitive_root").strip()
+    if not value:
+        raise ValueError("K-sensitiv mappe må fylles ut.")
+    return value
 
 
 def _required_string(payload: Mapping[str, object], key: str) -> str:
