@@ -486,10 +486,13 @@ def test_overview_and_settings_scroll_in_citrix_sized_window(qtbot) -> None:
         settings_scroll.verticalScrollBar().maximum()
     )
     qtbot.wait(10)
+    # Saving stays available while the selected unit editor scrolls.
     button_top = window.settings_page.save_button.mapTo(
-        settings_scroll.viewport(), window.settings_page.save_button.rect().topLeft()
+        window.settings_page, window.settings_page.save_button.rect().topLeft()
     ).y()
-    assert 0 <= button_top < settings_scroll.viewport().height()
+    assert window.settings_page.save_button.isVisible()
+    assert 0 <= button_top < window.settings_page.height()
+    assert settings_scroll.horizontalScrollBar().maximum() == 0
 
 
 def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:

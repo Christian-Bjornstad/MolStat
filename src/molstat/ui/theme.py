@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 
 COLORS = {
     "primary": "#2457C5",
@@ -18,6 +20,7 @@ COLORS = {
 
 
 def build_stylesheet() -> str:
+    chevron = (Path(__file__).resolve().parents[1] / "assets" / "chevron-down.svg").as_posix()
     return f"""
     * {{
         font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
@@ -59,24 +62,39 @@ def build_stylesheet() -> str:
         background: #284A7A;
         border-color: {COLORS['primary']};
     }}
-    QLabel#page-title {{ font-size: 26px; font-weight: 700; }}
+    QLabel#page-title {{ font-size: 28px; font-weight: 700; }}
     QLabel#page-intro {{ color: {COLORS['muted_text']}; font-size: 15px; }}
+    QLabel[sectionTitle="true"] {{ font-size: 17px; font-weight: 700; }}
+    QLabel[badge="true"] {{
+        font-size: 12px;
+        font-weight: 600;
+        border-radius: 6px;
+        padding: 4px 8px;
+        background: {COLORS['muted']};
+        color: {COLORS['muted_text']};
+    }}
+    QLabel[badge="true"][tone="success"] {{ background: #E9F4EE; color: {COLORS['success']}; }}
+    QLabel[tone="success"] {{ color: {COLORS['success']}; }}
+    QLabel[tone="danger"] {{ color: {COLORS['danger']}; }}
+    QLabel[tone="warning"] {{ color: {COLORS['warning']}; }}
+    QLabel[tone="working"] {{ color: {COLORS['primary']}; }}
+    QLabel[capabilityStatus="true"] {{ font-size: 12px; }}
     QFrame#status-card {{
         background: white;
         border: 1px solid {COLORS['border']};
-        border-radius: 12px;
+        border-radius: 8px;
     }}
     QFrame[unitStatus="active"] {{
         background: {COLORS['surface']};
         border: 1px solid {COLORS['border']};
-        border-radius: 12px;
+        border-radius: 8px;
     }}
     QFrame[unitStatus="coming"] {{
         background: #EFF3F8;
         border: 1px dashed #AAB8CD;
-        border-radius: 12px;
+        border-radius: 8px;
     }}
-    QLabel[unitTitle="true"] {{ font-size: 19px; font-weight: 700; }}
+    QLabel[unitTitle="true"] {{ font-size: 18px; font-weight: 700; }}
     QLabel[unitBadge="active"] {{
         color: {COLORS['success']};
         font-weight: 700;
@@ -87,9 +105,9 @@ def build_stylesheet() -> str:
     }}
     QLabel[unitRunState="true"] {{ color: {COLORS['foreground']}; }}
     QLabel[cardTitle="true"] {{ color: {COLORS['muted_text']}; font-weight: 600; }}
-    QLabel[cardState="true"] {{ font-size: 20px; font-weight: 700; }}
+    QLabel[cardState="true"] {{ font-size: 17px; font-weight: 700; }}
     QLabel[cardDetail="true"] {{ color: {COLORS['muted_text']}; }}
-    QLineEdit, QPlainTextEdit, QSpinBox {{
+    QLineEdit, QPlainTextEdit, QSpinBox, QComboBox, QDateEdit {{
         background: white;
         border: 1px solid #8293AB;
         border-radius: 8px;
@@ -97,15 +115,52 @@ def build_stylesheet() -> str:
         selection-background-color: {COLORS['primary']};
         selection-color: white;
     }}
-    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus {{ border: 3px solid {COLORS['focus']}; }}
+    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus, QDateEdit:focus {{ border: 3px solid {COLORS['focus']}; }}
+    QLineEdit[tone="danger"] {{ border-color: {COLORS['danger']}; }}
+    QComboBox, QDateEdit, QSpinBox {{ padding-right: 24px; }}
+    QComboBox::drop-down, QDateEdit::drop-down {{ width: 24px; border: none; }}
+    QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url("{chevron}"); width: 12px; height: 12px; }}
+    QComboBox QAbstractItemView {{ background: white; selection-background-color: {COLORS['primary']}; selection-color: white; }}
+    QPushButton[quiet="true"] {{ background: transparent; border-color: {COLORS['border']}; color: {COLORS['muted_text']}; }}
+    QPushButton[quiet="true"]:hover {{ background: {COLORS['muted']}; border-color: {COLORS['focus']}; color: {COLORS['foreground']}; }}
+    QTabWidget::pane {{ background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 8px; }}
+    QTabBar::tab {{
+        min-height: 44px;
+        padding: 0 16px;
+        color: {COLORS['muted_text']};
+        background: transparent;
+        border: 1px solid transparent;
+        border-bottom: 3px solid transparent;
+        font-weight: 600;
+    }}
+    QTabBar::tab:selected {{ color: {COLORS['primary']}; border-bottom-color: {COLORS['primary']}; background: {COLORS['surface']}; }}
+    QTabBar::tab:hover {{ background: {COLORS['muted']}; }}
+    QTabBar::tab:focus {{ border: 3px solid {COLORS['focus']}; }}
+    QWidget#settings-tab-content, QWidget#unit-settings-stack {{ background: {COLORS['surface']}; }}
+    QListWidget {{ background: {COLORS['background']}; border: 1px solid {COLORS['border']}; border-radius: 8px; padding: 4px; }}
+    QListWidget::item {{ padding: 8px; border-radius: 6px; }}
+    QListWidget::item:selected {{ color: white; background: {COLORS['primary']}; }}
+    QListWidget::item:hover:!selected {{ background: {COLORS['muted']}; }}
+    QListWidget:focus {{ border: 3px solid {COLORS['focus']}; }}
+    QCheckBox {{ spacing: 8px; }}
+    QCheckBox:focus {{ outline: 2px solid {COLORS['focus']}; }}
+    QScrollBar:vertical {{ background: transparent; width: 12px; margin: 0; }}
+    QScrollBar::handle:vertical {{ background: #AAB8CD; border-radius: 4px; min-height: 32px; margin: 2px; }}
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
     QGroupBox {{
         background: white;
         border: 1px solid {COLORS['border']};
-        border-radius: 12px;
+        border-radius: 8px;
         margin-top: 14px;
         padding: 18px;
         font-weight: 700;
     }}
     QGroupBox::title {{ subcontrol-origin: margin; left: 16px; padding: 0 6px; }}
+    QLabel[tone="success"] {{ color: {COLORS['success']}; }}
+    QLabel[tone="danger"] {{ color: {COLORS['danger']}; }}
+    QLabel[tone="warning"] {{ color: {COLORS['warning']}; }}
+    QLabel[tone="working"] {{ color: {COLORS['primary']}; }}
     QStatusBar {{ background: white; border-top: 1px solid {COLORS['border']}; }}
+    QWidget#import-footer {{ background: {COLORS['surface']}; border-top: 1px solid {COLORS['border']}; }}
     """
