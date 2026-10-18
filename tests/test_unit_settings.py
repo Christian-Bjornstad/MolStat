@@ -156,7 +156,7 @@ def test_backlog_column_mapping_rejects_reusing_same_source_column(tmp_path):
 
 def test_doctor_report_role_cannot_be_disconnected_from_fetch_job(tmp_path):
     payload = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))
-    payload["statistics"]["current"]["job_key"] = "typo"
+    payload["statistics"]["workflow"]["job_key"] = "typo"
     path = tmp_path / "bad.json"
     path.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="job_key"):
@@ -172,7 +172,7 @@ def test_report_fetch_id_cannot_silently_fall_back_on_wrong_type(tmp_path):
         load_unit_file(path)
 
 
-@pytest.mark.parametrize("role", ["current", "previous", "production", "macro"])
+@pytest.mark.parametrize("role", ["workflow"])
 def test_doctor_profile_rejects_storage_stems_its_processors_cannot_read(tmp_path, role):
     payload = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))
     payload["statistics"][role]["report_id"] = "CUSTOM-REPORT-OU"
@@ -184,8 +184,7 @@ def test_doctor_profile_rejects_storage_stems_its_processors_cannot_read(tmp_pat
 
 def test_doctor_profile_still_allows_changing_lvms_fetch_identifier(tmp_path):
     payload = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))
-    payload["statistics"]["current"]["fetch_report_id"] = "CUSTOM-REPORT-OU"
-    payload["statistics"]["current"]["analysis_codes"] = ["SYNTHETIC-OU"]
+    payload["statistics"]["workflow"]["fetch_report_id"] = "PAT-TID-STOP-SNITT-OU"
     path = tmp_path / "custom.json"
     path.write_text(json.dumps(payload))
-    assert load_unit_file(path).unit.report_by_key("current").fetch_report_id == "CUSTOM-REPORT-OU"
+    assert load_unit_file(path).unit.report_by_key("workflow").fetch_report_id == "PAT-TID-STOP-SNITT-OU"

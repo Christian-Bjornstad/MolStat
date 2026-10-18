@@ -39,7 +39,7 @@ def test_process_selects_newest_month_snapshot_and_splits_hemato(tmp_path: Path)
 
 
 def test_fetcher_uses_two_month_windows_for_patolog(tmp_path: Path) -> None:
-    definition = load_unit_file(default_unit_file("lege"))
+    definition = legacy_definition()
     config_root = materialize_snapshot(tmp_path, {"lege": definition})
     jobs = []
 
@@ -71,7 +71,7 @@ def test_fetcher_uses_two_month_windows_for_patolog(tmp_path: Path) -> None:
 
 
 def test_first_patolog_fetch_builds_history_one_month_at_a_time(tmp_path: Path) -> None:
-    definition = load_unit_file(default_unit_file("lege"))
+    definition = legacy_definition()
     config_root = materialize_snapshot(tmp_path, {"lege": definition})
     calls = []
 
@@ -112,7 +112,7 @@ def test_first_patolog_fetch_builds_history_one_month_at_a_time(tmp_path: Path) 
 
 
 def test_patolog_backfill_resumes_after_failed_month(tmp_path: Path) -> None:
-    definition = load_unit_file(default_unit_file("lege"))
+    definition = legacy_definition()
     config_root = materialize_snapshot(tmp_path, {"lege": definition})
     calls = []
     fail_february = True
@@ -143,3 +143,16 @@ def test_patolog_backfill_resumes_after_failed_month(tmp_path: Path) -> None:
     fetcher.fetch_statistics(("lege",))
     assert calls[0] == date(2024, 2, 1)
     assert date(2024, 1, 1) not in calls
+
+
+def legacy_definition():
+    """Exercise archived four-report compatibility independently of active defaults."""
+    from dataclasses import replace
+    from molstat._statistics.units import validate_units
+    definition = load_unit_file(default_unit_file("lege"))
+    fetches = {"current": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "previous": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "production": "PAT-EGEN PRODUKSJON", "macro": "PAT-EGEN MAKRO"}
+    stems = {"current": "PAT-PROSESS-CURRENT-OU", "previous": "PAT-PROSESS-PREVIOUS-OU", "production": "PAT-EGEN-PRODUKSJON-OU", "macro": "PAT-EGEN-MAKRO-OU"}
+    reports = {role: {"job_key": role, "fetch_report_id": fetches[role], "report_id": stems[role], "analysis_codes": []} for role in fetches}
+    definition.payload["statistics"] = reports
+    unit = validate_units({"units": {"lege": {"label": "Patologer", "profile": "lege", "analysis_codes": [], "reports": list(reports.values())}}})[0]
+    return replace(definition, unit=unit)

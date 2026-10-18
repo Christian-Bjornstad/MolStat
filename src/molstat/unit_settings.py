@@ -73,23 +73,24 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
         if not isinstance(raw.get("label"), str) or not raw["label"].strip():
             raise UnitConfigError("label: navn mangler")
         reports = raw.get("statistics")
-        if raw.get("profile") == "lege" and isinstance(reports, dict) and set(reports) == {"current", "previous"}:
-            # Upgrade the process-only definition already saved on work PCs.
-            additions = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))["statistics"]
-            reports.update({key: additions[key] for key in ("production", "macro")})
-        _object(reports, {"antall", "resultater", "ekstraksjon", "current", "previous", "production", "macro"}, "statistics")
+        if raw.get("profile") == "lege" and isinstance(reports, dict):
+            retired = {"current", "previous", "production", "macro"}
+            if set(reports) <= retired | {"workflow"} and ("workflow" in reports or {"current", "previous"} <= set(reports)):
+                workflow = reports.get("workflow") or json.loads(default_unit_file("lege").read_text(encoding="utf-8"))["statistics"]["workflow"]
+                reports = raw["statistics"] = {"workflow": workflow}
+        _object(reports, {"workflow", "antall", "resultater", "ekstraksjon", "current", "previous", "production", "macro"}, "statistics")
         expected_roles = {
             "hemato": {"antall", "resultater", "ekstraksjon"},
             "solide": {"antall", "resultater", "ekstraksjon"},
             "flow": {"antall", "resultater"},
             "fish": {"antall", "resultater"},
             "pre": {"resultater"},
-            "lege": {"current", "previous", "production", "macro"},
+            "lege": {"workflow"},
         }.get(raw.get("profile"))
         if expected_roles is None or set(reports) != expected_roles:
             raise UnitConfigError("statistics: rapportrollene stemmer ikke med profilen")
         for name, report in reports.items():
-            _object(report, {"job_key", "fetch_report_id", "report_id", "analysis_codes", "comment"}, f"statistics.{name}")
+            _object(report, {"job_key", "fetch_report_id", "report_id", "analysis_codes", "comment", "laboratory", "process_codes"}, f"statistics.{name}")
             if not isinstance(report.get("analysis_codes"), list) or (not report["analysis_codes"] and raw.get("profile") != "lege"):
                 raise UnitConfigError(f"statistics.{name}.analysis_codes: listen må ha minst én kode")
             if "fetch_report_id" in report and (not isinstance(report["fetch_report_id"], str) or not report["fetch_report_id"].strip()):
@@ -103,13 +104,13 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
                 from ._statistics.patolog_reports import PRODUCTION_STEM, MACRO_STEM
 
                 storage_stems = dict(zip(("current", "previous"), REPORT_STEMS))
-                storage_stems.update(production=PRODUCTION_STEM, macro=MACRO_STEM)
+                storage_stems.update(production=PRODUCTION_STEM, macro=MACRO_STEM, workflow="PAT-TID-STOP-SNITT-OU")
                 if report.get("report_id") != storage_stems[name]:
                     raise UnitConfigError(
                         f"statistics.{name}.report_id: patologprofilen krever {storage_stems[name]} som arkivnavn. "
                         "Bruk fetch_report_id for å endre rapporten som hentes fra LVMS."
                     )
-        primary = reports.get("antall") or reports.get("resultater") or reports["current"]
+        primary = reports.get("antall") or reports.get("resultater") or reports.get("workflow") or reports["current"]
         legacy = {"label": raw["label"], "profile": raw.get("profile"),
                   "analysis_codes": primary["analysis_codes"], "reports": list(reports.values())}
         unit = validate_units({"units": {key: legacy}})[0]
@@ -118,6 +119,7 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
         for report in unit.reports:
             validate_report_job({"job_key": report.job_key, "report_type": "PRODSTAT", "category": "PATOLOGI",
                                  "report_id": report.fetch_report_id, "analysis_codes": list(report.analysis_codes),
+                                 "laboratory": report.laboratory, "process_codes": list(report.process_codes),
                                  "usernames": ["TESTUSER"] if raw.get("profile") == "lege" and report.job_key in {"production", "macro"} else [],
                                  "created_from": "01.01.2024", "created_to": "01.01.2024", "output_stem": report.report_id})
         backlog = raw.get("backlog")
@@ -259,6 +261,12 @@ def upgrade_source(sensitive_root: Path, key: str, legacy_root: Path | None = No
                 content = json.loads((legacy_root / filename).read_text(encoding="utf-8-sig"), object_pairs_hook=_unique)
                 originals[filename] = content
                 payload["backlog"][section] = content
+        elif key == "solide":
+            # Restanse was added after the legacy statistics-only definition.
+            # Keep edited statistics while adding the verified restanse setup.
+            default = json.loads(default_unit_file(key).read_text(encoding="utf-8"))
+            payload["backlog"] = default["backlog"]
+            originals["solide.json"] = default["backlog"]
         digest = hashlib.sha256(json.dumps(originals, sort_keys=True).encode()).hexdigest()
         root = sensitive_root / "config" / "migration" / digest
         source = root / f"{key}.json"

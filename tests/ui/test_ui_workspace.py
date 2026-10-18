@@ -9,6 +9,16 @@ from molstat.ui.import_page import ImportPage
 from molstat.modules import DEFAULT_UNITS, UnitDefinition, UnitRegistry
 
 
+def test_hist_is_absent_from_settings_and_manual_import(qtbot):
+    settings = SettingsPage()
+    importer = ImportPage()
+    qtbot.addWidget(settings)
+    qtbot.addWidget(importer)
+    assert "hist" not in settings.config_fields
+    assert "hist" not in settings.unit_panels
+    assert importer.unit_combo.findData("hist") == -1
+
+
 def test_settings_edits_only_selected_unit_and_keeps_other_drafts(qtbot):
     page = SettingsPage()
     qtbot.addWidget(page)
@@ -213,3 +223,13 @@ def test_import_action_and_validation_feedback_remain_visible_when_scrolled(qtbo
     assert not page.form_container.isEnabled()
     page.set_busy(False)
     assert page.import_button.isEnabled()
+
+
+def test_workflow_import_requires_one_file_and_describes_one_month(qtbot):
+    page = ImportPage()
+    qtbot.addWidget(page)
+    page.unit_combo.setCurrentIndex(page.unit_combo.findData("lege"))
+    page.set_roles(("workflow",))
+    assert set(page.file_fields) == {"workflow"}
+    assert "én fil" in page.period_hint.text()
+    assert "forrige måned" not in page.period_hint.text()

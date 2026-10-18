@@ -281,7 +281,7 @@ def run_report_batch(
                 if str(exc) == f"report form control {missing} did not appear" and missing in {
                     "category", "report_id", "report_groups", "analysis_codes",
                     "created_from", "created_to", "macro_usernames",
-                    "production_usernames", "period_from", "period_to",
+                    "production_usernames", "period_from", "period_to", "laboratory", "process_codes",
                 }:
                     detail = f"mangler felt: {missing}"
             if isinstance(exc, CdpTimeout) and str(exc) == "SSO did not return to the expected origin":

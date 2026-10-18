@@ -44,6 +44,8 @@ class UnitReport:
     report_id: str
     # None = inherit the unit-level analysis_codes.
     analysis_codes: tuple[str, ...] | None = None
+    laboratory: str = ""
+    process_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,7 +105,7 @@ def _reports(raw: Mapping[str, object]) -> tuple[UnitReport, ...]:
         if isinstance(fetch_id_raw, str) and fetch_id_raw.strip():
             fetch_report_id = fetch_id_raw.strip()
             if not (OUTPUT_STEM_PATTERN.fullmatch(fetch_report_id) or fetch_report_id in {
-                "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "PAT-EGEN PRODUKSJON", "PAT-EGEN MAKRO"
+                "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "PAT-EGEN PRODUKSJON", "PAT-EGEN MAKRO", "PAT-TID-STØP-SNITT-OU"
             }):
                 raise UnitsConfigError(
                     "unit report fetch id is invalid"
@@ -141,6 +143,8 @@ def _reports(raw: Mapping[str, object]) -> tuple[UnitReport, ...]:
                 fetch_report_id=fetch_report_id,
                 report_id=report_id,
                 analysis_codes=report_codes,
+                laboratory=item.get("laboratory", ""),
+                process_codes=tuple(item.get("process_codes", [])),
             )
         )
     return tuple(reports)

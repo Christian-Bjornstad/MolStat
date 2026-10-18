@@ -208,7 +208,7 @@ def test_manual_unit_job_dispatches_stable_target_and_reports_completion(qtbot) 
     assert "fullført" in window.statusBar().currentMessage().casefold()
 
 
-def test_overview_exposes_active_and_coming_units(qtbot) -> None:
+def test_overview_exposes_active_units_without_hist(qtbot) -> None:
     window = MainWindow(FakeOrchestrator(), None)
     qtbot.addWidget(window)
 
@@ -223,12 +223,8 @@ def test_overview_exposes_active_and_coming_units(qtbot) -> None:
         assert button is not None
         assert button.isEnabled() is True
         assert button.accessibleName()
-    for key in ("hist",):
-        button = window.findChild(QPushButton, f"run-{key}")
-        assert button is not None
-        assert button.isEnabled() is False
-        assert "kommer" in button.text().casefold()
-        assert button.accessibleName()
+    assert window.findChild(QPushButton, "run-hist") is None
+    assert window.findChild(object, "capabilities-hist") is None
 
 
 def test_run_all_and_solide_dispatch_explicit_targets(qtbot) -> None:

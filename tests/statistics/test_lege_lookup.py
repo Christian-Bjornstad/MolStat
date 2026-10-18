@@ -37,7 +37,7 @@ def test_existing_pathology_settings_without_lookup_use_bundled_roster(tmp_path:
     services.settings = replace(services.settings, statistics_lookup_paths={})
     system = services._build_system(require_statistics=True)
     assert system.statistics_fetch.__self__.lege_lookup_path == default_lege_lookup_path()
-    assert system.statistics_processors["lege"].lookup_path == default_lege_lookup_path()
+    assert system.statistics_processors["lege"].lookup_path == Path("")
     assert services.load_settings_fields()["lookup_lege"] == str(default_lege_lookup_path())
 
 
@@ -74,7 +74,7 @@ def test_settings_store_selected_lege_lookup_snapshot(tmp_path: Path) -> None:
     assert stored.is_relative_to(sensitive / "config" / "lookups" / "lege")
     assert stored.read_bytes() == roster.read_bytes()
     assert services.load_settings_fields()["lookup_lege"] == str(stored)
-    assert services._build_system(require_statistics=True).statistics_processors["lege"].lookup_path == stored
+    assert services._build_system(require_statistics=True).statistics_processors["lege"].lookup_path == Path("")
 
 
 def test_settings_reject_invalid_lege_lookup(tmp_path: Path) -> None:

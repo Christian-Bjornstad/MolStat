@@ -78,7 +78,11 @@ class UnifiedLvmsFetcher:
                 )
             selected = tuple(by_key[key] for key in unit_keys)
         for unit in selected:
-            if unit.profile == "lege":
+            if unit.profile == "lege" and any(r.job_key == "workflow" for r in unit.reports):
+                usernames = ()
+                self._backfill_flow_months(unit, today)
+                planned = [(unit.report_by_key("workflow"), today.replace(day=1), today)]
+            elif unit.profile == "lege":
                 from ._statistics.lege_lookup import load_lege_lookup
 
                 usernames = (
@@ -86,11 +90,15 @@ class UnifiedLvmsFetcher:
                     if self.lege_lookup_path else ()
                 )
                 self._backfill_patolog_months(unit, today, usernames)
+                if any(report.job_key == "workflow" for report in unit.reports):
+                    self._backfill_flow_months(unit, today)
                 windows = monthly_process_windows(today)
                 planned = [(unit.report_by_key(role), *windows[role]) for role in ("current", "previous")]
                 if usernames:
                     planned.extend((unit.report_by_key(role), *windows[month])
                                    for role in ("production", "macro") for month in ("current", "previous"))
+                if any(report.job_key == "workflow" for report in unit.reports):
+                    planned.append((unit.report_by_key("workflow"), *windows["current"]))
             else:
                 usernames = ()
                 created_from, created_to = plan_window(
@@ -123,6 +131,29 @@ class UnifiedLvmsFetcher:
                 for (report, _, _), job, source in zip(planned, jobs, sources, strict=True)
             )
         return result
+
+    def _backfill_flow_months(self, unit: Unit, today: date) -> None:
+        from ._statistics import patolog_flow as flow
+
+        folder = self.sensitive_root / "raw" / "statistics" / unit.key
+        existing = flow.latest_months(folder)
+        report = unit.report_by_key("workflow")
+        month = self.history_from.replace(day=1)
+        archive = RawArchive(self.sensitive_root)
+        while month < today.replace(day=1):
+            end = _month_end(month)
+            previous = existing.get(month)
+            if previous is None or flow.needs_refresh(previous[0], month, previous[1], today):
+                job = _statistics_job(unit, report, month, end)
+                source = self._run_jobs((job,), unit.key)[0]
+                try:
+                    flow.validate_month(source, month, end, laboratory=job.laboratory, processes=job.process_codes)
+                except ValueError as exc:
+                    raise RunFailure("CSV_INVALID", f"patolog/workflow/{month.isoformat()}") from exc
+                archive.store(source, ReportRequest(kind="statistics", unit=unit.key,
+                    report_name=report.report_id, date_from=month, date_to=end))
+                source.unlink()
+            month = end + timedelta(days=1)
 
     def _backfill_patolog_months(self, unit: Unit, today: date, usernames: tuple[str, ...] = ()) -> None:
         from ._statistics.patolog_process import _latest_by_month, _read
@@ -231,6 +262,14 @@ class UnifiedLvmsFetcher:
         missing = [source.name for source in sources if not source.is_file()]
         if missing:
             raise RunFailure("DOWNLOAD_INCOMPLETE", "output_check", run_id=run_root.name)
+        for job, source in zip(jobs, sources, strict=True):
+            if job.laboratory:
+                from ._statistics.patolog_flow import validate_month
+                try:
+                    validate_month(source, job.interval.created_from, job.interval.created_to,
+                                   laboratory=job.laboratory, processes=job.process_codes)
+                except ValueError as exc:
+                    raise RunFailure("CSV_INVALID", "patolog/workflow/download") from exc
         return sources
 
 
@@ -245,6 +284,8 @@ def _statistics_job(unit: Unit, report, created_from: date, created_to: date, *,
         interval=ReportInterval(created_from, created_to),
         output_stem=report.report_id,
         usernames=usernames if report.job_key in {"production", "macro"} else (),
+        laboratory=report.laboratory,
+        process_codes=report.process_codes,
     )
 
 
@@ -333,6 +374,8 @@ def _write_jobs(path: Path, jobs: tuple[ReportJob, ...]) -> Path:
                 "report_groups": list(job.report_groups),
                 "analysis_codes": list(job.analysis_codes),
                 "usernames": list(job.usernames),
+                "laboratory": job.laboratory,
+                "process_codes": list(job.process_codes),
                 "created_from": job.interval.created_from.strftime("%d.%m.%Y"),
                 "created_to": job.interval.created_to.strftime("%d.%m.%Y"),
                 "output_stem": job.output_stem,

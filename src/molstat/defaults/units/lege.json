@@ -4,29 +4,35 @@
   "label": "Patologer",
   "profile": "lege",
   "statistics": {
-    "current": {
-      "job_key": "current",
-      "fetch_report_id": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU",
-      "report_id": "PAT-PROSESS-CURRENT-OU",
-      "analysis_codes": []
-    },
-    "previous": {
-      "job_key": "previous",
-      "fetch_report_id": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU",
-      "report_id": "PAT-PROSESS-PREVIOUS-OU",
-      "analysis_codes": []
-    },
-    "production": {
-      "job_key": "production",
-      "fetch_report_id": "PAT-EGEN PRODUKSJON",
-      "report_id": "PAT-EGEN-PRODUKSJON-OU",
-      "analysis_codes": []
-    },
-    "macro": {
-      "job_key": "macro",
-      "fetch_report_id": "PAT-EGEN MAKRO",
-      "report_id": "PAT-EGEN-MAKRO-OU",
-      "analysis_codes": []
+    "workflow": {
+      "job_key": "workflow",
+      "fetch_report_id": "PAT-TID-STØP-SNITT-OU",
+      "report_id": "PAT-TID-STOP-SNITT-OU",
+      "analysis_codes": [],
+      "laboratory": "OU-PAT-HIST-RA",
+      "process_codes": [
+        "BEN-BLØTVEV",
+        "GI",
+        "GYN",
+        "HEMATO",
+        "HEMATO BENMARG",
+        "HJERTE-TX",
+        "HODE-HALS-ORAL",
+        "HUD",
+        "IKKE NEOPLASTISK NYR",
+        "LEVER",
+        "LUNGE-TX",
+        "MAMMA",
+        "NEVRO BIOPSI",
+        "NEVRO MUSKEL",
+        "NEVRO OBD MUSKEL",
+        "SOLIDE SVULSTER BARN",
+        "TARMSCREENING",
+        "THORAX",
+        "THYREOIDEA",
+        "URO",
+        "ØYE"
+      ]
     }
   },
   "backlog": null

@@ -215,6 +215,5 @@ DEFAULT_UNITS = UnitRegistry(
         UnitDefinition("flow", "Flow", "active", (_FLOW_STATISTICS,)),
         UnitDefinition("fish", "FISH", "active", (_FISH_STATISTICS,)),
         UnitDefinition("pre", "Pre", "active", (_PRE_STATISTICS,)),
-        UnitDefinition("hist", "Hist", "coming", ()),
     )
 )

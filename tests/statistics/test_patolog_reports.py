@@ -23,7 +23,7 @@ def _roster(path: Path) -> Path:
 
 
 def test_existing_process_only_lege_config_adds_doctor_reports(tmp_path: Path) -> None:
-    raw = json.loads(default_unit_file("lege").read_text(encoding="utf-8"))
+    raw = legacy_definition().payload
     del raw["statistics"]["production"]
     del raw["statistics"]["macro"]
     legacy = tmp_path / "lege.json"
@@ -31,8 +31,8 @@ def test_existing_process_only_lege_config_adds_doctor_reports(tmp_path: Path) -
 
     upgraded = load_unit_file(legacy, "lege")
 
-    assert set(upgraded.payload["statistics"]) == {"current", "previous", "production", "macro"}
-    assert len(upgraded.unit.reports) == 4
+    assert set(upgraded.payload["statistics"]) == {"workflow"}
+    assert len(upgraded.unit.reports) == 1
 
 
 def test_partial_month_does_not_count_as_historical_completion(tmp_path: Path) -> None:
@@ -59,7 +59,7 @@ def test_doctor_report_requires_usernames_without_analysis_codes() -> None:
 
 
 def test_lege_fetch_uses_roster_and_resumes_monthly_doctor_history(tmp_path: Path) -> None:
-    definition = load_unit_file(default_unit_file("lege"))
+    definition = legacy_definition()
     config_root = materialize_snapshot(tmp_path, {"lege": definition})
     calls = []
 
@@ -102,7 +102,7 @@ def test_lege_fetch_uses_roster_and_resumes_monthly_doctor_history(tmp_path: Pat
 
 
 def test_lege_backfill_identifies_invalid_historical_export(tmp_path: Path) -> None:
-    definition = load_unit_file(default_unit_file("lege"))
+    definition = legacy_definition()
     config_root = materialize_snapshot(tmp_path, {"lege": definition})
 
     def batch(_config, jobs_path, _keys, **kwargs):
@@ -210,7 +210,7 @@ def test_doctor_report_prefers_latest_revision_when_file_times_tie(tmp_path: Pat
 
 
 def _history_fetcher(tmp_path: Path):
-    definition = load_unit_file(default_unit_file("lege"))
+    definition = legacy_definition()
     config_root = materialize_snapshot(tmp_path, {"lege": definition})
     roster = tmp_path / "roster.csv"
     calls = []
@@ -320,3 +320,16 @@ def test_changed_doctor_archive_requires_new_coverage(tmp_path: Path) -> None:
     history = [job for job in calls if job.interval.created_from.month == 8]
     assert [job.job_key for job in history] == ["production"]
     assert set(history[0].usernames) == {"USERA", "USERB"}
+
+
+def legacy_definition():
+    """Exercise archived four-report compatibility independently of active defaults."""
+    from dataclasses import replace
+    from molstat._statistics.units import validate_units
+    definition = load_unit_file(default_unit_file("lege"))
+    fetches = {"current": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "previous": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "production": "PAT-EGEN PRODUKSJON", "macro": "PAT-EGEN MAKRO"}
+    stems = {"current": "PAT-PROSESS-CURRENT-OU", "previous": "PAT-PROSESS-PREVIOUS-OU", "production": "PAT-EGEN-PRODUKSJON-OU", "macro": "PAT-EGEN-MAKRO-OU"}
+    reports = {role: {"job_key": role, "fetch_report_id": fetches[role], "report_id": stems[role], "analysis_codes": []} for role in fetches}
+    definition.payload["statistics"] = reports
+    unit = validate_units({"units": {"lege": {"label": "Patologer", "profile": "lege", "analysis_codes": [], "reports": list(reports.values())}}})[0]
+    return replace(definition, unit=unit)

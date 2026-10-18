@@ -38,6 +38,8 @@ def manual_import_roles(definition: UnitFile, job_kind: str) -> tuple[str, ...]:
     if job_kind != "statistics":
         raise ManualImportError("Velg statistikk eller restanse.")
     if definition.unit.profile == "lege":
+        if set(definition.payload["statistics"]) == {"workflow"}:
+            return ("workflow",)
         return ("current", "previous", "production_current", "production_previous",
                 "macro_current", "macro_previous")
     return tuple(definition.payload["statistics"])
@@ -100,6 +102,10 @@ def _require_date_in_period(moment, request: ReportRequest, role: str) -> None:
 
 
 def _validate_statistics_csv(path: Path, profile: str, role: str, request: ReportRequest) -> None:
+    if profile == "lege" and role == "workflow":
+        from ._statistics.patolog_flow import validate_month
+        validate_month(path, request.date_from, request.date_to)
+        return
     if profile == "lege":
         from ._statistics.patolog_process import _count, _text
         from ._statistics.patolog_reports import SOURCE_FIELDS, _moment
@@ -250,6 +256,11 @@ def process_manual_import(
             try:
                 if plan.job_kind == "statistics":
                     _validate_statistics_csv(destination, definition.unit.profile, role, request)
+                    if definition.unit.profile == "lege" and role == "workflow":
+                        from ._statistics.patolog_flow import validate_month
+                        report = definition.unit.report_by_key("workflow")
+                        validate_month(destination, request.date_from, request.date_to,
+                                       laboratory=report.laboratory, processes=report.process_codes)
                 else:
                     from ._backlog.ingestion import read_restanse_csv
                     processor = getattr(system, "backlog_processors", {}).get(plan.unit_key, system.backlog_processor)

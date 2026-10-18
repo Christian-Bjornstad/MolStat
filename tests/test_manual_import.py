@@ -18,13 +18,22 @@ from molstat._backlog.config import validate_app_config
 import xlsxwriter
 
 
-def _system(tmp_path, key="hemato"):
+def _system(tmp_path, key="hemato", workflow=False):
     lookup = tmp_path / "lookup.xlsx"
     with xlsxwriter.Workbook(lookup) as workbook:
         sheet = workbook.add_worksheet("Lookup")
         sheet.write_row(0, 0, ["Analyse", "Nukleinsyre", "Rapportgruppe", "Svarfrist"])
         sheet.write_row(1, 0, ["CALR-OU", "DNA", "MPN", "21"])
     definition = load_unit_file(default_unit_file(key))
+    if key == "lege" and not workflow:
+        from dataclasses import replace
+        from molstat._statistics.units import validate_units
+        roles = {"current": ("PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "PAT-PROSESS-CURRENT-OU"),
+            "previous": ("PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "PAT-PROSESS-PREVIOUS-OU"),
+            "production": ("PAT-EGEN PRODUKSJON", "PAT-EGEN-PRODUKSJON-OU"), "macro": ("PAT-EGEN MAKRO", "PAT-EGEN-MAKRO-OU")}
+        reports = {role: {"job_key": role, "fetch_report_id": fetch, "report_id": stem, "analysis_codes": []} for role, (fetch, stem) in roles.items()}
+        definition.payload["statistics"] = reports
+        definition = replace(definition, unit=validate_units({"units": {"lege": {"label": "Patologer", "profile": "lege", "analysis_codes": [], "reports": list(reports.values())}}})[0])
     database = MolStatDatabase(tmp_path / "sensitive/data/molstat.sqlite3")
     database.migrate()
     registry = configured_registry({key: definition})
@@ -42,6 +51,27 @@ def _system(tmp_path, key="hemato"):
         excel_search_path=tmp_path / "sensitive/Prøvesøk.xlsx", units=registry,
     )
     return system, definition
+
+
+def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path):
+    from molstat._statistics import patolog_flow as flow
+    from molstat.manual_import import manual_import_roles
+    system, definition = _system(tmp_path, "lege", workflow=True)
+    system.statistics_processors["lege"] = StatisticsProcessor(Path(""), profile="lege")
+    assert manual_import_roles(definition, "statistics") == ("workflow",)
+    row = dict.fromkeys(flow.DATE_FIELDS + ["Prøvenummer", "Lab", "Prosess", "Prioritet", "BeholderId", "BlokkId", "GlassId", "Glasstype", "Signert av", "Godkjent type"], "")
+    row.update(Prøvenummer="PRIVATE-FLOW-1", Lab="OU-PAT-HIST-RA", Prosess="HEMATO", Ankomsttid="01.10.2026 08:00")
+    source = tmp_path / "workflow.csv"
+    with source.open("w", encoding="cp1252", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(row), delimiter=";")
+        writer.writeheader(); writer.writerow(row)
+    original = source.read_bytes()
+    result = process_manual_import(system, ManualImportPlan("lege", "statistics", date(2026, 10, 1), date(2026, 10, 7), {"workflow": source}), definition)
+    assert result[0].error is None
+    assert source.read_bytes() == original
+    assert len(list((tmp_path / "sensitive/raw/statistics/lege").glob("*.csv"))) == 1
+    assert "PRIVATE-FLOW-1" in (tmp_path / "sensitive/processed/lege/powerbi/Prøver.csv").read_text(encoding="utf-8-sig")
+    assert "PRIVATE-FLOW-1" not in (tmp_path / "public/lege/prosess.csv").read_text(encoding="utf-8-sig")
 
 
 def _files(tmp_path, encoding="cp1252"):

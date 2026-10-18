@@ -77,7 +77,29 @@ ROLE_PAYLOADS = {
     "production_usernames": raw_control("TEXTAREA", "production-users", label="brukernavn"),
     "period_from": raw_control("INPUT", "period-from", label="fra dato", control_type="text"),
     "period_to": raw_control("INPUT", "period-to", label="til dato", control_type="text"),
+    "laboratory": raw_control("INPUT", "flow-lab", label="lab:", control_type="text", role="gridcell"),
+    "process_codes": raw_control("INPUT", "flow-process", label="prosess:", control_type="text", role="gridcell"),
 }
+
+
+def test_workflow_form_uses_arrival_dates_lab_processes_and_full_last_day():
+    workflow = validate_report_job({"job_key": "workflow", "report_type": "PRODSTAT", "category": "PATOLOGI",
+        "report_id": "PAT-TID-STØP-SNITT-OU", "analysis_codes": [], "created_from": "01.09.2026",
+        "created_to": "30.09.2026", "output_stem": "PAT-TID-STOP-SNITT-OU",
+        "laboratory": "OU-PAT-HIST-RA", "process_codes": ["HEMATO", "HEMATO BENMARG"]})
+    state = FormState()
+    form = BatchReportForm(state.page, state.actions, EXPECTED_ORIGIN, sleep=lambda _: None)
+    form.populate(defined_reports_page(), workflow)
+    values = {call[2]: call[3] for call in state.calls if call[0] == "replace"}
+    assert values["flow-lab"] == "OU-PAT-HIST-RA"
+    assert values["flow-process"] == "HEMATO,HEMATO BENMARG"
+    assert values["created-to"] == "30.09.2026 23:59:59"
+
+
+@pytest.mark.parametrize("role,label", [("created_from", "ankomsttid f.o.m.:"), ("created_to", "ankomsttid t.o.m.:")])
+def test_workflow_arrival_parameter_labels(role, label):
+    assert discover_report_role(FakeSafePage(raw_control("INPUT", "date", label=label,
+        control_type="text", role="gridcell")), EXPECTED_ORIGIN, role) is not None
 
 
 def identity(

@@ -29,6 +29,7 @@ _ROLE_ALIASES = {
         "velg en eller flere rapportgrupper",
     ),
     "created_from": (
+        "ankomsttid f.o.m.:", "ankomsttid f.o.m.",
         "created from",
         "analyse opprettet fom:",
         "analysebestilling fra og med dato",
@@ -37,6 +38,7 @@ _ROLE_ALIASES = {
         "mottatt dato fra og med:",
     ),
     "created_to": (
+        "ankomsttid t.o.m.:", "ankomsttid t.o.m.",
         "created to",
         "analyse opprettet tom:",
         "analysebestilling til og med dato",
@@ -57,6 +59,7 @@ _ROLE_ALIASES = {
         "godkjent til og med dato", "godkjent til og med dato:",
     ),
 }
+_ROLE_ALIASES.update(laboratory=("lab", "lab:"), process_codes=("prosess", "prosess:"))
 _CLEAR_DYNAMIC_ROLES = (
     "analysis_codes",
     "created_from",
@@ -70,6 +73,7 @@ _GRIDCELL_PARAMETER_ROLES = frozenset({
     "production_usernames",
     "period_from",
     "period_to",
+    "laboratory", "process_codes",
 })
 _ROLE_TAGS = {
     "category": frozenset({"INPUT", "SELECT"}),
@@ -84,6 +88,7 @@ _ROLE_TAGS = {
     "period_from": frozenset({"INPUT"}),
     "period_to": frozenset({"INPUT"}),
 }
+_ROLE_TAGS.update(laboratory=frozenset({"INPUT", "TEXTAREA"}), process_codes=frozenset({"INPUT", "TEXTAREA"}))
 _ROLE_TYPES = {
     "category": frozenset({"", "text", "search"}),
     "report_id": frozenset({"", "text", "search"}),
@@ -97,6 +102,7 @@ _ROLE_TYPES = {
     "period_from": frozenset({"", "text", "date"}),
     "period_to": frozenset({"", "text", "date"}),
 }
+_ROLE_TYPES.update(laboratory=frozenset({"", "text", "search"}), process_codes=frozenset({"", "text", "search"}))
 
 
 class FormPage(Protocol):
@@ -326,6 +332,9 @@ class BatchReportForm:
         self._sleep(0.5)
         report_id = self._wait_for("report_id")
         self._actions.commit_choice(report_id)
+        if job.laboratory:
+            self._actions.replace_text(self._wait_for("laboratory"), job.laboratory)
+            self._actions.replace_text(self._wait_for("process_codes"), ",".join(job.process_codes))
         if job.report_groups:
             report_groups = self._wait_for("report_groups")
             self._actions.replace_text(
@@ -349,5 +358,5 @@ class BatchReportForm:
         self._actions.replace_text(created_from, start)
         self._sleep(0.5)
         created_to = self._wait_for("created_to")
-        self._actions.replace_text(created_to, end)
+        self._actions.replace_text(created_to, end + " 23:59:59" if job.laboratory else end)
 

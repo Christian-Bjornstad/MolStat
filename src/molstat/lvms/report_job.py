@@ -24,7 +24,8 @@ REQUIRED_JOB_FIELDS = frozenset(
         "output_stem",
     }
 )
-OPTIONAL_JOB_FIELDS = frozenset({"report_groups", "usernames"})
+OPTIONAL_JOB_FIELDS = frozenset({"report_groups", "usernames", "laboratory", "process_codes"})
+FLOW_REPORT_IDS = frozenset({"PAT-TID-STØP-SNITT-OU", "PAT-TID-STOP-SNITT-OU"})
 CODE_PATTERN = re.compile(r"[A-Za-z0-9/-]{1,80}")
 KEY_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
 OUTPUT_STEM_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
@@ -62,6 +63,8 @@ class ReportJob:
     output_stem: str
     report_groups: tuple[str, ...] = ()
     usernames: tuple[str, ...] = ()
+    laboratory: str = ""
+    process_codes: tuple[str, ...] = ()
 
     def analysis_text(self) -> str:
         return ",".join(self.analysis_codes)
@@ -149,7 +152,23 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
     doctor_report = raw.get("report_id") in {"PAT-EGEN MAKRO", "PAT-EGEN PRODUKSJON"}
     if doctor_report and codes:
         raise ReportJobError("doctor reports do not accept analysis codes")
-    if not codes and raw.get("report_id") != "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU" and not doctor_report:
+    workflow = raw.get("report_id") in FLOW_REPORT_IDS
+    laboratory = raw.get("laboratory", "")
+    processes = raw.get("process_codes", [])
+    if not isinstance(laboratory, str) or not isinstance(processes, list) or len(processes) > 100:
+        raise ReportJobError("workflow parameters are invalid")
+    if any(not isinstance(code, str) or not re.fullmatch(r"[A-ZÆØÅ0-9 -]{1,80}", code) for code in processes):
+        raise ReportJobError("workflow process code is invalid")
+    if len(set(processes)) != len(processes):
+        raise ReportJobError("workflow process codes contain duplicates")
+    if workflow:
+        if not re.fullmatch(r"[A-Z0-9-]{1,80}", laboratory) or not processes or codes:
+            raise ReportJobError("workflow requires a laboratory and process codes, without analysis codes")
+        if raw.get("report_type") != "PRODSTAT" or raw.get("category") != "PATOLOGI":
+            raise ReportJobError("workflow report type or category is invalid")
+    elif laboratory or processes:
+        raise ReportJobError("workflow parameters require a workflow report")
+    if not codes and raw.get("report_id") != "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU" and not doctor_report and not workflow:
         raise ReportJobError("analysis codes are invalid")
     raw_usernames = raw.get("usernames", [])
     if not isinstance(raw_usernames, list) or len(raw_usernames) > 500:
@@ -178,6 +197,8 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
     created_to = _date(raw, "created_to")
     if created_from > created_to:
         raise ReportJobError("report interval is invalid")
+    if workflow and (created_from.day != 1 or created_from.replace(day=1) != created_to.replace(day=1)):
+        raise ReportJobError("workflow interval must stay inside one calendar month")
     return ReportJob(
         job_key=job_key,
         report_type=_text(raw, "report_type"),
@@ -188,6 +209,8 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         output_stem=output_stem,
         report_groups=tuple(groups),
         usernames=tuple(usernames),
+        laboratory=laboratory,
+        process_codes=tuple(processes),
     )
 
 

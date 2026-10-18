@@ -100,28 +100,51 @@ class StatisticsProcessor:
     ) -> StatisticsResult:
         merged_dir = output_dir / "merged"
         if self.profile == "lege":
+            from ._statistics import patolog_flow as flow
+            if len(raw_files) == 1 and raw_files[0].name.startswith(flow.STEM + "__"):
+                from .failures import RunFailure
+                try:
+                    facts = flow.add_dimensions(flow.read_archive(raw_files[0].parent, as_of=self._now()))
+                    flow.write_data(output_dir / "forlop", facts)
+                    destination = output_dir / "prosess.csv"
+                    count = flow.write_process_summary(destination, facts)
+                except ValueError as exc:
+                    raise RunFailure("CSV_INVALID", "patolog/workflow/process_data") from exc
+                return StatisticsResult(antall=destination, resultater=destination,
+                    row_counts={"prosess": count, "forlop_prover": facts["audit"]["samples"], "forlop_glass": facts["audit"]["unique_glass"]},
+                    publication_files={"prosess.csv": destination},
+                    private_files={path.name: path for path in (output_dir / "forlop").glob("*.csv")})
             from ._statistics.patolog_process import process
             from .failures import RunFailure
 
-            if len(raw_files) not in {2, 6}:
+            if len(raw_files) not in {2, 3, 6, 7}:
                 raise ValueError("Patolograpporten krever inneværende og forrige måned.")
             destination = output_dir / "prosess.csv"
             try:
                 count = process(raw_files[0].parent, destination)
             except ValueError as exc:
                 raise RunFailure("CSV_INVALID", "patolog/process/process_data") from exc
-            private_files = None
+            private_files = {}
             row_counts = {"prosess": count}
             if self.lookup_path != Path(""):
                 from ._statistics.patolog_reports import process as process_doctors
 
                 try:
-                    private_files = process_doctors(raw_files[0].parent, self.lookup_path, output_dir)
+                    private_files.update(process_doctors(raw_files[0].parent, self.lookup_path, output_dir))
                 except ValueError as exc:
                     raise RunFailure("CSV_INVALID", "patolog/process/doctor_data") from exc
                 for name, path in private_files.items():
                     with path.open(encoding="utf-8-sig") as stream:
                         row_counts[name] = max(sum(1 for _ in stream) - 1, 0)
+            from ._statistics import patolog_flow as flow
+            if any(path.name.startswith(flow.STEM + "__") for path in raw_files):
+                try:
+                    facts = flow.add_dimensions(flow.read_archive(raw_files[0].parent, as_of=self._now()))
+                    flow.write_data(output_dir / "forlop", facts)
+                except ValueError as exc:
+                    raise RunFailure("CSV_INVALID", "patolog/workflow/process_data") from exc
+                private_files.update({path.name: path for path in (output_dir / "forlop").glob("*.csv")})
+                row_counts.update({"forlop_prover": facts["audit"]["samples"], "forlop_glass": facts["audit"]["unique_glass"]})
             return StatisticsResult(
                 antall=destination, resultater=destination,
                 row_counts=row_counts,

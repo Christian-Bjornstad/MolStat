@@ -16,7 +16,6 @@ def test_default_registry_groups_capabilities_by_unit() -> None:
         "flow",
         "fish",
         "pre",
-        "hist",
     )
     assert len({unit.key for unit in modules.DEFAULT_UNITS}) == len(
         modules.DEFAULT_UNITS
@@ -56,11 +55,13 @@ def test_active_unit_capabilities_define_runtime_and_publication_contracts() -> 
     }
 
 
-def test_coming_units_have_no_runnable_capabilities() -> None:
-    for key in ("hist",):
-        unit = modules.DEFAULT_UNITS.require(key)
-        assert unit.status == "coming"
-        assert unit.capabilities == ()
+def test_hist_is_not_available_in_registry_or_runnable_lists() -> None:
+    import pytest
+    assert "hist" not in {unit.key for unit in modules.DEFAULT_UNITS}
+    with pytest.raises(KeyError):
+        modules.DEFAULT_UNITS.require("hist")
+    for kind in ("statistics", "backlog"):
+        assert "hist" not in {unit.key for unit in modules.DEFAULT_UNITS.for_job(kind)}
 
 
 def test_registry_filters_by_job_kind_and_enabled_units() -> None:
