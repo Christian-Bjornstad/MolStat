@@ -36,6 +36,14 @@ Filseksjoner:
 - `backlog.analyses`: klassifisering, navn, kildereferanser og terskler.
 - `backlog.columns`: CSV-format og kolonnekartlegging.
 
+Hemato og Solide kan ha en egen **Restansefil (JSON)** i Innstillinger.
+Denne filen inneholder `report`, `analyses` og `columns`, altså innholdet i
+enhetsfilens `backlog`. Ved første lagring opprettes separate filer under
+`config/restanse/hemato.json` og `config/restanse/solide.json` i dataroten.
+En valgt restansefil overstyrer enhetsfilens restansedel og leses på nytt ved
+neste kjøring. Statistikkoppsettet beholdes. Filene kontrolleres mot riktig
+enhet; en Solide-fil kan ikke velges som Hemato-oppsett.
+
 JSON bruker doble anførselstegn og komma mellom elementene:
 
 ```json
@@ -62,6 +70,8 @@ tilbakeføring velger du en tidligere gyldig fil og lagrer på nytt.
 ```text
 K-sensitiv rot/
   config/units/<enhet>/<versjon>.json
+  config/restanse/hemato.json
+  config/restanse/solide.json
   config/lookups/<enhet>/<hash>.xlsx
   config/revisions/<oppsett-hash>/
   config/migration/<hash>/originals/
@@ -94,6 +104,8 @@ som trenger oppfølging. Hvert enhetskort viser resultat per funksjon, slik at
 en restansefeil ikke skjuler vellykket statistikk eller merker andre enheter
 som feilet. Resultatene leses fra databasen når kontrollsenteret åpnes igjen.
 «Oppsett» på kortet åpner den aktuelle enheten i Innstillinger.
+Hemato og Solide har en egen **Restanse**-knapp som bare kjører restansen for
+den valgte enheten. Den vanlige kjøreknappen kjører begge funksjonene.
 
 «Manuell import» kan brukes når LVMS-henting eller uttrekksautomatikken
 svikter. Velg aktiv enhet, funksjon og uttrekksperiode. Velg en original CSV
@@ -104,8 +116,8 @@ MolStat bruker kopier i den sensitive arbeidsmappen.
 
 Restanse krever et komplett uttrekk fra 01.01.2024 til dagens dato. Det er
 nåtilstanden som erstattes, og et deluttrekk ville feilaktig fjerne andre
-åpne analyser. For Patologer velges prosess-, produksjons- og makrouttrekk
-for valgt måned og forrige måned, seks filer samlet.
+åpne analyser. For Patologer velges ett **PAT-TID-STØP-SNITT-OU**-uttrekk
+for én kalendermåned. Inneværende måned går til dagens dato.
 
 Statistikkimport bruker det eksisterende råarkivet og databasen, og oppdaterer
 publisering og Excel på samme måte som automatisk kjøring. Et nytt uttrekk for
@@ -135,11 +147,11 @@ være tilgjengelig før enheten aktiveres igjen.
 En lagret endring av LVMS-adressen tas i bruk ved neste oppsett av kjøringen.
 Det er ikke nødvendig å slette den lokale nettleserkonfigurasjonen.
 
-For Patologer kontrolleres historiske produksjons- og makrorapporter mot
-legelisten som ble brukt ved uttrekket. Når listen utvides, hentes manglende
-måneder på nytt. Eldre arkiver uten dokumentert legedekning hentes på nytt
-én gang; første kjøring etter oppgraderingen kan derfor ta lengre tid.
-Validerte uttrekk beholdes, slik at en avbrutt kjøring kan fortsette.
+Patologer henter kun **PAT-TID-STØP-SNITT-OU**, én kalendermåned om gangen
+fra januar 2024. Inneværende måned hentes alltid på nytt. Eldre måneder
+oppdateres når de inneholder åpne prøver eller ufargede glass, eller sist
+ble hentet for minst 30 dager siden. Siste gyldige månedsuttrekk brukes;
+revisjoner summeres ikke. Legeregister trengs ikke for dette uttrekket.
 
 Lookup-arbeidsbøker støtter også XLSX-filer med tekst direkte i cellene.
 Når en ekstraksjon med samme nukleinsyre mangler, prioriteres en generell

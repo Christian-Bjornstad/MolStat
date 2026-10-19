@@ -268,13 +268,14 @@ def test_retry_publication_continues_for_healthy_unit_after_invalid_configuratio
 
     runs = services.retry_publication()
 
-    assert [(run.unit_key, run.error is None) for run in runs] == [("solide", False), ("flow", True)]
-    assert runs[1].summary == {"published": 1}
+    assert [(run.unit_key, run.job_kind, run.error is None) for run in runs] == [
+        ("solide", "statistics", False), ("solide", "backlog", False), ("flow", "statistics", True)]
+    assert runs[2].summary == {"published": 1}
     assert all((services.settings.sharepoint_root / "flow" / name).read_bytes() == content
                for name, content in before.items())
     assert json.loads((candidate / "delivery.json").read_text(encoding="utf-8"))["status"] == "published"
     again = services.retry_publication()
-    assert again[1].summary == {"published": 0}
+    assert again[2].summary == {"published": 0}
 
 
 def test_publication_maintenance_does_not_replace_latest_source_status(tmp_path):

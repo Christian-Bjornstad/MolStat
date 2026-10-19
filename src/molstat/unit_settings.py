@@ -59,7 +59,7 @@ def default_unit_file(key: str) -> Path:
     return Path(__file__).parent / "defaults" / "units" / f"{key}.json"
 
 
-def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
+def load_unit_file(path: Path, expected_key: str | None = None, *, backlog_path: Path | None = None) -> UnitFile:
     try:
         if path.stat().st_size > 2_000_000:
             raise UnitConfigError("filen er større enn 2 MB")
@@ -70,6 +70,14 @@ def load_unit_file(path: Path, expected_key: str | None = None) -> UnitFile:
         key = raw.get("key")
         if not isinstance(key, str) or (expected_key and key != expected_key):
             raise UnitConfigError("key: filen tilhører en annen enhet")
+        if key == "solide" and raw.get("backlog") is None:
+            # Statistics-only unit files from earlier installations must expose
+            # the new backlog capability without losing operator-edited reports.
+            raw["backlog"] = json.loads(default_unit_file(key).read_text(encoding="utf-8"))["backlog"]
+        if backlog_path is not None:
+            if key not in {"hemato", "solide"}:
+                raise UnitConfigError("Restansefil støttes bare for Hemato og Solide.")
+            raw["backlog"] = load_backlog_file(backlog_path, key)
         if not isinstance(raw.get("label"), str) or not raw["label"].strip():
             raise UnitConfigError("label: navn mangler")
         reports = raw.get("statistics")
@@ -219,13 +227,25 @@ def activate_unit_file(source: Path, config_root: Path, key: str) -> Path:
     return destination
 
 
-def load_active_units(sensitive_root: Path, paths: dict[str, Path], keys) -> dict[str, UnitFile]:
+def load_backlog_file(path: Path, key: str) -> dict:
+    """One independently editable restanse file per unit, using the same contract."""
+    try:
+        if path.stat().st_size > 2_000_000:
+            raise UnitConfigError("Restansefilen er større enn 2 MB.")
+        payload = json.loads(path.read_text(encoding="utf-8-sig"), object_pairs_hook=_unique)
+        _validate_backlog(payload, key)
+        return payload
+    except (OSError, ValueError, TypeError, LookupError) as exc:
+        raise UnitConfigError(f"CONFIG_INVALID: Restansefilen for {key} kunne ikke valideres: {exc}") from exc
+
+
+def load_active_units(sensitive_root: Path, paths: dict[str, Path], keys, *, backlog_paths: dict[str, Path] | None = None) -> dict[str, UnitFile]:
     result = {}
     for key in keys:
         source = paths.get(key) or sensitive_root / "config" / "units" / f"{key}.json"
         if key not in paths and not source.exists():
             source = activate_unit_file(upgrade_source(sensitive_root, key), sensitive_root / "config", key)
-        result[key] = load_unit_file(source, key)
+        result[key] = load_unit_file(source, key, backlog_path=(backlog_paths or {}).get(key))
     return result
 
 

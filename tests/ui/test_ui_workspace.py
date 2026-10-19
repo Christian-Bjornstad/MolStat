@@ -84,7 +84,8 @@ def test_per_capability_status_does_not_overwrite_other_outcome(qtbot):
 def test_custom_runtime_definition_changes_visible_unit_capabilities(qtbot):
     page = OverviewPage()
     qtbot.addWidget(page)
-    original = DEFAULT_UNITS.require("solide")
+    default = DEFAULT_UNITS.require("solide")
+    original = UnitDefinition("solide", "Solide", "active", (default.capability("statistics"),))
     custom = UnitDefinition("solide", "Solide med restanse", "active", (
         *original.capabilities, DEFAULT_UNITS.require("hemato").capability("backlog"),
     ))

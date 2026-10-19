@@ -75,6 +75,7 @@ def test_registry_filters_by_job_kind_and_enabled_units() -> None:
     )
     assert tuple(unit.key for unit in modules.DEFAULT_UNITS.for_job("backlog")) == (
         "hemato",
+        "solide",
     )
     assert tuple(
         unit.key
@@ -96,7 +97,7 @@ def test_registry_rejects_unknown_unit_and_missing_capability() -> None:
         raise AssertionError("Unknown unit key should fail explicitly")
 
     try:
-        modules.DEFAULT_UNITS.require("solide").capability("backlog")
+        modules.DEFAULT_UNITS.require("flow").capability("backlog")
     except KeyError as error:
         assert "backlog" in str(error)
     else:

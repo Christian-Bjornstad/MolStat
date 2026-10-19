@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..modules import DEFAULT_UNITS, UnitDefinition, UnitRegistry
-from ..unit_settings import load_unit_file
+from ..unit_settings import load_unit_file, load_backlog_file
 from .components import action_button, help_text, section_title, set_tone
 
 
@@ -70,6 +70,34 @@ class UnitSettingsPanel(QWidget):
         layout.addWidget(config)
         self.config_field.textChanged.connect(self._config_changed)
 
+        self.backlog_group = QGroupBox("Restanse")
+        backlog_form = QFormLayout(self.backlog_group)
+        backlog_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        backlog_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.backlog_field = _field(f"backlog-config-{unit.key}", f"Restansefil for {unit.display_name}")
+        self.backlog_field.setPlaceholderText("Egen restansefil opprettes ved lagring")
+        backlog_browse = action_button("Velg fil …", f"browse-backlog-{unit.key}",
+            accessible_name=f"Velg restansefil for {unit.display_name}")
+        backlog_browse.clicked.connect(self._choose_backlog)
+        backlog_form.addRow("Restansefil (JSON)", _path_row(self.backlog_field, backlog_browse))
+        backlog_form.addRow(help_text("Egen fil for rapport, grupper, analyser, frister og CSV-kolonner. Endringer leses ved neste kjøring. Statistikkoppsettet endres separat i enhetsfilen."))
+        backlog_actions = QHBoxLayout()
+        backlog_validate = action_button("Valider JSON", f"validate-backlog-{unit.key}",
+            accessible_name=f"Valider restansefil for {unit.display_name}")
+        backlog_validate.clicked.connect(self.validate_backlog)
+        backlog_open = action_button("Åpne mappe", f"open-backlog-{unit.key}",
+            accessible_name=f"Åpne mappen med restansefil for {unit.display_name}")
+        backlog_open.clicked.connect(self._open_backlog_folder)
+        backlog_actions.addWidget(backlog_validate)
+        backlog_actions.addWidget(backlog_open)
+        backlog_actions.addStretch(1)
+        backlog_form.addRow(backlog_actions)
+        self.backlog_preview = help_text("Standardoppsettet brukes til du velger eller lagrer en egen fil.")
+        backlog_form.addRow(self.backlog_preview)
+        self.backlog_field.textChanged.connect(self._backlog_changed)
+        self.backlog_group.setVisible(unit.key in {"hemato", "solide"})
+        layout.addWidget(self.backlog_group)
+
         capability = unit.capability("statistics")
         is_lege = self.is_lege = capability.processor_profile == "lege"
         lookup = self.lookup_group = QGroupBox("Legeregister" if is_lege else "Excel-oppslag")
@@ -94,6 +122,10 @@ class UnitSettingsPanel(QWidget):
         )
         lookup_form.addRow(self.lookup_hint)
         layout.addWidget(lookup)
+        lookup.setVisible(not is_lege)
+        self.workflow_hint = help_text("Uttrekk: PAT-TID-STØP-SNITT-OU. Henter én kalendermåned om gangen fra januar 2024 til dagens dato. Ingen andre patolograpporter hentes.")
+        self.workflow_hint.setVisible(is_lege)
+        layout.addWidget(self.workflow_hint)
         layout.addStretch(1)
 
     def set_definition(self, unit: UnitDefinition) -> None:
@@ -111,6 +143,8 @@ class UnitSettingsPanel(QWidget):
         self.lookup_field.setAccessibleName(f"Legeregister for {unit.display_name}" if self.is_lege
                                            else f"Lookup-fil for {unit.display_name}")
         self.lookup_group.setTitle("Legeregister" if self.is_lege else "Excel-oppslag")
+        self.lookup_group.setVisible(not self.is_lege)
+        self.workflow_hint.setVisible(self.is_lege)
         self.lookup_label.setText("Legeregister (CSV)" if self.is_lege else "Lookup-fil")
         self.lookup_browse.setAccessibleName(f"Velg legeregister for {unit.display_name}" if self.is_lege
                                             else f"Velg lookup-fil for {unit.display_name}")
@@ -148,7 +182,9 @@ class UnitSettingsPanel(QWidget):
             set_tone(self.preview, "warning")
             return
         try:
-            definition = load_unit_file(Path(self.config_field.text().strip()), self.unit.key)
+            text = self.backlog_field.text().strip() if self.unit.key in {"hemato", "solide"} else ""
+            definition = load_unit_file(Path(self.config_field.text().strip()), self.unit.key,
+                backlog_path=Path(text) if text else None)
         except ValueError as error:
             self.preview.setText(str(error))
             set_tone(self.preview, "danger")
@@ -164,6 +200,37 @@ class UnitSettingsPanel(QWidget):
         self.preview.setText(f"Gyldig oppsett · {detail}")
         set_tone(self.preview, "success")
         set_tone(self.config_field, "neutral")
+
+    def _choose_backlog(self) -> None:
+        selected, _ = QFileDialog.getOpenFileName(self, "Velg restansefil",
+            self.backlog_field.text(), "JSON-filer (*.json)")
+        if selected:
+            self.backlog_field.setText(selected)
+            self.validate_backlog()
+
+    def _backlog_changed(self) -> None:
+        self.backlog_preview.setText("Filen er ikke validert etter siste endring. Bruk «Valider JSON».")
+        set_tone(self.backlog_preview, "neutral")
+
+    def validate_backlog(self) -> None:
+        if not self.backlog_field.text().strip():
+            self.backlog_preview.setText("En egen restansefil opprettes når du validerer og lagrer innstillingene.")
+            return
+        try:
+            payload = load_backlog_file(Path(self.backlog_field.text().strip()), self.unit.key)
+        except ValueError as exc:
+            self.backlog_preview.setText(str(exc))
+            set_tone(self.backlog_preview, "danger")
+            return
+        self.backlog_preview.setText(f"Gyldig restanseoppsett · {len(payload['analyses']['analyses'])} analyser · {len(payload['report']['report_groups'])} rapportgrupper")
+        set_tone(self.backlog_preview, "success")
+
+    def _open_backlog_folder(self) -> None:
+        path = Path(self.backlog_field.text().strip())
+        if self.backlog_field.text().strip() and path.is_file():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve().parent)))
+        else:
+            self.backlog_preview.setText("Lagre innstillingene eller velg en eksisterende restansefil først.")
 
     def _choose_lookup(self, csv_only: bool) -> None:
         selected, _ = QFileDialog.getOpenFileName(
@@ -230,6 +297,7 @@ class SettingsPage(QWidget):
         self.unit_panels: dict[str, UnitSettingsPanel] = {}
         self.lookup_fields: dict[str, QLineEdit] = {}
         self.config_fields: dict[str, QLineEdit] = {}
+        self.backlog_fields: dict[str, QLineEdit] = {}
         self.enabled_fields: dict[str, QCheckBox] = {}
         for unit in DEFAULT_UNITS.active():
             panel = UnitSettingsPanel(unit)
@@ -237,6 +305,8 @@ class SettingsPage(QWidget):
             self.unit_stack.addWidget(panel)
             self.lookup_fields[unit.key] = panel.lookup_field
             self.config_fields[unit.key] = panel.config_field
+            if unit.key in {"hemato", "solide"}:
+                self.backlog_fields[unit.key] = panel.backlog_field
             self.enabled_fields[unit.key] = panel.enabled
             setattr(self, f"lookup_{unit.key}", panel.lookup_field)
             item = QListWidgetItem()

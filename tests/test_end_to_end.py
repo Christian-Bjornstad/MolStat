@@ -450,6 +450,7 @@ def test_run_all_continues_after_one_capability_fails() -> None:
         "hemato:statistics",
         "hemato:backlog",
         "solide:statistics",
+        "solide:backlog",
     ]
     assert [
         (run.unit_key, run.job_kind, run.error is None) for run in runs
@@ -457,6 +458,7 @@ def test_run_all_continues_after_one_capability_fails() -> None:
         ("hemato", "statistics", False),
         ("hemato", "backlog", True),
         ("solide", "statistics", True),
+        ("solide", "backlog", True),
     ]
     assert isinstance(runs[0], system_module.CapabilityRun)
 
@@ -471,5 +473,5 @@ def test_unit_target_runs_only_its_registered_capabilities() -> None:
 
     runs = system.run_unit("solide")
 
-    assert calls == [("solide", "statistics")]
-    assert len(runs) == 1
+    assert calls == [("solide", "statistics"), ("solide", "backlog")]
+    assert len(runs) == 2

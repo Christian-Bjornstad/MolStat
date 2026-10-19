@@ -14,6 +14,32 @@ Behold eksisterende rot og database; schema 7 migreres etter verifisert backup.
 - Angi LVMS-adressen, og velg mapper og lookup-filer med «Bla gjennom …».
 - Velg «Valider og lagre». Eventuelle oppstartsfeil vises i Diagnostikk.
 
+## Oppdatering 19. oktober 2026
+
+Bytt hele programmappen med den oppdaterte pakken; behold eksisterende
+innstillingsfil og datarot. Ikke erstatt bare CMD-filen.
+
+- Hemato og Solide har hver sin **Restanse**-knapp. Den henter bare restansen.
+  **Kjør Hemato/Solide** henter både statistikk og restanse.
+- Under **Innstillinger → Hemato/Solide → Restanse** kan du velge en egen
+  JSON-fil. **Valider og lagre** oppretter separate filer under
+  `config/restanse` i dataroten dersom ingen fil er valgt. Filene inneholder
+  `report`, `analyses` og `columns`: rapportgrupper, analysekoder, navn, frister
+  og CSV-kolonner. **Åpne mappe** viser filen som kan redigeres. Neste kjøring
+  leser filen på nytt og lager et fast oppsett for akkurat den kjøringen.
+- Aktiver **Patologer** i Innstillinger for å hente kun
+  **PAT-TID-STØP-SNITT-OU**. Uttrekkene tas én kalendermåned om gangen fra
+  januar 2024 til dagens dato. Inneværende måned og eldre måneder med åpne
+  prøver oppdateres igjen. Legeregister er ikke nødvendig for dette uttrekket.
+- Excel-genereringen bruker nå en egen lesetilkobling, slik at den ikke prøver
+  å oppdatere skrivelåsen. SQLite-sorteringer bruker minnet fremfor Python
+  FELLES sin TEMP-mappe. Selve databasen og transaksjonsjournalen lagres som før.
+
+Dersom `SQLITE_READONLY` fortsatt oppstår ved selve Flow/FISH-importen, trengs
+feilens stakk fra `%LOCALAPPDATA%/MolStat/logs/runtime.log` på jobb-PC-en.
+En database som faktisk er skrivebeskyttet av Windows kan ikke oppdateres av
+appen; vellykkede syntetiske tester erstatter ikke prøving på jobb-PC-en.
+
 ## Planlagte oppgaver
 
 - `MolStat - daglig statistikk`: standard kl. 05:00

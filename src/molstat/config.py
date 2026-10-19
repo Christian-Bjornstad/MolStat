@@ -26,6 +26,7 @@ class MolStatSettings:
     lvms_url: str = ""
     enabled_units: tuple[str, ...] = DEFAULT_ENABLED_UNIT_KEYS
     unit_config_paths: dict[str, Path] = field(default_factory=dict)
+    backlog_config_paths: dict[str, Path] = field(default_factory=dict)
 
     def validate(self) -> tuple[str, ...]:
         errors: list[str] = []
@@ -54,6 +55,8 @@ class MolStatSettings:
         unknown_paths = (set(self.statistics_lookup_paths) | set(self.unit_config_paths)) - set(ACTIVE_UNIT_KEYS)
         if unknown_paths:
             errors.append("Ukjent enhet for filsti: " + ", ".join(sorted(unknown_paths)))
+        if set(self.backlog_config_paths) - {"hemato", "solide"}:
+            errors.append("Restansefil kan bare velges for Hemato og Solide.")
         return tuple(errors)
 
     def to_transfer_payload(self) -> dict[str, object]:
@@ -78,6 +81,7 @@ class MolStatSettings:
                         self.statistics_lookup_paths.get(key, "")
                     ),
                     "config_path": str(self.unit_config_paths.get(key, "")),
+                    "backlog_config_path": str(self.backlog_config_paths.get(key, "")),
                 }
                 for key in ACTIVE_UNIT_KEYS
             },
@@ -184,11 +188,12 @@ class MolStatSettings:
         enabled: list[str] = []
         lookups: dict[str, Path] = {}
         configs: dict[str, Path] = {}
+        backlogs: dict[str, Path] = {}
         for key in ACTIVE_UNIT_KEYS:
             raw_unit = units.get(key, {"enabled": False})
             if not isinstance(raw_unit, Mapping):
                 raise ValueError(f"Innstillingene for {key} må være et objekt.")
-            _reject_unknown_fields(raw_unit, {"enabled", "statistics_lookup_path", "config_path"}, key)
+            _reject_unknown_fields(raw_unit, {"enabled", "statistics_lookup_path", "config_path", "backlog_config_path"}, key)
             is_enabled = raw_unit.get("enabled", False)
             if type(is_enabled) is not bool:
                 raise ValueError(f"Aktivering for {key} må være sann eller usann.")
@@ -204,6 +209,11 @@ class MolStatSettings:
                 raise ValueError(f"Enhetsfil for {key} må være tekst.")
             if config:
                 configs[key] = Path(config)
+            backlog = raw_unit.get("backlog_config_path", "")
+            if not isinstance(backlog, str):
+                raise ValueError(f"Restansefil for {key} må være tekst.")
+            if backlog:
+                backlogs[key] = Path(backlog)
 
         lvms_config: str | None = None
         if allow_local_runtime:
@@ -226,6 +236,7 @@ class MolStatSettings:
             lvms_url=_required_string(payload, "lvms_url"),
             enabled_units=tuple(enabled),
             unit_config_paths=configs,
+            backlog_config_paths=backlogs,
         )
         return settings
 

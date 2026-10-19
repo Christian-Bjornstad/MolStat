@@ -112,6 +112,9 @@ class MainWindow(QMainWindow):
                 card.run_button.clicked.connect(
                     lambda _checked=False, target=key: self._start_job(target)
                 )
+                card.backlog_button.clicked.connect(
+                    lambda _checked=False, target=key: self._start_job(f"{target}:backlog")
+                )
         self.settings_page.save_button.clicked.connect(self._save_settings)
         self.settings_page.import_button.clicked.connect(self._import_settings)
         self.settings_page.export_button.clicked.connect(self._export_settings)
@@ -148,10 +151,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.nav_import)
         layout.addWidget(self.nav_diagnostics)
         layout.addStretch(1)
-        footer = QLabel("Sensitive rådata forblir på K-sensitiv")
-        footer.setObjectName("brand-subtitle")
-        footer.setWordWrap(True)
-        layout.addWidget(footer)
         return sidebar
 
     def _navigate(self, index: int) -> None:
@@ -218,8 +217,9 @@ class MainWindow(QMainWindow):
         if self.orchestrator is None:
             self.statusBar().showMessage("Kjøring er ikke konfigurert.")
             return
-        if target in self.settings_page.enabled_fields and (
-            target not in self._enabled_unit_keys()
+        unit_key = target.partition(":")[0]
+        if unit_key in self.settings_page.enabled_fields and (
+            unit_key not in self._enabled_unit_keys()
         ):
             self.statusBar().showMessage(
                 "Enheten er deaktivert. Aktiver den i Innstillinger.", 5000
@@ -322,6 +322,7 @@ class MainWindow(QMainWindow):
         return f"{rows} rader behandlet"
 
     def _set_target_status(self, target: str, state: str, detail: str) -> None:
+        target = target.partition(":")[0]
         card = self.overview.unit_cards.get(target)
         if card is not None and target in self._enabled_unit_keys():
             card.set_status(state, detail)
@@ -414,6 +415,7 @@ class MainWindow(QMainWindow):
                 card.run_button.setEnabled(
                     not running and self.orchestrator is not None
                 )
+            card.backlog_button.setEnabled(card.run_button.isEnabled())
 
     def _enabled_unit_keys(self) -> set[str]:
         return set(self._saved_enabled_units)
@@ -431,6 +433,8 @@ class MainWindow(QMainWindow):
             field.setText(values.get(f"lookup_{key}", ""))
         for key, field in self.settings_page.config_fields.items():
             field.setText(values.get(f"config_{key}", ""))
+        for key, field in self.settings_page.backlog_fields.items():
+            field.setText(values.get(f"backlog_{key}", ""))
         for key, field in self.settings_page.schedule_fields.items():
             field.setValue(int(values.get(key, field.value())))
         for key, field in self.settings_page.enabled_fields.items():
@@ -468,6 +472,7 @@ class MainWindow(QMainWindow):
             }
         )
         values.update({f"config_{key}": field.text().strip() for key, field in self.settings_page.config_fields.items()})
+        values.update({f"backlog_{key}": field.text().strip() for key, field in self.settings_page.backlog_fields.items()})
         values.update({key: str(field.value()) for key, field in self.settings_page.schedule_fields.items()})
         try:
             self.settings_store.save_settings_fields(values)

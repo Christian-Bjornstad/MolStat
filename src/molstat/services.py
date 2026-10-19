@@ -23,7 +23,7 @@ from .config import MolStatSettings
 from .database import SCHEMA_VERSION, MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
 from .failures import RunFailure, database_failure
-from .unit_settings import load_active_units, materialize_snapshot, load_unit_file, write_json, upgrade_source, UnitConfigError
+from .unit_settings import load_active_units, materialize_snapshot, load_unit_file, load_backlog_file, write_json, upgrade_source, UnitConfigError
 from ._backlog.config import validate_app_config
 from .delivery import retry_pending
 from .excel_search import read_excel_snapshot, publish_search_workbook
@@ -193,7 +193,8 @@ class DefaultServices:
         for key in selected:
             try:
                 definitions.update(load_active_units(
-                    self.settings.sensitive_root, self.settings.unit_config_paths, (key,)
+                    self.settings.sensitive_root, self.settings.unit_config_paths, (key,),
+                    backlog_paths=self.settings.backlog_config_paths,
                 ))
             except Exception as exc:
                 definition_errors[key] = RunFailure("CONFIG_INVALID", "unit_configuration")
@@ -344,6 +345,11 @@ class DefaultServices:
                 for unit in system.units.active(enabled)
             }
         )
+        runners.update({
+            f"{unit.key}:backlog": lambda key=unit.key: self._build_system(
+                require_statistics=False, unit_keys=(key,)).run_job("backlog", (key,))
+            for unit in system.units.for_job("backlog", enabled)
+        })
 
         return MolStatOrchestrator(
             system.database,
@@ -368,7 +374,8 @@ class DefaultServices:
         if not self._settings_exist or not self.settings.sensitive_root.is_dir():
             raise ManualImportError("Konfigurer en tilgjengelig K-sensitiv mappe før manuell import.")
         return load_active_units(
-            self.settings.sensitive_root, self.settings.unit_config_paths, (unit_key,)
+            self.settings.sensitive_root, self.settings.unit_config_paths, (unit_key,),
+            backlog_paths=self.settings.backlog_config_paths,
         )[unit_key]
 
     def manual_import_available_jobs(self, unit_key: str) -> tuple[str, ...]:
@@ -471,6 +478,8 @@ class DefaultServices:
             configured = self.settings.unit_config_paths.get(unit.key)
             conventional = self.settings.sensitive_root / "config" / "units" / f"{unit.key}.json"
             fields[f"config_{unit.key}"] = str(configured or (conventional if conventional.is_file() else ""))
+        fields.update({f"backlog_{key}": str(self.settings.backlog_config_paths.get(key, ""))
+                       for key in ("hemato", "solide")})
         fields.update({key: str(getattr(self.settings, key)) for key in ("statistics_hour", "backlog_first_hour", "backlog_last_hour")})
         return fields
 
@@ -592,6 +601,8 @@ class DefaultServices:
             raise ValueError(errors[0])
         _validate_production_paths(updated)
         candidates = {}
+        backlog_paths = dict(updated.backlog_config_paths)
+        new_backlogs = {}
         for key in updated.enabled_units:
             text = values.get(f"config_{key}", "").strip()
             source = Path(text) if text else updated.unit_config_paths.get(key)
@@ -599,11 +610,25 @@ class DefaultServices:
                 source = updated.sensitive_root / "config" / "units" / f"{key}.json"
                 if not source.exists():
                     source = upgrade_source(updated.sensitive_root, key)
-            candidates[key] = load_unit_file(source, key)
+            backlog_source = None
+            if key in {"hemato", "solide"}:
+                text = values.get(f"backlog_{key}", "").strip()
+                backlog_source = Path(text) if text else backlog_paths.get(key)
+                if backlog_source is None:
+                    backlog_source = updated.sensitive_root / "config" / "restanse" / f"{key}.json"
+                    if not backlog_source.exists():
+                        new_backlogs[key] = backlog_source
+                        backlog_source = None
+            candidates[key] = load_unit_file(source, key, backlog_path=backlog_source)
+            if backlog_source is not None:
+                backlog_paths[key] = backlog_source
         # Prepare complete versions first; only the settings pointer activates them.
         # Failure while preparing another file cannot replace the active settings.
         config_paths = dict(updated.unit_config_paths)
         for key, candidate in candidates.items():
+            if key in new_backlogs:
+                write_json(new_backlogs[key], candidate.payload["backlog"])
+                backlog_paths[key] = new_backlogs[key]
             destination = updated.sensitive_root / "config" / "units" / key / f"{candidate.digest}.json"
             write_json(destination, candidate.payload)
             config_paths[key] = destination
@@ -626,7 +651,8 @@ class DefaultServices:
                 finally:
                     temporary.unlink(missing_ok=True)
             lookup_paths[key] = destination
-        updated = replace(updated, unit_config_paths=config_paths, statistics_lookup_paths=lookup_paths)
+        updated = replace(updated, unit_config_paths=config_paths, statistics_lookup_paths=lookup_paths,
+                          backlog_config_paths=backlog_paths)
         updated.save(self.settings_path)
         self.settings = updated
         self._settings_exist = True
@@ -639,9 +665,13 @@ class DefaultServices:
 
     def import_settings(self, path: Path) -> tuple[str, ...]:
         imported = MolStatSettings.import_from(path)
+        for key, source in imported.backlog_config_paths.items():
+            if source.is_file():
+                load_backlog_file(source, key)
         for key, source in imported.unit_config_paths.items():
             if source.is_file():
-                load_unit_file(source, key)
+                backlog_path = imported.backlog_config_paths.get(key)
+                load_unit_file(source, key, backlog_path=backlog_path if backlog_path and backlog_path.is_file() else None)
         warnings = _unavailable_path_messages(imported)
         imported.save(self.settings_path)
         self.settings = imported
@@ -758,4 +788,7 @@ def _unavailable_path_messages(settings: MolStatSettings) -> tuple[str, ...]:
     for key, source in settings.unit_config_paths.items():
         if key in settings.enabled_units and not source.is_file():
             unavailable.append(f"Enhetsfil for {key}")
+    for key, source in settings.backlog_config_paths.items():
+        if key in settings.enabled_units and not source.is_file():
+            unavailable.append(f"Restansefil for {key}")
     return tuple(unavailable)

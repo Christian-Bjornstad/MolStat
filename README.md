@@ -19,12 +19,17 @@ diagnostikk og flyttbare innstillinger i ett grensesnitt.
 | Enhet | Tilgjengelig nå | Kjøring |
 |---|---|---|
 | Hemato | Ja | Statistikk og Prøveflyt/restanse |
-| Solide | Ja | Statistikk |
-| Patologer | Ja | Månedlig prosess-, produksjons- og makrostatistikk |
+| Solide | Ja | Statistikk og restanse |
+| Patologer | Ja | PAT-TID-STØP-SNITT-OU, én måned om gangen |
 | Flow | Ja | Statistikk |
 | FISH | Ja | Statistikk |
 | Pre | Ja | Statistikk |
-| Hist | Kommer | Deaktivert plassholder |
+
+Hemato og Solide har en egen **Restanse**-knapp som bare henter restansen.
+**Kjør Hemato/Solide** kjører både statistikk og restanse. I Innstillinger kan
+hver enhet bruke sin egen redigerbare restansefil (JSON). Ved første lagring
+opprettes `config/restanse/hemato.json` og `config/restanse/solide.json` under
+valgt datarot. Endringer valideres og leses ved neste kjøring.
 
 `Kjør aktive enheter` starter alle ferdige funksjoner for aktiverte enheter. En feil i én
 funksjon stopper ikke de øvrige; kontrollappen viser resultat for hver
