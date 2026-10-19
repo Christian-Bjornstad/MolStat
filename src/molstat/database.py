@@ -330,10 +330,25 @@ class MolStatDatabase:
             connection.execute("PRAGMA busy_timeout = 30000")
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA synchronous = FULL")
+            # Sorts and temporary indexes must not depend on the Python runtime's
+            # TEMP directory being writable on the work PC.
+            connection.execute("PRAGMA temp_store = MEMORY")
             if guard_lease:
                 connection._writer_guard = active_writer_lease(self.path)
                 if connection._writer_guard:
                     connection._writer_guard.assert_owned(connection)
+        except BaseException:
+            connection.close()
+            raise
+        return connection
+
+    def read_connection(self) -> sqlite3.Connection:
+        """Read an existing database without activating or renewing a writer lease."""
+        connection = sqlite3.connect(readonly_uri(self.path), uri=True, timeout=30,
+            isolation_level=None, factory=ManagedConnection)
+        try:
+            connection.execute("PRAGMA busy_timeout = 30000")
+            connection.execute("PRAGMA temp_store = MEMORY")
         except BaseException:
             connection.close()
             raise

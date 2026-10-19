@@ -120,7 +120,7 @@ def read_excel_snapshot(
 ) -> ExcelSnapshot:
     """Read all workbook rows from one consistent SQLite snapshot."""
 
-    with database._connect() as connection:
+    with database.read_connection() as connection:
         connection.execute("BEGIN")
         try:
             sample_rows = connection.execute(

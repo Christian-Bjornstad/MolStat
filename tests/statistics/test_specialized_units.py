@@ -94,6 +94,29 @@ def test_two_report_profiles_process_archives_without_identifiers(tmp_path, key,
     publisher.publish({"antall.csv": result.antall, "resultater.csv": result.resultater}, tmp_path / "published")
 
 
+@pytest.mark.parametrize("key,code", [("flow", "FLOW-02-OU"), ("fish", "FISH-ALKBA-OU")])
+def test_flow_and_fish_registry_import_and_excel_refresh_under_writer_lease(tmp_path, key, code):
+    from datetime import datetime, timedelta
+    from molstat.database import MolStatDatabase
+    from molstat.excel_search import read_excel_snapshot, publish_search_workbook
+
+    unit = load_unit_file(default_unit_file(key)).unit
+    report_ids = {'antall': unit.reports[0].report_id, 'resultater': unit.reports[1].report_id}
+    row = ['SYNTHETIC-001', '', code, '01.09.2026 08:00:00', '01.09.2026 07:00:00',
+        '01.09.2026 09:00:00', '02.09.2026 08:00:00', '02.09.2026 09:00:00']
+    files = [archive(tmp_path / 'raw', report, [row]) for report in report_ids.values()]
+    database = MolStatDatabase(tmp_path / 'data' / 'molstat.sqlite3')
+    database.migrate()
+    with database.writer_lease('synthetic-pc', timedelta(minutes=5), renew=True):
+        result = StatisticsProcessor(LOOKUPS[key], profile=key, report_ids=report_ids,
+            database=database).process(key, files, tmp_path / 'out')
+        snapshot = read_excel_snapshot(database, generated_at=datetime(2026, 10, 19))
+        published = publish_search_workbook(snapshot, tmp_path / 'Prøvesøk.xlsx')
+    assert result.row_counts == {'antall': 1, 'resultater': 1}
+    assert len(snapshot.samples) == 1 and len(snapshot.analyses) == 1
+    assert published.status == 'published'
+
+
 def test_pre_single_report_processes_activity_chain(tmp_path):
     unit = load_unit_file(default_unit_file("pre")).unit
     report_id = unit.reports[0].report_id
