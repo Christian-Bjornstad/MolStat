@@ -49,6 +49,22 @@ kontrollsenteret. Begge åpner Python FELLES gjennom Ivanti PowerGate og legger
 en kommando på utklippstavlen som limes inn med Ctrl+V. Automatikk- og
 bootstraplogger ligger under `%LOCALAPPDATA%\MolStat`.
 
+### Oppstartsfeil med `schema_version`
+
+`MolStatSettings.__init__() got an unexpected keyword argument 'schema_version'`
+betyr at gammel innlesingskode åpner en nyere innstillingsfil. Oppdater hele
+programmappen fra den nye pakken, behold innstillingsfilen og databasen,
+og start på nytt med `MOLSTAT_START.cmd` fra den oppdaterte mappen.
+Det oppdaterte startskriptet laster MolStat-modulene på nytt også når
+Python FELLES allerede er åpent. Endring av `schema_version` i innstillingene
+er ikke nødvendig.
+
+Oppstarten viser full sti til programmappe, innstillingsfil og
+`bootstrap.log`. Ved kjøring i Citrix gjelder stiene Citrix-maskinen og
+brukerprofilen der. Hvis AppData ikke er skrivbar, vises faktisk loggsti
+under den midlertidige mappen. Kopier den viste stien i Filutforsker i samme
+Citrix-økt for å finne loggen.
+
 ## Prøvesøk.xlsx
 
 `Prøvesøk.xlsx` ligger direkte i den valgte K-sensitive roten. Filen inneholder
