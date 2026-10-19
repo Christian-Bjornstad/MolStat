@@ -18,6 +18,8 @@ MESSAGES = {
     "DB_ERROR": "Databaseoperasjonen feilet. Se teknisk feilkode.",
     "DB_LEASE_LOST": "Databaselåsen ble mistet. Kjøringen er stoppet for å unngå samtidige skrivere. Kontroller nettverk og andre kjøringer før nytt forsøk.",
     "EXCEL_REFRESH_FAILED": "Excel-søket kunne ikke oppdateres. Lukk filen i Excel og prøv igjen.",
+    "PRIVATE_FILES_LOCKED": "Power BI-datafilene kunne ikke erstattes. Lukk Power BI/Excel som bruker filene, og kontroller skrivetilgangen. Behandlede kandidater er bevart.",
+    "PRIVATE_FILES_RECOVERY": "Gjenoppretting av Power BI-filsettet ble blokkert. Lukk programmer som bruker filene. Behandlede kandidater og gjenopprettingsfiler er bevart; filsettet må kontrolleres før oppdatering.",
     "CSV_INVALID": "Uttrekket stemmer ikke med CSV-oppsettet eller inneholder ugyldige rader. Kontroller skilletegn, kolonner og datoformat i enhetsfilen.",
     "CONFIG_INVALID": "Enhetsfilen må rettes. Kontroller JSON-oppsettet for denne enheten i Innstillinger.",
     "LOOKUP_INVALID": "Lookup-filen mangler eller er ugyldig. Kontroller lookup for denne enheten i Innstillinger.",

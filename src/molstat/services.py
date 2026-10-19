@@ -37,7 +37,7 @@ from ._statistics.lege_lookup import default_lege_lookup_path, validate_lege_loo
 from .lvms.config import validate_app_config as validate_lvms_config
 from .system import CapabilityRun, MolStatSystem, ExcelRefreshStatus
 from .manual_import import ManualImportPlan, ManualImportError
-from ._writer_lease import guarded_output
+from ._writer_lease import guarded_output, WriterLeaseLost
 
 
 class DefaultServices:
@@ -732,6 +732,10 @@ class DefaultServices:
 
     def _record_job_failure(self, stage: str, error: BaseException) -> None:
         safe_error = database_failure(error) if isinstance(error, sqlite3.Error) else error
+        if isinstance(error, WriterLeaseLost):
+            reason = error.reason if error.reason in {"OWNERSHIP_CHANGED", "EXPIRED", "RENEWAL_FAILED"} or (
+                error.reason.startswith("SQLITE_") and isinstance(getattr(sqlite3, error.reason, None), int)) else ""
+            safe_error = RunFailure("DB_LEASE_LOST", "writer_lease", detail=reason)
         if isinstance(error, CsvImportError):
             safe_error = RunFailure("CSV_INVALID", "csv_import")
         message = f"{stage}: {safe_error if isinstance(safe_error, (RunFailure, UnitConfigError, ManualImportError)) else type(error).__name__}"

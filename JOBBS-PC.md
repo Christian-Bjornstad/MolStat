@@ -40,6 +40,28 @@ feilens stakk fra `%LOCALAPPDATA%/MolStat/logs/runtime.log` på jobb-PC-en.
 En database som faktisk er skrivebeskyttet av Windows kan ikke oppdateres av
 appen; vellykkede syntetiske tester erstatter ikke prøving på jobb-PC-en.
 
+### Patolog: lange kjøringer og låste datafiler
+
+Låsfornyelsen tåler nå kortvarig I/O-feil innen gyldig låsetid. Etter en
+forsinkelse kan samme eier fornye låsen under SQLite-skrivelås dersom ingen
+har overtatt eierskapet. Et erstattet token stopper fortsatt kjøringen.
+Eierskapet kontrolleres på nytt før hver rapportkjøring, og låsfornyelsen
+lagres separat slik at en påfølgende filfeil ikke ruller den tilbake.
+
+Patologs private Power BI-filer klargjøres samlet, med kopi av forrige
+filsett, før de installeres under `processed/lege/powerbi`. Kortvarige
+Windows-fillåser får fire forsøk. Hvis installasjonen feiler, gjenopprettes
+filene som allerede ble erstattet. Ved blokkert gjenoppretting beholdes
+resterende kopier i en `.molstat-<id>`-mappe; navnene ender på
+`<opprinnelig filnavn>.old.tmp`. Behandlede kandidater beholdes også.
+
+`PRIVATE_FILES_LOCKED` betyr at filene ikke kunne erstattes etter nye forsøk:
+lukk Power BI/Excel som bruker Patolog-CSV-ene, kontroller skrivetilgang og
+prøv igjen. `PRIVATE_FILES_RECOVERY` krever kontroll av det private filsettet
+og gjenopprettingskopiene før videre Power BI-oppdatering.
+`DB_LEASE_LOST` viser nå en årsakskode, for eksempel `OWNERSHIP_CHANGED`,
+`EXPIRED` eller en SQLite-kode, fremfor bare unntaksnavnet.
+
 ## Planlagte oppgaver
 
 - `MolStat - daglig statistikk`: standard kl. 05:00

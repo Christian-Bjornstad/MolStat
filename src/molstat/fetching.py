@@ -16,6 +16,7 @@ from .lvms.report import ReportRequest
 from .lvms.report_job import ReportInterval, ReportJob, batch_filename
 from .statistics import Unit, load_units
 from .failures import RunFailure
+from ._writer_lease import checkpoint_writer_lease
 
 
 _WINDOW = re.compile(
@@ -241,10 +242,12 @@ class UnifiedLvmsFetcher:
         )
 
     def _run_jobs(self, jobs: tuple[ReportJob, ...], run_label: str) -> tuple[Path, ...]:
+        checkpoint_writer_lease()
         run_root = self.work_root / f"{run_label}-{uuid4().hex}"
         run_root.mkdir(parents=True, exist_ok=False)
         jobs_path = _write_jobs(run_root / "jobs.json", jobs)
         for attempt in range(1, 4):
+            checkpoint_writer_lease()
             failures: list[RunFailure] = []
             exit_code = self.run_batch(
                 self.lvms_config_path, jobs_path,
@@ -252,6 +255,7 @@ class UnifiedLvmsFetcher:
                 error_reporter=failures.append,
             )
             if exit_code == 0:
+                checkpoint_writer_lease()
                 break
             error = failures[-1] if failures else RunFailure("LVMS_FAILED", "batch")
             error.attempt, error.run_id = attempt, run_root.name

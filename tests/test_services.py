@@ -10,6 +10,19 @@ from molstat._statistics.specialized_lookup import default_lookup_path
 from molstat._statistics.lege_lookup import default_lege_lookup_path
 
 
+def test_lease_failure_diagnostic_includes_safe_reason_without_raw_payload(tmp_path, monkeypatch):
+    from molstat._writer_lease import WriterLeaseLost
+
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'local'))
+    services = DefaultServices(tmp_path / 'settings.json')
+    services._record_job_failure('lege_statistics_run_failed',
+        WriterLeaseLost('SECRET external detail', reason='OWNERSHIP_CHANGED'))
+    message, = services.diagnostic_messages()
+    assert 'DB_LEASE_LOST' in message
+    assert 'OWNERSHIP_CHANGED' in message
+    assert 'SECRET' not in message
+
+
 def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
     services = DefaultServices(tmp_path / "settings.json")
 

@@ -144,3 +144,54 @@ def test_existing_config_switches_to_only_workflow(tmp_path):
     path = tmp_path / "lege.json"
     path.write_text(json.dumps(raw), encoding="utf-8")
     assert set(load_unit_file(path).payload["statistics"]) == {"workflow"}
+
+
+def test_pathology_file_lock_is_reported_without_secondary_lease_loss(tmp_path, monkeypatch):
+    import os
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+    from molstat.archive import RawArchive
+    from molstat.database import MolStatDatabase
+    from molstat.modules import DEFAULT_UNITS, UnitRegistry
+    from molstat.orchestrator import MolStatOrchestrator
+    from molstat.publisher import SharePointPublisher, PublicationPolicy
+    from molstat.statistics import StatisticsProcessor
+    from molstat.system import MolStatSystem
+    from molstat.lvms.report import ReportRequest
+    import molstat.private_delivery as private
+
+    clock = [datetime(2026, 10, 19, 8, 0, tzinfo=timezone.utc)]
+    sensitive = tmp_path / 'sensitive'
+    database = MolStatDatabase(sensitive / 'data/molstat.sqlite3', now=lambda: clock[0])
+    database.migrate()
+    source = tmp_path / 'download.csv'
+    export(source)
+    request = ReportRequest('statistics', 'lege', flow.STEM, date(2026, 9, 1), date(2026, 9, 30))
+    def fetch(keys):
+        clock[0] += timedelta(minutes=2)
+        return {'lege': ((request, source),)}
+    target = sensitive / 'processed/lege/powerbi'
+    target.mkdir(parents=True)
+    (target / 'Glass.csv').write_text('old glass data', encoding='utf-8')
+    original_replace = os.replace
+    def lock_glass(src, dest):
+        if Path(dest) == target / 'Glass.csv':
+            raise PermissionError('synthetic file lock')
+        return original_replace(src, dest)
+    monkeypatch.setattr(private.os, 'replace', lock_glass)
+    original_retry = private._replace
+    monkeypatch.setattr(private, '_replace', lambda src, dest, sleep: original_retry(src, dest, lambda _: None))
+    unit = DEFAULT_UNITS.require('lege')
+    system = MolStatSystem(database=database, archive=RawArchive(sensitive),
+        statistics_processors={'lege': StatisticsProcessor(Path(''), profile='lege')},
+        backlog_processor=None, publisher=SharePointPublisher(PublicationPolicy(unit.capability('statistics').allowed_columns, ())),
+        sharepoint_root=tmp_path / 'public', work_root=sensitive / 'processed',
+        statistics_fetch=fetch, backlog_fetch=lambda: None, units=UnitRegistry((unit,)))
+    result = MolStatOrchestrator(database, {'lege': lambda: system.run_unit('lege')},
+        owner='synthetic-pc', lease_ttl=timedelta(seconds=30)).run('lege', 'manual')
+    assert result.status == 'failed'
+    assert result.capability_results[0].error_code == 'PRIVATE_FILES_LOCKED'
+    assert (target / 'Glass.csv').read_text('utf-8') == 'old glass data'
+    assert not (target / 'Prøver.csv').exists()
+    assert database.current_lease_owner() is None
+    assert database.job_statuses() == (('lege', 'failed'),)

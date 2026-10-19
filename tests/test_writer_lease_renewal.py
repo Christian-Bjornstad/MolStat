@@ -179,3 +179,121 @@ def test_transaction_commit_styles_renew_before_releasing_lock(tmp_path, commit_
             if commit_style == "method":
                 connection.commit()
         assert database.current_lease_owner() == "pc-a"
+
+
+def test_single_transient_heartbeat_io_error_does_not_poison_the_run(tmp_path):
+    import sqlite3
+
+    database = MolStatDatabase(tmp_path / 'database.sqlite3')
+    database.migrate()
+    recovered = threading.Event()
+    calls = []
+    with database.writer_lease('pc-a', timedelta(milliseconds=900), renew=True) as lease:
+        original = lease.renew
+        def intermittent_renew():
+            calls.append(1)
+            if len(calls) == 1:
+                error = sqlite3.OperationalError('synthetic temporary I/O failure')
+                error.sqlite_errorcode = sqlite3.SQLITE_IOERR
+                error.sqlite_errorname = 'SQLITE_IOERR'
+                raise error
+            original()
+            recovered.set()
+        lease.renew = intermittent_renew
+        assert recovered.wait(2), 'Heartbeat must recover after a transient I/O error'
+        assert not lease.lost.is_set()
+        with database._connect() as connection:
+            connection.execute("INSERT INTO job_run(kind,trigger,status,started_at) VALUES ('test','manual','running','now')")
+
+
+@pytest.mark.parametrize('operation', ['renew', 'output'])
+def test_delayed_owner_can_renew_only_if_token_is_still_unchanged(tmp_path, operation):
+    from datetime import datetime, timezone
+
+    clock = [datetime(2026, 10, 19, 8, 0, tzinfo=timezone.utc)]
+    database = MolStatDatabase(tmp_path / 'database.sqlite3', now=lambda: clock[0])
+    database.migrate()
+    with database.writer_lease('pc-a', timedelta(seconds=30), renew=True) as lease:
+        clock[0] += timedelta(minutes=2)
+        if operation == 'renew':
+            lease.renew()
+        else:
+            with lease.output_guard():
+                pass
+        assert database.current_lease_owner() == 'pc-a'
+
+
+def test_persistent_heartbeat_io_failure_still_stops_before_further_writes(tmp_path):
+    import sqlite3
+    from molstat._writer_lease import WriterLeaseLost
+
+    database = MolStatDatabase(tmp_path / 'database.sqlite3')
+    database.migrate()
+    with database.writer_lease('pc-a', timedelta(milliseconds=300), renew=True) as lease:
+        original = lease.renew
+        def unavailable():
+            error = sqlite3.OperationalError('synthetic storage unavailable')
+            error.sqlite_errorcode = sqlite3.SQLITE_IOERR
+            error.sqlite_errorname = 'SQLITE_IOERR'
+            raise error
+        lease.renew = unavailable
+        assert lease.lost.wait(2)
+        assert lease.loss_reason == 'SQLITE_IOERR'
+        lease.renew = original
+        with pytest.raises(WriterLeaseLost):
+            with lease.output_guard():
+                pytest.fail('No files may be installed after confirmed lease loss')
+
+
+def test_delayed_owner_cannot_reclaim_a_token_taken_by_a_real_successor(tmp_path):
+    from datetime import datetime, timezone
+    from molstat._writer_lease import WriterLeaseLost
+
+    clock = [datetime(2026, 10, 19, 8, 0, tzinfo=timezone.utc)]
+    database = MolStatDatabase(tmp_path / 'database.sqlite3', now=lambda: clock[0])
+    database.migrate()
+    with database.writer_lease('pc-a', timedelta(seconds=30), renew=True) as old:
+        clock[0] += timedelta(minutes=2)
+        with database.writer_lease('pc-b', timedelta(minutes=5)):
+            with pytest.raises(WriterLeaseLost):
+                old.renew()
+            with database.read_connection() as connection:
+                assert connection.execute('SELECT owner FROM writer_lease').fetchone()[0] == 'pc-b'
+
+
+def test_lost_writer_does_not_start_another_pathology_download(tmp_path):
+    from datetime import date
+    from molstat._writer_lease import WriterLeaseLost
+    from molstat.fetching import UnifiedLvmsFetcher, _statistics_job
+    from molstat.unit_settings import default_unit_file, load_unit_file
+
+    database = MolStatDatabase(tmp_path / 'database.sqlite3')
+    database.migrate()
+    calls = []
+    unit = load_unit_file(default_unit_file('lege')).unit
+    job = _statistics_job(unit, unit.report_by_key('workflow'), date(2026, 9, 1), date(2026, 9, 30))
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json',
+        sensitive_root=tmp_path, work_root=tmp_path / 'fetch', units_path=tmp_path / 'units.json',
+        backlog_report_path=tmp_path / 'backlog.json', run_batch=lambda *a, **kw: calls.append(1) or 0)
+    with database.writer_lease('pc-a', timedelta(minutes=5), renew=True):
+        with database._connect(guard_lease=False) as connection:
+            connection.execute("UPDATE writer_lease SET token='other', owner='pc-b'")
+        with pytest.raises(WriterLeaseLost):
+            fetcher._run_jobs((job,), 'lege')
+    assert calls == []
+    assert not (tmp_path / 'fetch').exists()
+
+
+def test_file_error_after_delayed_resume_does_not_rollback_the_lease_renewal(tmp_path):
+    from datetime import datetime, timezone
+
+    clock = [datetime(2026, 10, 19, 8, 0, tzinfo=timezone.utc)]
+    database = MolStatDatabase(tmp_path / 'database.sqlite3', now=lambda: clock[0])
+    database.migrate()
+    with database.writer_lease('pc-a', timedelta(seconds=30), renew=True) as lease:
+        clock[0] += timedelta(minutes=2)
+        with pytest.raises(PermissionError):
+            with lease.output_guard():
+                raise PermissionError('synthetic locked Power BI file')
+        assert database.current_lease_owner() == 'pc-a'
+        assert not lease.lost.is_set()
