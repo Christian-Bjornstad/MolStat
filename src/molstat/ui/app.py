@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from threading import Event
 from typing import Any
 
 from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, Qt, QUrl, pyqtSignal
@@ -25,10 +26,13 @@ from .settings import SettingsPage
 from .import_page import ImportPage
 from .theme import build_stylesheet
 from ..orchestrator import JobResult
+from ..failures import storage_failure
+from ..recovery import recovery_context, check_cancelled
 
 
 class _WorkerSignals(QObject):
     finished = pyqtSignal(object)
+    progress = pyqtSignal(object)
 
 
 class _JobWorker(QRunnable):
@@ -38,14 +42,20 @@ class _JobWorker(QRunnable):
         self.target = target
         self.operation = operation
         self.signals = _WorkerSignals()
+        self.cancel = Event()
 
     def run(self) -> None:
         try:
-            result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
+            with recovery_context(observer=self.signals.progress.emit, cancel=self.cancel):
+                check_cancelled()
+                result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
         except Exception as exc:
             if hasattr(self.orchestrator, "_report_failure"):
                 self.orchestrator._report_failure(f"{self.target}_run_failed", exc)
-            result = JobResult(self.target, "failed", {}, "Kjøringen feilet. Se Diagnostikk.")
+            failure = storage_failure(exc, stage="job_run")
+            result = JobResult(self.target, "failed", {},
+                               str(failure) if failure else "Kjøringen feilet. Se Diagnostikk.",
+                               error_code=failure.code if failure else None)
         self.signals.finished.emit(result)
 
 
@@ -152,7 +162,24 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.nav_import)
         layout.addWidget(self.nav_diagnostics)
         layout.addStretch(1)
+        self.stop_button = QPushButton("Stopp kjøring")
+        self.stop_button.setObjectName("stop-running-job")
+        self.stop_button.setAccessibleName("Stopp kjøring og vent på trygg opprydding")
+        self.stop_button.setMinimumHeight(44)
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(self._stop_running_jobs)
+        layout.addWidget(self.stop_button)
         return sidebar
+
+    def _stop_running_jobs(self) -> None:
+        for worker in self._workers:
+            worker.cancel.set()
+        self.stop_button.setEnabled(False)
+        self.statusBar().showMessage("Stopper kjøringen. Venter på trygg opprydding …")
+
+    def _retry_progress(self, event: Any) -> None:
+        self.statusBar().showMessage(str(event))
+        self._refresh_diagnostics()
 
     def _navigate(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
@@ -210,6 +237,7 @@ class MainWindow(QMainWindow):
         self._refresh_run_button_states()
         self.statusBar().showMessage("Manuell import pågår …")
         worker.signals.finished.connect(lambda result, active=worker: self._job_finished(result, active))
+        worker.signals.progress.connect(self._retry_progress)
         QThreadPool.globalInstance().start(worker)
 
     def _start_job(self, target: str) -> None:
@@ -233,6 +261,7 @@ class MainWindow(QMainWindow):
         worker.signals.finished.connect(
             lambda result, active=worker: self._job_finished(result, active)
         )
+        worker.signals.progress.connect(self._retry_progress)
         QThreadPool.globalInstance().start(worker)
 
     def _job_finished(self, result: Any, worker: _JobWorker) -> None:
@@ -242,7 +271,10 @@ class MainWindow(QMainWindow):
             for key, value in self.settings_store.overview_status_fields().items():
                 if key in self.overview.cards:
                     self.overview.cards[key].set_status(*value)
-        if result.status == "succeeded":
+        if getattr(result, "error_code", None) == "CANCELLED":
+            self._apply_capability_results(result, "Avbrutt", "Kjøringen ble stoppet")
+            self.statusBar().showMessage("Kjøringen er avbrutt.", 7000)
+        elif result.status == "succeeded":
             detail = self._completion_detail(result.summary)
             self._apply_capability_results(result, "Fullført", detail)
             if result.kind != "excel":
@@ -412,6 +444,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_run_button_states(self) -> None:
         running = {worker.target for worker in self._workers}
+        self.stop_button.setEnabled(bool(running) and not any(worker.cancel.is_set() for worker in self._workers))
         enabled = self._enabled_unit_keys()
         self.overview.run_all.setEnabled(not running and bool(enabled) and self.orchestrator is not None)
         self.overview.refresh_excel.setEnabled(not running and self.orchestrator is not None)

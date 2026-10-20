@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import socket
 import sqlite3
+import stat
 from threading import Event
 from urllib.parse import urlparse
 
@@ -20,7 +21,8 @@ from .config import MolStatSettings
 from .database import SCHEMA_VERSION, MolStatDatabase
 from .diagnostic_logs import diagnostic_log_directory, write_diagnostic_log
 from .fetching import UnifiedLvmsFetcher
-from .failures import RunFailure, database_failure
+from .failures import RunFailure, database_failure, storage_failure
+from .recovery import RetryEvent, retry_operation, recovery_context
 from .unit_settings import load_active_units, load_unit_file, load_backlog_file, write_json, UnitConfigError
 from ._backlog.config import validate_app_config
 from .delivery import retry_pending
@@ -75,18 +77,32 @@ class DefaultServices:
             self._record_failure("gui_configuration_failed", exc)
             if isinstance(exc, sqlite3.Error):
                 return None, str(database_failure(exc))
+            if (failure := storage_failure(exc, stage="runtime_configuration")) is not None:
+                return None, str(failure)
             return None, f"{type(exc).__name__}: {exc}"
         return orchestrator, None
 
     def run(self, kind: str) -> int:
         try:
-            system = self._build_system(require_statistics=kind != "backlog")
-            result = self._orchestrator(system).run(kind, "scheduled")
-        except Exception:
-            print(json.dumps({"status": "failed", "message": "Kontroller MolStat-oppsettet."}, ensure_ascii=False))
-            return 2
-        print(json.dumps({"status": result.status, **result.summary}, ensure_ascii=False))
+            with recovery_context(observer=self.record_retry):
+                system = self._build_system(require_statistics=kind != "backlog")
+                result = self._orchestrator(system).run(kind, "scheduled")
+        except Exception as error:
+            return self._scheduled_failure(f"{kind}_scheduled_run_failed", error)
+        payload = {"status": result.status, **result.summary}
+        if result.message:
+            payload["message"] = result.message
+        if result.error_code:
+            payload["error_code"] = result.error_code
+        print(json.dumps(payload, ensure_ascii=False))
         return 0 if result.status == "succeeded" else 2
+
+    def _scheduled_failure(self, stage: str, error: BaseException) -> int:
+        self._record_job_failure(stage, error)
+        failure = storage_failure(error, stage=stage)
+        print(json.dumps({"status": "failed", "error_code": failure.code if failure else "CONFIG_INVALID",
+                          "message": str(failure) if failure else "Kontroller MolStat-oppsettet."}, ensure_ascii=False))
+        return 2
 
     def serve(self) -> int:
         from .web import BoardServer
@@ -105,15 +121,19 @@ class DefaultServices:
         if not self._settings_exist:
             print(json.dumps({"status": "failed", "message": "Konfigurer MolStat først."}, ensure_ascii=False))
             return 2
-        database = self._database()
-        now = datetime.now(timezone.utc)
-        due = due_jobs(
-            now,
-            database.last_successes(),
-            statistics_hour=self.settings.statistics_hour,
-            backlog_first_hour=self.settings.backlog_first_hour,
-            backlog_last_hour=self.settings.backlog_last_hour,
-        )
+        try:
+            with recovery_context(observer=self.record_retry):
+                database = self._database()
+                now = datetime.now(timezone.utc)
+                due = due_jobs(
+                    now,
+                    retry_operation(database.last_successes, stage="database_read"),
+                    statistics_hour=self.settings.statistics_hour,
+                    backlog_first_hour=self.settings.backlog_first_hour,
+                    backlog_last_hour=self.settings.backlog_last_hour,
+                )
+        except Exception as error:
+            return self._scheduled_failure("automatic_schedule_failed", error)
         statuses = [self.run(kind) for kind in due]
         if not due:
             print(json.dumps({"status": "idle"}))
@@ -152,9 +172,10 @@ class DefaultServices:
     def _database(self) -> MolStatDatabase:
         if self._settings_load_error:
             raise ValueError(self._settings_load_error)
+        self._require_sensitive_root()
         layout = prepare_storage_layout(self.settings.sensitive_root)
         database = MolStatDatabase(layout.database_path)
-        if database.schema_version_if_present() == SCHEMA_VERSION:
+        if retry_operation(database.schema_version_if_present, stage="database_read") == SCHEMA_VERSION:
             return database
         backup_before_migration(
             database,
@@ -162,6 +183,11 @@ class DefaultServices:
         )
         database.migrate()
         return database
+
+    def _require_sensitive_root(self) -> None:
+        details = retry_operation(self.settings.sensitive_root.stat, stage="storage_root")
+        if not stat.S_ISDIR(details.st_mode):
+            raise ValueError("K-sensitiv mappe er ikke tilgjengelig. Ingen erstatningsdatabase opprettes.")
 
     def _build_system(
         self,
@@ -177,8 +203,7 @@ class DefaultServices:
         errors = self.settings.validate()
         if errors:
             raise ValueError(errors[0])
-        if not self.settings.sensitive_root.is_dir():
-            raise ValueError("K-sensitiv mappe er ikke tilgjengelig. Ingen erstatningsdatabase opprettes.")
+        self._require_sensitive_root()
         selected = tuple(self.settings.enabled_units if unit_keys is None else unit_keys)
         if set(selected) - set(self.settings.enabled_units):
             raise ValueError("Aktiver enheten i Innstillinger før kjøring.")
@@ -186,10 +211,10 @@ class DefaultServices:
         definition_errors = {}
         for key in selected:
             try:
-                definitions.update(load_active_units(
+                definitions.update(retry_operation(lambda: load_active_units(
                     self.settings.sensitive_root, self.settings.unit_config_paths, (key,),
                     backlog_paths=self.settings.backlog_config_paths,
-                ))
+                ), stage="unit_configuration_read"))
             except Exception as exc:
                 definition_errors[key] = RunFailure("CONFIG_INVALID", "unit_configuration")
                 self._record_job_failure(f"{key}_configuration_failed", exc)
@@ -325,6 +350,7 @@ class DefaultServices:
             runners,
             owner=socket.gethostname() or "molstat-pc",
             failure_reporter=self._record_job_failure,
+            retry_reporter=self.record_retry,
         )
 
     def unit_status_fields(self) -> dict[str, tuple[str, str]]:
@@ -387,6 +413,7 @@ class DefaultServices:
             self._database(), {plan.unit_key: runner},
             owner=socket.gethostname() or "molstat-pc",
             failure_reporter=self._record_job_failure,
+            retry_reporter=self.record_retry,
         )
         return orchestrator.run(plan.unit_key, "manual_import")
 
@@ -474,13 +501,13 @@ class DefaultServices:
 
         database_status = (
             ("Klar", "K-sensitiv mappe er tilgjengelig")
-            if self.settings.sensitive_root.is_dir()
+            if _directory_available(self.settings.sensitive_root)
             else ("Ikke tilgjengelig", "Kontroller K-sensitiv mappe")
         )
         sharepoint = self.settings.sharepoint_root
         if sharepoint is None:
             sharepoint_status = ("Ikke satt opp", "Velg mappe i Innstillinger")
-        elif sharepoint.is_dir():
+        elif _directory_available(sharepoint):
             sharepoint_status = ("Klar", "Konfigurert mappe er tilgjengelig")
         else:
             sharepoint_status = (
@@ -492,8 +519,11 @@ class DefaultServices:
             "sharepoint": sharepoint_status,
         }
         workbook = self.settings.sensitive_root / "Prøvesøk.xlsx"
-        statuses["excel"] = (("Tilgjengelig", "Sist oppdatert " + datetime.fromtimestamp(workbook.stat().st_mtime).strftime("%d.%m.%Y %H:%M"))
-                             if workbook.is_file() else ("Ikke generert", "Oppdater fra eksisterende database"))
+        try:
+            statuses["excel"] = (("Tilgjengelig", "Sist oppdatert " + datetime.fromtimestamp(workbook.stat().st_mtime).strftime("%d.%m.%Y %H:%M"))
+                                 if workbook.is_file() else ("Ikke generert", "Oppdater fra eksisterende database"))
+        except OSError:
+            statuses["excel"] = ("Ikke tilgjengelig", "Filområdet kunne ikke leses. Prøv igjen når forbindelsen er tilbake.")
         system = getattr(self, "_last_system", None)
         if system and system.fetch_error is not None:
             statuses["lvms"] = ("Oppsett må rettes", "Manuell import kan brukes mens LVMS-oppsettet rettes")
@@ -627,7 +657,7 @@ class DefaultServices:
         self._record_diagnostic(stage, error, "runtime.log")
 
     def _record_diagnostic(self, stage: str, error: BaseException, filename: str) -> None:
-        safe_error = database_failure(error) if isinstance(error, sqlite3.Error) else error
+        safe_error = storage_failure(error, stage=stage) or error
         if isinstance(error, WriterLeaseLost):
             reason = error.reason if error.reason in {"OWNERSHIP_CHANGED", "EXPIRED", "RENEWAL_FAILED"} or (
                 error.reason.startswith("SQLITE_") and isinstance(getattr(sqlite3, error.reason, None), int)) else ""
@@ -640,12 +670,26 @@ class DefaultServices:
             filename, message, error, preferred=self._diagnostic_log_directory,
         )
 
+    def record_retry(self, event: RetryEvent) -> None:
+        message = str(event)
+        self._diagnostics.append(message)
+        self._diagnostic_log_directory = write_diagnostic_log(
+            "runtime.log", message, RuntimeError("retry"), preferred=self._diagnostic_log_directory,
+        )
+
     def diagnostic_log_directory(self) -> Path | None:
         self._diagnostic_log_directory = diagnostic_log_directory(self._diagnostic_log_directory)
         return self._diagnostic_log_directory
 
     def diagnostic_messages(self) -> tuple[str, ...]:
         return tuple(self._diagnostics)
+
+
+def _directory_available(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
 
 
 def _validate_production_paths(settings: MolStatSettings) -> None:

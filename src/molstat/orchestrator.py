@@ -10,7 +10,8 @@ from typing import Literal, Mapping, Sequence
 
 from .database import MolStatDatabase, WriterLeaseBusy
 from .system import CapabilityRun
-from .failures import MESSAGES, RunFailure, database_failure
+from .failures import MESSAGES, RunFailure, database_failure, storage_failure
+from .recovery import RetryEvent, recovery_context, uncancellable_cleanup, check_cancelled
 from .modules import DEFAULT_UNITS, JobKind
 from .unit_settings import UnitConfigError
 from .manual_import import ManualImportError
@@ -40,6 +41,7 @@ class JobResult:
     summary: Mapping[str, int | float | bool]
     message: str | None = None
     capability_results: tuple[CapabilityResult, ...] = ()
+    error_code: str | None = None
 
 
 class MolStatOrchestrator:
@@ -55,6 +57,7 @@ class MolStatOrchestrator:
         lease_ttl: timedelta = timedelta(minutes=30),
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         failure_reporter: Callable[[str, BaseException], None] | None = None,
+        retry_reporter: Callable[[RetryEvent], None] | None = None,
     ) -> None:
         self.database = database
         self.runners = runners
@@ -62,14 +65,21 @@ class MolStatOrchestrator:
         self.lease_ttl = lease_ttl
         self._now = now
         self._failure_reporter = failure_reporter
+        self._retry_reporter = retry_reporter
 
     def run(self, kind: str, trigger: str) -> JobResult:
+        with recovery_context(observer=self._retry_reporter):
+            return self._run(kind, trigger)
+
+    def _run(self, kind: str, trigger: str) -> JobResult:
         if kind not in self.runners:
             raise ValueError(f"Ingen kjører er konfigurert for {kind}.")
+        failed_result: JobResult | None = None
         try:
             with self.database.writer_lease(self.owner, self.lease_ttl, renew=True):
                 run_id = self._start_run(kind, trigger)
                 try:
+                    check_cancelled()
                     raw_result = self.runners[kind]()
                     finished_at = self._now().astimezone(timezone.utc).isoformat()
                     capability_results: tuple[CapabilityResult, ...] = ()
@@ -97,25 +107,34 @@ class MolStatOrchestrator:
                             asdict(result) for result in capability_results
                         ]
                     self._finish_run(run_id, status, stored_summary, finished_at=finished_at)
-                    return JobResult(kind, status, summary, message, capability_results)
+                    result = JobResult(kind, status, summary, message, capability_results)
+                    if status in {"failed", "partial"}:
+                        failed_result = result
+                    return result
                 except Exception as exc:
                     self._report_failure(f"{kind}_run_failed", exc)
                     if isinstance(exc, WriterLeaseLost):
                         raise
-                    self._finish_run(
-                        run_id,
-                        "failed",
-                        {"errorType": type(exc).__name__},
-                    )
-                    return JobResult(
+                    try:
+                        with uncancellable_cleanup():
+                            self._finish_run(run_id, "failed", {"errorType": type(exc).__name__})
+                    except Exception as history_error:
+                        self._report_failure(f"{kind}_history_write_failed", history_error)
+                    failure = storage_failure(exc, stage="job_run")
+                    failed_result = JobResult(
                         kind,
                         "failed",
                         {},
-                        "Kjøringen feilet. Se personvernsikker diagnostikk.",
+                        str(failure) if failure else "Kjøringen feilet. Se personvernsikker diagnostikk.",
+                        error_code=failure.code if failure else None,
                     )
+                    return failed_result
         except sqlite3.Error as exc:
-            self._report_failure(f"{kind}_run_failed", exc)
-            return JobResult(kind, "failed", {}, str(database_failure(exc)))
+            self._report_failure(f"{kind}_lease_cleanup_failed" if failed_result else f"{kind}_run_failed", exc)
+            if failed_result is not None:
+                return failed_result
+            failure = database_failure(exc)
+            return JobResult(kind, "failed", {}, str(failure), error_code=failure.code)
         except WriterLeaseBusy:
             return JobResult(
                 kind,
@@ -124,7 +143,14 @@ class MolStatOrchestrator:
                 "En annen MolStat-kjøring er allerede aktiv.",
             )
         except WriterLeaseLost:
-            return JobResult(kind, "failed", {}, MESSAGES["DB_LEASE_LOST"])
+            return JobResult(kind, "failed", {}, MESSAGES["DB_LEASE_LOST"], error_code="DB_LEASE_LOST")
+        except (OSError, RunFailure) as exc:
+            self._report_failure(f"{kind}_lease_cleanup_failed" if failed_result else f"{kind}_run_failed", exc)
+            if failed_result is not None:
+                return failed_result
+            failure = storage_failure(exc, stage="job_run")
+            return JobResult(kind, "failed", {}, str(failure) if failure else MESSAGES["FILE_ERROR"],
+                             error_code=failure.code if failure else None)
 
     def capability_statuses(self) -> tuple[CapabilityResult, ...]:
         """Read latest outcome per capability, including completed composite runs."""
@@ -280,8 +306,8 @@ def _capability_result(run: CapabilityRun, finished_at: str | None = None) -> Ca
         code = "CONFIG_INVALID"
     elif isinstance(error, ManualImportError):
         code = "CSV_INVALID"
-    elif isinstance(error, RunFailure) and error.code in MESSAGES:
-        code = error.code
+    elif (failure := storage_failure(error, stage="capability_run")) is not None and failure.code in MESSAGES:
+        code = failure.code
     else:
         code = None
     return CapabilityResult(run.unit_key, run.job_kind, "failed", {}, _failure_message(code), code, finished_at)
