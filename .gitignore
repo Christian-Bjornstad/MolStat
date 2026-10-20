@@ -10,5 +10,25 @@ dist/
 build/
 *.egg-info/
 
-# Midlertidig live-uttrekk; den ferdige, versjonerte leveransen ligger ved siden av.
-powerbi/Hemato_Statistikk_Optimert.PbixProj/
+# Lokale data og genererte rapport-/byggeartefakter
+/data/
+/database/
+/raw/
+/processed/
+/work/
+/config/
+/outputs/
+/artifacts/
+/powerbi/
+/node_modules/
+/.superpowers/
+*.sqlite3
+*.sqlite3-*
+*.sqlite
+*.db
+*.pbix
+*.pbip
+*.xlsm
+*.xlsx
+*.csv
+!tests/fixtures/**/*.csv

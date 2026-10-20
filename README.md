@@ -1,243 +1,39 @@
 # MolStat
 
-Kontrollsenteret har en oversikt over aktive enheter, innstillinger for én
-enhet om gangen og manuell import av LVMS-uttrekk.
-[Fornyelsen 7. oktober 2026](docs/APP-FORNYELSE-2026-10-07.md) beskriver
-endringene, bruksmåten og verifikasjonen.
+MolStat henter statistikk og restanse fra LVMS og leverer behandlede CSV-filer til Power BI. Hemato og Solide har statistikk og restanse. Flow, FISH og Preanalyse har statistikk. Patologer bruker bare PAT-TID-STØP-SNITT-OU, én kalendermåned om gangen fra januar 2024.
 
-Appens enhetsfiler, mappeoppsett og feilretting er beskrevet i
-[enhetsfiler og drift](docs/APP-OPPSETT.md). Innstillinger validerer rapport-
-og analyselister. Oversikten kan regenerere Excel og prøve publisering igjen.
+## Oppsett
 
-MolStat henter molekylærpatologisk statistikk og restanse fra LVMS, lagrer
-historikken på K-sensitiv og publiserer avtalte, prosesserte CSV-filer til en
-lokal SharePoint-synkmappe. Kontrollappen gir manuell kjøring, status,
-diagnostikk og flyttbare innstillinger i ett grensesnitt.
+Start med `MOLSTAT_INSTALL.cmd` og deretter `MOLSTAT_START.cmd`. På jobb-PC med Python FELLES brukes den medfølgende start-/installasjonsflyten. Se [JOBBS-PC.md](JOBBS-PC.md).
 
-## Enheter
+Velg datarot, SharePoint-mappe og LVMS-adresse i Innstillinger. Velg din egen enhetsfil (JSON) for hver aktivert enhet. For Hemato og Solide kan du velge en separat restansefil, eller bruke restanseinnholdet i enhetsfilen. Valgte filer brukes direkte, også etter omstart. Ingen config-kopier eller standardfiler opprettes.
 
-| Enhet | Tilgjengelig nå | Kjøring |
-|---|---|---|
-| Hemato | Ja | Statistikk og Prøveflyt/restanse |
-| Solide | Ja | Statistikk og restanse |
-| Patologer | Ja | PAT-TID-STØP-SNITT-OU, én måned om gangen |
-| Flow | Ja | Statistikk |
-| FISH | Ja | Statistikk |
-| Pre | Ja | Statistikk |
+Appen trenger ingen CSV-/Excel-oppslagsfiler eller legeregister. Gamle lookup-stier ignoreres. Analyseoppslag med grupper, navn, priser og normer kobles i Power BI. MolStat beholder tidsstempler og beregnbare intervaller; oppslagsavhengige verdier er tomme eller ikke beregnet.
 
-Hemato og Solide har en egen **Restanse**-knapp som bare henter restansen.
-**Kjør Hemato/Solide** kjører både statistikk og restanse. I Innstillinger kan
-hver enhet bruke sin egen redigerbare restansefil (JSON). Ved første lagring
-opprettes `config/restanse/hemato.json` og `config/restanse/solide.json` under
-valgt datarot. Endringer valideres og leses ved neste kjøring.
-
-`Kjør aktive enheter` starter alle ferdige funksjoner for aktiverte enheter. En feil i én
-funksjon stopper ikke de øvrige; kontrollappen viser resultat for hver
-enhet og funksjon. Ugyldig JSON eller lookup for én enhet blokkerer bare de
-berørte funksjonene. Enhetsknappene kjører bare den valgte enheten.
-
-## Manuell import
-
-Velg **Manuell import** når automatisk henting fra LVMS ikke fungerer.
-Velg en aktiv enhet, rapporttype og samme periode som i LVMS. Velg deretter
-én original CSV-fil for hver rapportrolle, og trykk **Valider og importer**.
-
-MolStat kontrollerer hele filsettet og tidligere statistikkarkiv før det
-behandles. Originalfilene beholdes. Importen bruker samme register,
-publiseringskontroll og Excel-eksport som automatisk kjøring. Manuell
-behandling krever tilgjengelige datamapper og gyldig enhetsoppsett, og kan
-kjøres uten en fungerende LVMS-forbindelse.
-
-Restanse må være en komplett liste fra **01.01.2024 til dagens dato**.
-Et deluttrekk kan ikke erstatte restansens nåtilstand. Patologer krever
-prosess-, produksjons- og makrofiler for valgt måned og forrige måned.
-
-## Sikker dataflyt
+## Lagring
 
 ```text
-LVMS
-  ├─ Statistikk -> K-sensitiv/raw/statistics -> permanent SQLite-register
-  └─ RESTANSE 01.01.2024–i dag -> avgrenset arbeidsfil -> SQLite-register
-                                           ├─ Prøvesøk.xlsx på K-sensitiv
-                                           └─ pseudonym historikk -> SharePoint/MolStat
+Valgt datarot/
+  database/
+    molstat.sqlite3
+    backups/
+  data/
+    raw/
+    processed/
+  Prøvesøk.xlsx
 ```
 
-Statistikkråfiler, SampleID, PID, Workitem, database, kildefingeravtrykk og
-arbeidsfiler forblir på K-sensitiv. RESTANSE hentes alltid for hele perioden
-fra 01.01.2024 til dagens dato og råfilen fjernes etter import; den bygges ikke
-opp som et filarkiv. Publisering bruker eksakte kolonnelister og atomisk
-filbytte. Hvis import, databaseoppdatering, personvernkontroll eller publisering
-feiler, beholdes forrige gyldige fil.
+Ved oppgradering flyttes den gamle databasen fra `data/molstat.sqlite3`, og gamle `raw/` og `processed/` flyttes under `data/`. En verifisert databasekopi beholdes før flytting. Lukk alle andre MolStat-vinduer før første oppstart med ny versjon. Ved låsing eller kollisjoner stoppes flyttingen; ingen tom erstatningsdatabase opprettes.
 
-## Prøvesøk i Excel
+Eksisterende `config/` og `work/` på en annen PC slettes ikke blindt: velg først egne JSON-filer utenfor gammel config, og bevar eventuelle uavklarte nedlastinger. Ny versjon oppretter ingen av disse mappene. Midlertidige jobber ligger privat under data/raw og ryddes når nedlastingene er arkivert.
 
-Etter en vellykket RESTANSE- eller Statistikk-import oppdaterer MolStat
-`Prøvesøk.xlsx` direkte i roten av den valgte K-sensitive mappen. Arbeidsboken
-er makrofri og en ren lesekopi; den har ingen databasekobling og kan ikke skrive
-tilbake til SQLite.
+Rådata og databasen publiseres ikke. Bare avtalte rapportkolonner sendes til valgt SharePoint-mappe. Prøvesøk.xlsx kan genereres fra databasen. Patologs private rapporttabeller ligger under `data/processed/lege/powerbi/`.
 
-På arket `Prøvesøk`:
-
-1. Lim inn ett eller flere prøvenumre eller MolStat-ID-er i de gule radene,
-   ett søk per rad.
-2. Velg `Eksakt` eller `Prefiks`.
-3. Alle prøvetreff og tilhørende analyseforekomster vises til høyre, også når
-   samme analysekode er bestilt flere ganger.
-
-MolStat-ID tildeles som en kort, permanent serie (`M-000001`, `M-000002`, …).
-`WorkItem` og intern identitetsstatus brukes fortsatt til sikker kobling i
-databasen, men vises ikke i arbeidsboken.
-
-`Prøver` og `Analyser` har vanlige Excel-tabeller med autofilter. `Om` viser
-når lesekopien sist ble generert. Hvis filen er åpen og låst i Excel, beholdes
-forrige gyldige arbeidsbok og MolStat prøver igjen ved neste kjøring.
-
-Databasen er fasit. Den ligger under `data` i K-sensitiv rot. Før migrering av
-et eldre databaseskjema opprettes en verifisert SQLite-backup under
-`data/backups`. Automatisk sletting eller rotasjon av backupfiler er ikke
-aktivert før lokal retensjonspolicy er godkjent.
-
-## Mappestruktur i SharePoint
-
-Brukeren velger roten `MolStat`. Appen oppretter og oppdaterer denne strukturen:
-
-```text
-MolStat/
-├─ hemato/
-│  ├─ antall.csv
-│  └─ resultater.csv
-├─ solide/
-│  ├─ antall.csv
-│  └─ resultater.csv
-└─ Prøveflyt/
-   └─ restansehistorikk_hemato.csv
-```
-
-Den gamle `Prøveflyt/restansehistorikk.csv` slettes ikke automatisk. Fjern den
-først når eventuelle eksterne datakilder er flyttet til Hemato-filnavnet.
-
-## Installasjon på jobb-PC
-
-1. Kjør `MOLSTAT_INSTALL.cmd`.
-2. Python FELLES åpnes via Ivanti PowerGate.
-3. Lim inn den kopierte kommandoen med `Ctrl+V`, og trykk `Enter`.
-4. Start senere med `MOLSTAT_START.cmd` på samme måte.
-
-Detaljer og driftskontroller finnes i [JOBBS-PC.md](JOBBS-PC.md).
-
-## Første gangs oppsett
-
-Åpne `Innstillinger` og velg:
-
-- én fast K-sensitiv rot som MolStat kan skrive til;
-- den lokalt synkroniserte SharePoint-roten for MolStat;
-- fullstendig LVMS-adresse;
-- lookup-fil for hver aktiv statistikkenhet;
-- hvilke av de tilgjengelige enhetene som skal være aktive.
-
-Velg `Valider og lagre`. Utilgjengelige eller manglende obligatoriske stier
-blokkerer kjøring og beskrives med feltnavn i appen.
-
-## Kjøring og automatisering
-
-Kontrollappen støtter `Kjør aktive enheter` og separat kjøring av hver aktiv enhet.
-Windows Task Scheduler
-bruker fortsatt de kompatible CLI-målene:
-
-- `statistics` én gang daglig ved `statistics_hour`;
-- `backlog` én gang per hele time fra `backlog_first_hour` til og med
-  `backlog_last_hour`.
-
-Standardverdiene er henholdsvis kl. 05:00 og hver time kl. 06:00–18:00.
-Klokkeslettene følger den lagrede/importerte innstillingsfilen når automatikken
-installeres, og `auto` bruker de samme verdiene. Samtidige skrivere stoppes av
-en SQLite-lease som fornyes mens kjøringen pågår, også ved lange historiske
-uttrekk. En kjøring som mister låsen stoppes før den kan skrive videre.
-Windows-oppgavene bruker også `IgnoreNew`.
-
-## Flytte innstillinger mellom PC-er
-
-`Eksporter …` lager som standard `molstat-innstillinger.json` i UTF-8. Filen
-inneholder røtter, LVMS-adresse, tidsplan, enhetsaktivering og lookup-stier.
-Den inneholder ikke passord, cookies, sesjonstokener, Edge-profil, dynamisk
-CDP-port, database eller rådata.
-
-`Importer …` validerer hele filen før gjeldende oppsett erstattes. Gyldige
-PC-spesifikke stier som ikke finnes lokalt blir importert og merket `Må velges
-på denne PC-en`. Kjøring forblir sperret til nødvendige stier er tilgjengelige.
-
-Begge PC-er skal velge den samme eksisterende K-sensitive roten. MolStat finner
-da databasen relativt som `data/molstat.sqlite3`; det skal ikke opprettes en ny
-undermappe eller database for hver PC. En database med gjeldende skjema åpnes
-uten migrering eller backup ved vanlig oppstart, slik at en annen PC kan koble
-seg til uten en unødvendig skriveoperasjon. Installer planlagte skrivejobber på
-bare én fast drifts-PC. Andre PC-er kan åpne kontrollsenteret og overta manuell
-kjøring når ingen annen MolStat-kjøring pågår.
-
-## Prøveflyt-data
-
-`restansehistorikk_hemato.csv` bygges på nytt fra hele den permanente
-timeshistorikken. Den bruker semikolon, CRLF-kompatible poster og UTF-8 med BOM.
-Én rad representerer én restanseanalyse i ett timesnapshot, slik at en
-analysegruppe kan filtreres og drilles ned til de konkrete analysene.
-
-Kolonnene er, i fast rekkefølge:
-
-1. `Observert_tidspunkt`
-2. `Enhet`
-3. `Materiale`
-4. `Analyse`
-5. `Nukleinsyre`
-6. `Analysegruppe_kode`
-7. `Analysegruppe`
-8. `Tidspunkt.prøvetaking`
-9. `Tidspunkt.ankomst`
-10. `Tidspunkt.analysebestilling`
-11. `Prioritet.analyse`
-12. `Prioritet.rekvisisjon`
-13. `Status.analyse`
-14. `Status.prelgruppe`
-15. `Restansestatus`
-16. `Svarfrist`
-17. `Analyseresultat`
-18. `Ekstern.analysekommentar`
-19. `Klassifikatorversjon`
-20. `MolStat-ID`
-
-`MolStat-ID` finnes også i statistikkfilen `resultater.csv`, men ikke i den
-aggregerte `antall.csv`. `Rapportgruppe` er ikke med i Prøveflyt-filen;
-`Analysegruppe_kode` og `Analysegruppe` er den
-autoritative inndelingen. `Nukleinsyre` og `Svarfrist` hentes fra
-Hemato-lookup-filen.
-
-## Personvernansvar for fritekst
-
-`Analyseresultat` og `Ekstern.analysekommentar` eksporteres ordrett fra LVMS
-etter at teknisk `=T("...")`-innpakning er fjernet. MolStat maskerer eller
-tolker ikke disse feltene. Operatørene må derfor aldri skrive prøve-, pasient-
-eller andre identifikatorer i dem. Friteksten skal ikke betraktes som
-automatisk anonymisert.
-
-`MolStat-ID` er pseudonym, ikke anonym. Det gjør detaljrader koblingsbare over
-tid, og de publiserte detaljfilene må derfor bare brukes i et SharePoint- og
-Power BI-område som er godkjent for dette. Rått SampleID, PID og WorkItem
-publiseres fortsatt aldri.
-
-## Utvikling og test
+## Utvikling
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m molstat gui --settings "$env:LOCALAPPDATA\MolStat\settings.json"
-python -m molstat check-config --settings "$env:LOCALAPPDATA\MolStat\settings.json"
 python -m pytest
 ```
 
-Prosjektet krever Python 3.11 eller nyere. Jobb-PC-skriptene kontrollerer det
-konkrete Python FELLES-miljøet som organisasjonen bruker. Excel-eksporten bruker
-`XlsxWriter` og krever ikke at Excel kjører under genereringen.
-
-## Mer dokumentasjon
-
-- [Oppsett og drift på jobb-PC](JOBBS-PC.md)
-- [Godkjent enhets- og Prøveflyt-design](docs/superpowers/specs/2026-09-09-molstat-enheter-og-proveflyt-design.md)
-- [Implementeringsplan](docs/superpowers/plans/2026-09-09-molstat-enheter-og-proveflyt-implementation.md)
+Tester bruker syntetiske data og egne JSON-fixtures under tests/. Repoet inneholder appkoden, tester og start-/installasjonsfiler. Power BI-prosjekter, oppslag, rådata, databaser og byggeartefakter inngår ikke.
