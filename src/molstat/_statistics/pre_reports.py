@@ -94,15 +94,20 @@ def process(source: Path, output: Path, lookup_path: Path) -> dict:
             kind = event["type"]
             start = received if kind == "UtførtForbehandling" else pretreated if kind in ("UtførtEkstraksjon", "Videresendt") else None
             process_days, process_status, process_norm = elapsed(start, event["result"], info["NormProsess"])
-            if not info["NormProsess"] or kind not in ("UtførtForbehandling", "UtførtEkstraksjon", "Videresendt"):
+            if kind not in ("UtførtForbehandling", "UtførtEkstraksjon", "Videresendt"):
                 process_days, process_status, process_norm = "", "Ikke definert", "Ikke beregnet"
             total_days, total_status, total_norm = elapsed(created, event["result"], info["NormTotalt"])
-            if not info["NormTotalt"]:
-                total_days, total_status, total_norm = "", "Ikke definert", "Ikke beregnet"
-            output_rows.append({"Materiale": "", "Analyse": event["code"], "Rapportgruppe": info["Rapportgruppe"], "Tidspunkt.prøvetaking": "", "Tidspunkt.opprettet": display(created), "Tidspunkt.analysebestilling": "", "Tidspunkt.analyseresultat": display(event["result"]), "Tidspunkt.godkjenning": display(event["approved"]), "Svarfrist": info["NormTotalt"], "MolStat-ID": "", "Pris2026NOK": "", "Priskobling": "", "Aktivitetstype": kind, "NormProsess": info["NormProsess"], "NormTotalt": info["NormTotalt"], "Prosessdager": process_days, "Totaldager": total_days, "Prosessstatus": process_status, "Totalstatus": total_status, "Prosessnormstatus": process_norm, "Totalnormstatus": total_norm})
+            row = event["row"]
+            output_rows.append({"Materiale": row.get("Materiale", ""), "Analyse": event["code"], "Rapportgruppe": info["Rapportgruppe"], "Tidspunkt.prøvetaking": display(parse_time(row.get("Tidspunkt.prøvetaking"))), "Tidspunkt.opprettet": display(created), "Tidspunkt.analysebestilling": display(parse_time(row.get("Tidspunkt.analysebestilling"))), "Tidspunkt.analyseresultat": display(event["result"]), "Tidspunkt.godkjenning": display(event["approved"]), "Svarfrist": info["NormTotalt"], "MolStat-ID": "", "Pris2026NOK": "", "Priskobling": "", "Aktivitetstype": kind, "NormProsess": info["NormProsess"], "NormTotalt": info["NormTotalt"], "Prosessdager": process_days, "Totaldager": total_days, "Prosessstatus": process_status, "Totalstatus": total_status, "Prosessnormstatus": process_norm, "Totalnormstatus": total_norm})
     write_csv(output / "antall.csv", ANTALL_FIELDS, [])  # Compatibility table; there is no ANTALL export.
     write_csv(output / "resultater.csv", RESULT_FIELDS, output_rows)
     summary = {"input_files": len(sources), "input_rows": len(raw), "unique_samples_in_input": len(by_sample), "activity_rows": len(output_rows), "duplicate_sample_code_rows_collapsed": duplicates, "excluded_codes": dict(excluded), "valid_process": sum(row["Prosessstatus"] == "Gyldig" for row in output_rows), "valid_total": sum(row["Totalstatus"] == "Gyldig" for row in output_rows)}
+    summary["field_coverage"] = {
+        field: sum(bool(row[field]) for row in output_rows)
+        for field in ("Materiale", "Tidspunkt.prøvetaking", "Tidspunkt.opprettet",
+                      "Tidspunkt.analysebestilling", "Tidspunkt.analyseresultat",
+                      "Tidspunkt.godkjenning")
+    }
     (output / "kontroll.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return summary
 
