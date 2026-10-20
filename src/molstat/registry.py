@@ -15,6 +15,7 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
+from ._sqlite_cleanup import rollback_after_failure
 from .database import MolStatDatabase
 
 
@@ -116,7 +117,7 @@ class SampleRegistry:
                 )
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
         return registered
 
@@ -268,12 +269,12 @@ class SampleRegistry:
                     )
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
         return import_run_id
 
     def counts(self) -> tuple[int, int]:
-        with self.database._connect() as connection:
+        with self.database.read_connection() as connection:
             samples = int(connection.execute("SELECT COUNT(*) FROM sample").fetchone()[0])
             occurrences = int(
                 connection.execute("SELECT COUNT(*) FROM analysis_occurrence").fetchone()[0]
@@ -284,7 +285,7 @@ class SampleRegistry:
         """Return normalized sample numbers mapped to stable MolStat IDs."""
 
         source = normalize_identifier(source_system)
-        with self.database._connect() as connection:
+        with self.database.read_connection() as connection:
             rows = connection.execute(
                 """
                 SELECT si.normalized_value, s.molstat_key
@@ -301,7 +302,7 @@ class SampleRegistry:
         normalized = normalize_identifier(query)
         if not normalized:
             return ()
-        with self.database._connect() as connection:
+        with self.database.read_connection() as connection:
             if prefix:
                 pattern = _escape_like(normalized) + "%"
                 samples = connection.execute(
@@ -332,7 +333,7 @@ class SampleRegistry:
 
     def explain_sample_number_search(self, query: str) -> tuple[str, ...]:
         normalized = normalize_identifier(query)
-        with self.database._connect() as connection:
+        with self.database.read_connection() as connection:
             rows = connection.execute(
                 """
                 EXPLAIN QUERY PLAN

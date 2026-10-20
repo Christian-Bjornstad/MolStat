@@ -7,7 +7,9 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 from urllib.parse import quote
+from ._sqlite_cleanup import rollback_after_failure
 from ._writer_lease import WriterLease, active_writer_lease
+from .database_access import DatabaseAccessError, prepare_writer_files, probe_writer_directory
 
 
 def readonly_uri(path: Path, *, immutable: bool = False) -> str:
@@ -39,7 +41,7 @@ class ManagedConnection(sqlite3.Connection):
             sqlite3.Connection.execute(self, "COMMIT")
             return result
         except BaseException:
-            sqlite3.Connection.execute(self, "ROLLBACK")
+            rollback_after_failure(self)
             raise
 
     def execute(self, sql, parameters=()):
@@ -52,7 +54,7 @@ class ManagedConnection(sqlite3.Connection):
             try:
                 guard.assert_owned(self)
             except BaseException:
-                super().execute("ROLLBACK")
+                rollback_after_failure(self)
                 raise
             return result
         if guard is not None and command in ("COMMIT", "END") and self.in_transaction:
@@ -71,7 +73,10 @@ class ManagedConnection(sqlite3.Connection):
 
     def __exit__(self, *args):
         try:
-            if args[0] is None and self._writer_guard is not None and self.in_transaction:
+            if args[0] is not None:
+                rollback_after_failure(self)
+                return False
+            if self._writer_guard is not None and self.in_transaction:
                 self._writer_guard.renew_locked(self)
             return super().__exit__(*args)
         finally:
@@ -324,8 +329,16 @@ class MolStatDatabase:
         self._now = now
 
     def _connect(self, *, guard_lease: bool = True) -> sqlite3.Connection:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None, factory=ManagedConnection)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise DatabaseAccessError("database_directory", exc) from exc
+        prepare_writer_files(self.path)
+        try:
+            connection = sqlite3.connect(self.path, timeout=30, isolation_level=None, factory=ManagedConnection)
+        except sqlite3.Error as exc:
+            exc.database_stage = "database_open"
+            raise
         try:
             connection.execute("PRAGMA busy_timeout = 30000")
             connection.execute("PRAGMA foreign_keys = ON")
@@ -426,7 +439,7 @@ class MolStatDatabase:
                     raise RuntimeError(f"Ukjent databaseskjema: {row[0]}")
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
 
     @staticmethod
@@ -450,7 +463,7 @@ class MolStatDatabase:
                 connection.execute(statement)
 
     def schema_version(self) -> int:
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             row = connection.execute(
                 "SELECT version FROM schema_info LIMIT 1"
             ).fetchone()
@@ -459,7 +472,7 @@ class MolStatDatabase:
         return int(row[0])
 
     def table_names(self) -> set[str]:
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             rows = connection.execute(
                 "SELECT name FROM sqlite_master "
                 "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
@@ -473,6 +486,7 @@ class MolStatDatabase:
         if ttl <= timedelta(0):
             raise ValueError("Lease-varighet må være positiv.")
 
+        probe_writer_directory(self.path)
         token = uuid4().hex
         with self._connect(guard_lease=False) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -499,7 +513,7 @@ class MolStatDatabase:
                 )
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
 
         body_failed = False
@@ -523,7 +537,7 @@ class MolStatDatabase:
                         )
                         connection.execute("COMMIT")
                     except BaseException:
-                        connection.execute("ROLLBACK")
+                        rollback_after_failure(connection)
                         raise
             except Exception:
                 # Lost storage during cleanup must not hide the original
@@ -533,7 +547,7 @@ class MolStatDatabase:
 
     def current_lease_owner(self) -> str | None:
         now = _as_utc(self._now())
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             row = connection.execute(
                 "SELECT owner, expires_at FROM writer_lease WHERE singleton = 1"
             ).fetchone()
@@ -542,7 +556,7 @@ class MolStatDatabase:
         return str(row[0])
 
     def job_statuses(self) -> tuple[tuple[str, str], ...]:
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             rows = connection.execute(
                 "SELECT kind, status FROM job_run ORDER BY id"
             ).fetchall()
@@ -553,7 +567,7 @@ class MolStatDatabase:
             "statistics": None,
             "backlog": None,
         }
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             rows = connection.execute(
                 """
                 SELECT kind, MAX(finished_at)

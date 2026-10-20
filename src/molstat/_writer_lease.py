@@ -10,6 +10,8 @@ import sqlite3
 from threading import Event, Thread
 from typing import TYPE_CHECKING
 
+from ._sqlite_cleanup import rollback_after_failure
+
 if TYPE_CHECKING:
     from .database import MolStatDatabase
 
@@ -83,7 +85,7 @@ class WriterLease:
                 self.renew_locked(connection)
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
 
     def _heartbeat(self) -> None:
@@ -135,7 +137,7 @@ class WriterLease:
                 self.renew_locked(connection)
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
 
 

@@ -87,7 +87,7 @@ def create_verified_backup(
     destination = destination_dir / f"molstat-{stamp}-{uuid4().hex[:8]}.sqlite3"
     temporary = destination_dir / f".{destination.name}.{uuid4().hex}.tmp"
     try:
-        with closing(database._connect()) as source, closing(
+        with closing(database.read_connection()) as source, closing(
             sqlite3.connect(temporary)
         ) as target:
             source.backup(target)

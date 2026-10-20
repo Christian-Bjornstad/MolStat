@@ -113,6 +113,9 @@ class MolStatOrchestrator:
                         {},
                         "Kjøringen feilet. Se personvernsikker diagnostikk.",
                     )
+        except sqlite3.Error as exc:
+            self._report_failure(f"{kind}_run_failed", exc)
+            return JobResult(kind, "failed", {}, str(database_failure(exc)))
         except WriterLeaseBusy:
             return JobResult(
                 kind,
@@ -127,7 +130,7 @@ class MolStatOrchestrator:
         """Read latest outcome per capability, including completed composite runs."""
         latest: dict[tuple[str, str], CapabilityResult] = {}
         known_keys = {unit.key for unit in DEFAULT_UNITS.active()}
-        with self.database._connect() as connection:
+        with self.database.read_connection() as connection:
             rows = connection.execute(
                 "SELECT summary FROM job_run WHERE finished_at IS NOT NULL "
                 "AND summary IS NOT NULL AND kind != 'publish' ORDER BY id DESC"

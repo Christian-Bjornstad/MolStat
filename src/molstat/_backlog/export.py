@@ -40,7 +40,7 @@ def export_backlog_history(
     *,
     unit_key: str,
 ) -> int:
-    with database._connect() as connection:
+    with database.read_connection() as connection:
         rows = connection.execute(
             """
             SELECT observed_at,

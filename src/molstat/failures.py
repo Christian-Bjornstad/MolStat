@@ -46,7 +46,12 @@ class RunFailure(RuntimeError):
 
 def database_failure(error: sqlite3.Error) -> RunFailure:
     name = getattr(error, "sqlite_errorname", "SQLITE_ERROR")
-    primary = getattr(error, "sqlite_errorcode", 0) & 0xFF
+    if not (isinstance(name, str) and name.startswith("SQLITE_")
+            and type(getattr(sqlite3, name, None)) is int):
+        name = "SQLITE_ERROR"
+    value = getattr(error, "sqlite_errorcode", 0)
+    numeric_code = value if type(value) is int and 0 <= value <= 2**31 - 1 else 0
+    primary = numeric_code & 0xFF
     if primary in (5, 6) or name in ("SQLITE_BUSY", "SQLITE_LOCKED"):
         code = "DB_BUSY"
     elif primary in (8, 10, 14) or name.startswith(("SQLITE_CANTOPEN", "SQLITE_READONLY", "SQLITE_IOERR")):
@@ -55,4 +60,12 @@ def database_failure(error: sqlite3.Error) -> RunFailure:
         code = "DB_INTEGRITY"
     else:
         code = "DB_ERROR"
-    return RunFailure(code, "database", detail=name)
+    stage = getattr(error, "database_stage", "database")
+    if not isinstance(stage, str) or stage not in {"database", "database_open", "database_write", "database_read",
+                     "database_access", "database_directory"}:
+        stage = "database"
+    detail = name + (f"; SQLITE_CODE={numeric_code}" if numeric_code else "")
+    os_code = getattr(error, "os_errorcode", None)
+    if type(os_code) is int and 0 <= os_code <= 2**32 - 1:
+        detail += f"; OS_ERROR={os_code}"
+    return RunFailure(code, stage, detail=detail)

@@ -171,7 +171,7 @@ class MolStatSystem:
                 self.sharepoint_root / capability.sharepoint_folder,
                 output_dir,
             )
-        with self.database._connect() as connection:
+        with self.database.read_connection() as connection:
             snapshots = int(
                 connection.execute(
                     """

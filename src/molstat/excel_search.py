@@ -13,6 +13,7 @@ from uuid import uuid4
 import xlsxwriter
 
 from .database import MolStatDatabase
+from ._sqlite_cleanup import rollback_after_failure
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,7 +168,7 @@ def read_excel_snapshot(
             ).fetchall()
             connection.execute("COMMIT")
         except BaseException:
-            connection.execute("ROLLBACK")
+            rollback_after_failure(connection)
             raise
     return ExcelSnapshot(
         generated_at=generated_at,

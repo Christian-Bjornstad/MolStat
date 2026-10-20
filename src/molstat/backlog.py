@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from ._sqlite_cleanup import rollback_after_failure
 from ._backlog.config import (
     AnalysisConfig,
     AppConfig,
@@ -314,7 +315,7 @@ class BacklogProcessor:
                     )
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
         return imported
 
@@ -323,7 +324,7 @@ class BacklogProcessor:
         database: MolStatDatabase,
         now: datetime,
     ) -> dict[str, object]:
-        with database._connect() as connection:
+        with database.read_connection() as connection:
             rows = connection.execute(
                 """
                 SELECT sample_key, analysis_group, ordered_at, arrived_at,
