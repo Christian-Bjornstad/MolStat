@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
+import codecs
+import csv
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -15,14 +19,18 @@ from .lvms.batch_runner import run_report_batch
 from .lvms.report import ReportRequest
 from .lvms.report_job import ReportInterval, ReportJob, batch_filename
 from .statistics import Unit, load_units
-from .failures import RunFailure
+from .failures import RunFailure, storage_failure
 from ._writer_lease import checkpoint_writer_lease
+from .recovery import check_cancelled, emit_retry, wait_before_retry, retry_operation, uncancellable_cleanup
 
 
 _WINDOW = re.compile(
     r"__(\d{4}-\d{2}-\d{2})__(\d{4}-\d{2}-\d{2})(?:__r\d+)?\.csv$"
 )
 BACKLOG_FROM = date(2024, 1, 1)
+REPORT_TIMEOUT_SECONDS = 300
+MAX_REPORT_REQUESTS = 24
+MAX_SPLIT_DEPTH = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,30 +185,23 @@ class UnifiedLvmsFetcher:
         )
 
     def _run_jobs(self, jobs: tuple[ReportJob, ...], run_label: str) -> tuple[Path, ...]:
+        check_cancelled()
         checkpoint_writer_lease()
         run_root = self.work_root / f"{run_label}-{uuid4().hex}"
         run_root.mkdir(parents=True, exist_ok=False)
-        jobs_path = _write_jobs(run_root / "jobs.json", jobs)
-        for attempt in range(1, 4):
-            checkpoint_writer_lease()
-            failures: list[RunFailure] = []
-            exit_code = self.run_batch(
-                self.lvms_config_path, jobs_path,
-                tuple(job.job_key for job in jobs), repository_root=run_root,
-                error_reporter=failures.append,
-            )
-            if exit_code == 0:
-                checkpoint_writer_lease()
-                break
-            error = failures[-1] if failures else RunFailure("LVMS_FAILED", "batch")
-            error.attempt, error.run_id = attempt, run_root.name
-            if not error.retryable or attempt == 3:
-                raise error
-            self._sleep(2 ** attempt)
-        sources = tuple(run_root / "rådata" / batch_filename(job) for job in jobs)
-        missing = [source.name for source in sources if not source.is_file()]
-        if missing:
-            raise RunFailure("DOWNLOAD_INCOMPLETE", "output_check", run_id=run_root.name)
+        output = run_root / "rådata"
+        output.mkdir()
+        sources = []
+        for job in jobs:
+            check_cancelled()
+            parts = self._fetch_report_parts(job, run_root, budget=[0])
+            check_cancelled()
+            destination = output / batch_filename(job)
+            if len(parts) == 1:
+                _install_confirmed_report(parts[0], destination)
+            else:
+                combine_report_parts(parts, destination)
+            sources.append(destination)
         for job, source in zip(jobs, sources, strict=True):
             if job.laboratory:
                 from ._statistics.patolog_flow import validate_month
@@ -209,7 +210,65 @@ class UnifiedLvmsFetcher:
                                    laboratory=job.laboratory, processes=job.process_codes)
                 except ValueError as exc:
                     raise RunFailure("CSV_INVALID", "patolog/workflow/download") from exc
-        return sources
+        return tuple(sources)
+
+    def _fetch_report_parts(self, job: ReportJob, run_root: Path, *, budget: list[int],
+                            depth: int = 0) -> tuple[Path, ...]:
+        for attempt in range(1, 4):
+            check_cancelled()
+            if budget[0] >= MAX_REPORT_REQUESTS:
+                raise RunFailure("LVMS_TIMEOUT", "report_attempt_limit", run_id=run_root.name)
+            budget[0] += 1
+            checkpoint_writer_lease()
+            # A new attempt never trusts an incomplete candidate from an earlier
+            # browser session. Confirmed reports are retained by the caller.
+            attempt_root = run_root / f"attempt-{uuid4().hex}"
+            attempt_root.mkdir()
+            jobs_path = _write_jobs(attempt_root / "jobs.json", (job,))
+            failures: list[RunFailure] = []
+            exit_code = self.run_batch(
+                self.lvms_config_path, jobs_path,
+                (job.job_key,), repository_root=attempt_root,
+                timeout_seconds=REPORT_TIMEOUT_SECONDS, error_reporter=failures.append,
+            )
+            if exit_code == 0:
+                check_cancelled()
+                checkpoint_writer_lease()
+                source = attempt_root / "rådata" / batch_filename(job)
+                if not source.is_file():
+                    raise RunFailure("DOWNLOAD_INCOMPLETE", "output_check", run_id=run_root.name)
+                if job.laboratory:
+                    from ._statistics.patolog_flow import validate_month
+                    try:
+                        retry_operation(lambda: validate_month(
+                            source, job.interval.created_from, job.interval.created_to,
+                            laboratory=job.laboratory, processes=job.process_codes),
+                            stage="patolog_report_validate")
+                    except ValueError as exc:
+                        raise RunFailure("CSV_INVALID", "patolog/workflow/download") from exc
+                return (source,)
+            error = failures[-1] if failures else RunFailure(
+                "CANCELLED" if exit_code == 130 else "LVMS_FAILED", "batch")
+            error.attempt, error.run_id = attempt, run_root.name
+            if not error.retryable:
+                raise error
+            report_timeout = error.code == "LVMS_TIMEOUT" and error.stage.endswith(("_export", "_download"))
+            can_split = (report_timeout and job.interval.created_from < job.interval.created_to
+                         and depth < MAX_SPLIT_DEPTH)
+            if can_split and attempt == 2:
+                check_cancelled()
+                emit_retry("lvms_report_split", error, attempt, 3, 0)
+                midpoint = job.interval.created_from + (job.interval.created_to - job.interval.created_from) // 2
+                left = replace(job, interval=ReportInterval(job.interval.created_from, midpoint))
+                right = replace(job, interval=ReportInterval(midpoint + timedelta(days=1), job.interval.created_to))
+                return (*self._fetch_report_parts(left, run_root, budget=budget, depth=depth + 1),
+                        *self._fetch_report_parts(right, run_root, budget=budget, depth=depth + 1))
+            if attempt == 3:
+                raise error
+            delay = (5.0, 15.0)[attempt - 1]
+            emit_retry("lvms_report", error, attempt + 1, 3, delay)
+            wait_before_retry(delay, sleep=self._sleep)
+        raise AssertionError("Unreachable report attempt state")
 
 
 def _statistics_job(unit: Unit, report, created_from: date, created_to: date, *, usernames: tuple[str, ...] = ()) -> ReportJob:
@@ -231,6 +290,100 @@ def _statistics_job(unit: Unit, report, created_from: date, created_to: date, *,
 def _month_end(month: date) -> date:
     next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
     return next_month - timedelta(days=1)
+
+
+def combine_report_parts(parts: Sequence[Path], destination: Path) -> None:
+    """Join disjoint date windows without changing headers or dropping glass rows."""
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+    try:
+        retry_operation(lambda: _write_combined_parts(parts, temporary), stage="report_split_copy")
+    except (csv.Error, UnicodeError) as exc:
+        _discard_report_staging(temporary)
+        raise RunFailure("CSV_INVALID", "report_split_data") from exc
+    except RunFailure as exc:
+        if exc.code == "CSV_INVALID":
+            _discard_report_staging(temporary)
+        raise
+    # Keep a completed staging file on an unknown rename/I/O outcome. Never
+    # resubmit a report or repeat its import to repair local file delivery.
+    _install_confirmed_report(temporary, destination)
+
+
+def _discard_report_staging(temporary: Path) -> None:
+    try:
+        temporary.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _report_digest(path: Path) -> str:
+    def digest() -> str:
+        with path.open("rb") as source:
+            return hashlib.file_digest(source, "sha256").hexdigest()
+    return retry_operation(digest, stage="report_candidate_hash")
+
+
+def _install_confirmed_report(source: Path, destination: Path) -> None:
+    expected_digest = _report_digest(source)
+    def safe_to_retry(error: BaseException) -> bool:
+        failure = storage_failure(error)
+        if failure is None or failure.code not in {"FILE_ACCESS", "FILE_BUSY"}:
+            return False
+        try:
+            return source.is_file() and not destination.exists()
+        except OSError:
+            return False
+    def install() -> None:
+        if destination.exists():
+            raise RunFailure("DOWNLOAD_INCOMPLETE", "report_output_conflict")
+        try:
+            os.replace(source, destination)
+        except OSError:
+            # A server can commit the rename then lose its response. Confirm
+            # those exact bytes before accepting success; an unknown outcome
+            # keeps all existing files and is never blindly renamed again.
+            try:
+                with uncancellable_cleanup():
+                    if not source.exists() and destination.is_file() and _report_digest(destination) == expected_digest:
+                        return
+            except OSError:
+                pass
+            raise
+    retry_operation(install, stage="report_candidate_install", retry_if=safe_to_retry)
+
+
+def _write_combined_parts(parts: Sequence[Path], temporary: Path) -> None:
+    header = None
+    encoding = None
+    for part in parts:
+        check_cancelled()
+        with part.open("rb") as source:
+            prefix = source.read(3)
+        current_encoding = "utf-8-sig" if prefix.startswith(codecs.BOM_UTF8) else "cp1252"
+        if encoding is not None and current_encoding != encoding:
+            raise RunFailure("CSV_INVALID", "report_split_encoding")
+        encoding = current_encoding
+        with part.open(encoding=encoding, newline="") as source:
+            reader = csv.reader(source, delimiter=";", strict=True)
+            current_header = next(reader, None)
+            if (not current_header or len(set(current_header)) != len(current_header)
+                    or (header is not None and current_header != header)):
+                raise RunFailure("CSV_INVALID", "report_split_columns")
+            with temporary.open("w" if header is None else "a", encoding=encoding, newline="") as output:
+                writer = csv.writer(output, delimiter=";")
+                if header is None:
+                    header = current_header
+                    writer.writerow(header)
+                for row in reader:
+                    if not row or not any(value.strip() for value in row):
+                        continue
+                    if len(row) != len(header):
+                        raise RunFailure("CSV_INVALID", "report_split_columns")
+                    writer.writerow(row)
+                output.flush()
+                os.fsync(output.fileno())
+    if header is None:
+        raise RunFailure("CSV_INVALID", "report_split_columns")
 
 
 def _write_jobs(path: Path, jobs: tuple[ReportJob, ...]) -> Path:

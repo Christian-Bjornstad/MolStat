@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+import tempfile
 
 
 class DownloadError(RuntimeError):
@@ -39,10 +40,43 @@ def finalize_csv(source: Path, directory: Path, filename: str) -> Path:
         or destination.exists()
     ):
         raise DownloadError("CSV finalization target is invalid")
+    temporary = None
     try:
-        shutil.move(str(resolved_source), str(destination))
+        # Stage on the destination filesystem. A cross-volume move can leave a
+        # partial canonical CSV after a transient copy error; it cannot be used
+        # as proof that this report finished on the next attempt.
+        with resolved_source.open("rb") as reader, tempfile.NamedTemporaryFile(
+                mode="wb", dir=resolved_directory, prefix=".molstat-download-", suffix=".tmp", delete=False) as writer:
+            temporary = Path(writer.name)
+            shutil.copyfileobj(reader, writer)
+            writer.flush()
+            os.fsync(writer.fileno())
+        try:
+            # Atomic creation with no overwrite, including on POSIX test hosts.
+            os.link(temporary, destination)
+        except FileExistsError:
+            raise
+        except OSError:
+            if os.name != "nt":
+                raise
+            # SMB filesystems may not support hard links. Windows rename also
+            # refuses to overwrite an existing destination.
+            temporary.rename(destination)
+            temporary = None
+        try:
+            resolved_source.unlink()
+        except OSError:
+            # The complete canonical report is already committed. Retain a
+            # locked download rather than resubmit a successful LVMS report.
+            pass
     except OSError as exc:
         raise DownloadError("CSV finalization failed") from exc
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
     return destination
 
 

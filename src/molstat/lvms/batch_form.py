@@ -4,6 +4,7 @@ import json
 import time
 from collections.abc import Callable
 from typing import Protocol
+from molstat.recovery import check_cancelled
 
 from molstat.lvms.batch_controls import (
     BatchControlError,
@@ -274,6 +275,7 @@ class BatchReportForm:
     def _wait_for(self, role: str) -> DocumentControlIdentity:
         deadline = self._clock() + self._timeout_seconds
         while self._clock() < deadline:
+            check_cancelled()
             control = discover_report_role(
                 self._page, self._expected_origin, role
             )
@@ -285,6 +287,7 @@ class BatchReportForm:
     def wait_until_clear(self) -> None:
         deadline = self._clock() + self._timeout_seconds
         while self._clock() < deadline:
+            check_cancelled()
             cleared = tuple(
                 discover_report_role(self._page, self._expected_origin, role)
                 is None

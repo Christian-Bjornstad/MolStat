@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from molstat.recovery import check_cancelled
+
 import time
 from collections.abc import Callable
 from typing import Protocol
@@ -52,6 +54,7 @@ class DocumentDomActions:
             self._sleep(self._action_delay_seconds)
 
     def _require_expected_origin(self) -> None:
+        check_cancelled()
         if self._page.current_origin() != self._expected_origin:
             raise DomActionError("Edge reached an unexpected origin")
 

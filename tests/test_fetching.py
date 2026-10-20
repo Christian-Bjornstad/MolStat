@@ -27,7 +27,7 @@ def test_fetcher_keeps_safe_batch_failure_and_retries_only_before_submission(tmp
     )
     assert fetcher.fetch_backlog()[1].is_file()
     assert len(calls) == 2
-    assert calls[0] == calls[1]
+    assert calls[0] != calls[1]
 
 
 def test_fetcher_does_not_resubmit_after_download_timeout(tmp_path):

@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
+from molstat.recovery import check_cancelled
 
 from molstat.lvms.batch_controls import (
     BatchControlError,
@@ -286,6 +287,7 @@ class DefinedReportsNavigator:
         used_defined_reports = False
         last_missing_control: str | None = None
         while self._clock() < deadline:
+            check_cancelled()
             try:
                 current_origin = page.current_origin()
             except Exception:

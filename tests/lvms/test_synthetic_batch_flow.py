@@ -99,6 +99,7 @@ class SyntheticPage:
 
     def configure_downloads(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
+        self.harness.active_download_directory = directory
 
     def current_origin(self) -> str:
         return EXPECTED_ORIGIN
@@ -220,7 +221,7 @@ class SyntheticPage:
             self.values.clear()
         elif element_id == "export":
             self.harness.export_count += 1
-            destination = self.harness.config.download_directory / (
+            destination = self.harness.active_download_directory / (
                 f"synthetic-{self.harness.export_count}.csv"
             )
             destination.write_bytes(b"metric,count\nsynthetic,1\n")
