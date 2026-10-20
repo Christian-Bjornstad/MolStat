@@ -73,7 +73,13 @@ def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path)
     assert source.read_bytes() == original
     assert len(list((tmp_path / "sensitive/data/raw/statistics/lege").glob("*.csv"))) == 1
     assert "PRIVATE-FLOW-1" in (tmp_path / "sensitive/processed/lege/powerbi/Prøver.csv").read_text(encoding="utf-8-sig")
-    assert "PRIVATE-FLOW-1" not in (tmp_path / "public/lege/prosess.csv").read_text(encoding="utf-8-sig")
+    expected = {name + ".csv" for name in ("Prøver", "Glass", "Signeringer", "Grupper", "Periode", "Leger", "Prioriteter")}
+    public = tmp_path / "public/lege"
+    assert {path.name for path in public.iterdir()} == expected
+    for name in expected:
+        assert (public / name).read_bytes() == (tmp_path / "sensitive/processed/lege/powerbi" / name).read_bytes()
+    assert "PRIVATE-FLOW-1" in (public / "Prøver.csv").read_text(encoding="utf-8-sig")
+    assert not (public / "source_audit.json").exists()
 
 
 def _files(tmp_path, encoding="cp1252"):

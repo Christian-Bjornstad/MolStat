@@ -18,11 +18,11 @@ from .statistics import (
     SOLIDE_ANTALL_COLUMNS,
     SOLIDE_RESULTATER_COLUMNS,
 )
-from ._statistics import flow_reports, fish_reports, pre_reports, patolog_process
+from ._statistics import flow_reports, fish_reports, pre_reports, patolog_flow
 
 
 JobKind = Literal["statistics", "backlog"]
-UnitStatus = Literal["active", "coming"]
+UnitStatus = Literal["active"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +156,8 @@ _PRE_STATISTICS = CapabilityDefinition(
 _LEGE_STATISTICS = CapabilityDefinition(
     job_kind="statistics", schedule_key="statistics_daily",
     processor_profile="lege", sharepoint_folder="lege",
-    publication_files=(("prosess.csv", frozenset(patolog_process.FIELDS)),),
+    publication_files=tuple((name + ".csv", frozenset(fields))
+                            for name, fields in patolog_flow.TABLE_FIELDS.items()),
     status_fields=("rows",),
 )
 

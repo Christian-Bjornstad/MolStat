@@ -24,13 +24,23 @@ GROUP_MAP.update({"IKKE NEOPLASTISK NYR": "Ikke-neoplastisk nyre", "LUNGE-TX": "
                   "TARMSCREENING": "GI og tarmscreening"})
 DATE_FIELDS = ["Prøvetakingstidspunkt", "Ankomsttid", "Makro utført", "Støpt dato", "Glass opprettet",
                "Glass etterbestilt", "Snittet dato", "Ferdig farget", "Godkjent dato"]
-EMPTY_FIELDS = {
+TABLE_FIELDS = {
+    "Prøver": ["Prøvenummer", "Referansetid", "Lab", "Prosess", "Gruppe", "Prioritet", "Ankomst",
+        "AnkomstDato", "Prøvetaking", "GodkjentTid", "GodkjentDato", "Godkjent", "Åpen", "Hovedlege",
+        "AntallHovedleger", "AntallGlass", "UfargedeGlass", "ImmunGlass", "EtterbestilteGlass",
+        "AntallBlokker", "AntallBeholdere", "Makro", "SisteFarget", "Status", "AlderDager", "SvartidDager",
+        "LegeDager", "LegeStart", "MakroTilGodkjent", "AnkomstTilMakro", "KjedeGyldig", "Tidsstatus",
+        "Aldersgruppe", "AldersgruppeSort", "FørstebestilteGlass", "Glassmengde", "GlassmengdeSort",
+        "Trinn1", "Trinn2", "Trinn3", "Trinn4", "Trinn5", "VarselDager", "OverGrense"],
     "Glass": ["GlassId", "Prøvenummer", "Gruppe", "Prosess", "Prioritet", "Ankomst", "AnkomstDato", "Glasstype",
         "Glasspor", "Opprettet", "Etterbestilt", "Makro", "Støpt", "Snittet", "Farget", "FargetDato", "Ufarget",
         "ErEtterbestilt", "Glassstatus", "OpprettetTilSnitt", "SnittTilFarget", "OpprettetTilFarget"],
     "Signeringer": ["Prøvenummer", "Lege", "Rolle", "Gruppe", "Prosess", "Prioritet", "AnkomstDato", "GodkjentDato",
         "GodkjentTid", "Godkjent", "SvartidDager", "LegeDager", "MakroTilGodkjent", "Tidsstatus", "AntallGlass"],
     "Leger": ["Lege"],
+    "Grupper": ["Gruppe", "Rekkefølge", "VarselDager", "GrunnlagN", "Datadekning", "Grensegrunnlag"],
+    "Periode": ["Dato", "År", "MånedNr", "Måned", "ÅrMåned", "Uke", "ÅrUke"],
+    "Prioriteter": ["Prioritet"],
 }
 
 
@@ -222,9 +232,7 @@ def write_data(folder, data):
         if name == "audit":
             (folder / "source_audit.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
             continue
-        fields = list(rows[0]) if rows else EMPTY_FIELDS.get(name)
-        if not fields:
-            raise ValueError("Kan ikke skrive tabell uten kolonneskjema")
+        fields = TABLE_FIELDS[name]
         with (folder / f"{name}.csv").open("w", encoding="utf-8-sig", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=fields, delimiter=";")
             writer.writeheader()

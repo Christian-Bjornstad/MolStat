@@ -106,15 +106,13 @@ class StatisticsProcessor:
                 from .failures import RunFailure
                 try:
                     facts = flow.add_dimensions(flow.read_archive(raw_files[0].parent, as_of=self._now()))
-                    flow.write_data(output_dir / "forlop", facts)
-                    destination = output_dir / "prosess.csv"
-                    count = flow.write_process_summary(destination, facts)
+                    flow.write_data(output_dir, facts)
                 except ValueError as exc:
                     raise RunFailure("CSV_INVALID", "patolog/workflow/process_data") from exc
-                return StatisticsResult(antall=destination, resultater=destination,
-                    row_counts={"prosess": count, "forlop_prover": facts["audit"]["samples"], "forlop_glass": facts["audit"]["unique_glass"]},
-                    publication_files={"prosess.csv": destination},
-                    private_files={path.name: path for path in (output_dir / "forlop").glob("*.csv")})
+                files = {name + ".csv": output_dir / (name + ".csv") for name in flow.TABLE_FIELDS}
+                return StatisticsResult(antall=files["Prøver.csv"], resultater=files["Signeringer.csv"],
+                    row_counts={"forlop_prover": facts["audit"]["samples"], "forlop_glass": facts["audit"]["unique_glass"]},
+                    publication_files=files, private_files=files)
             raise ValueError("Patolog krever PAT-TID-STØP-SNITT-OU. Velg et oppdatert JSON-oppsett.")
         if self.profile in {"flow", "fish", "pre"}:
             if self.report_ids is None:

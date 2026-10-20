@@ -86,7 +86,7 @@ def test_empty_glass_and_signers_write_refreshable_headers(tmp_path):
     for name in ("Glass", "Signeringer", "Leger"):
         with (tmp_path / "out" / (name + ".csv")).open(encoding="utf-8-sig") as stream:
             reader = csv.DictReader(stream, delimiter=";")
-            assert reader.fieldnames == flow.EMPTY_FIELDS[name]
+            assert reader.fieldnames == flow.TABLE_FIELDS[name]
             assert list(reader) == []
 
 
@@ -121,7 +121,7 @@ def test_closed_month_is_cached_but_periodically_refreshed(tmp_path):
     assert flow.needs_refresh(path, date(2026, 9, 1), date(2026, 9, 30), date.today() + timedelta(days=31))
 
 
-def test_processor_produces_all_seven_private_powerbi_tables(tmp_path):
+def test_processor_produces_all_seven_sharepoint_and_local_powerbi_tables(tmp_path):
     from datetime import datetime
     from molstat.statistics import StatisticsProcessor
     sources = []
@@ -135,7 +135,9 @@ def test_processor_produces_all_seven_private_powerbi_tables(tmp_path):
         "lege", [source], tmp_path / "out")
     assert set(result.private_files) == {name + ".csv" for name in ("Prøver", "Glass", "Signeringer", "Grupper", "Periode", "Leger", "Prioriteter")}
     assert result.row_counts["forlop_prover"] == 1
-    assert set(result.publication_files) == {"prosess.csv"}
+    assert result.publication_files == result.private_files
+    assert all(path.parent == tmp_path / "out" for path in result.publication_files.values())
+    assert not (tmp_path / "out" / "prosess.csv").exists()
 
 
 def test_existing_config_switches_to_only_workflow(tmp_path):
