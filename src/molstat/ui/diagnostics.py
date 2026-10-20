@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit,
     QPlainTextEdit, QVBoxLayout, QWidget,
@@ -24,6 +26,15 @@ class DiagnosticsPage(QWidget):
         intro.setObjectName("page-intro")
         layout.addWidget(title)
         layout.addWidget(intro)
+
+        log_folder = QHBoxLayout()
+        self.log_directory = help_text("", name="diagnostic-log-directory")
+        self.log_directory.setAccessibleName("Mappe for diagnostikkfiler")
+        self.open_log_button = action_button("Åpne loggmappe", "open-diagnostic-log-directory")
+        log_folder.addWidget(self.log_directory, 1)
+        log_folder.addWidget(self.open_log_button)
+        layout.addLayout(log_folder)
+        self.set_log_directory(None, available=False)
 
         filters = QHBoxLayout()
         self.unit_filter = QComboBox()
@@ -58,6 +69,15 @@ class DiagnosticsPage(QWidget):
         self.unit_filter.currentIndexChanged.connect(self._render_messages)
         self.search_field.textChanged.connect(self._render_messages)
         self._render_messages()
+
+    def set_log_directory(self, directory: Path | None, *, available: bool = True) -> None:
+        self.log_directory.setVisible(available)
+        self.open_log_button.setVisible(available)
+        self.open_log_button.setEnabled(directory is not None)
+        self.log_directory.setText(
+            f"Loggfiler: {directory}" if directory is not None
+            else "Loggmappe kunne ikke opprettes. Hendelsene vises fortsatt her."
+        )
 
     def set_configuration_error(self, error: str | None) -> None:
         self._configuration_error = error

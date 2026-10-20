@@ -4,8 +4,8 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QIcon
+from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QCloseEvent, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -87,6 +87,7 @@ class MainWindow(QMainWindow):
             if field.isChecked()
         }
         self.diagnostics = DiagnosticsPage()
+        self.diagnostics.open_log_button.clicked.connect(self._open_diagnostic_log_directory)
         self.import_page = ImportPage()
         self.diagnostics.set_configuration_error(configuration_error)
         self.stack.addWidget(self.overview)
@@ -328,11 +329,24 @@ class MainWindow(QMainWindow):
             card.set_status(state, detail)
 
     def _refresh_diagnostics(self) -> None:
-        if self.settings_store is None or not hasattr(
-            self.settings_store, "diagnostic_messages"
-        ):
+        if self.settings_store is None:
             return
-        self.diagnostics.set_messages(self.settings_store.diagnostic_messages())
+        if hasattr(self.settings_store, "diagnostic_messages"):
+            self.diagnostics.set_messages(self.settings_store.diagnostic_messages())
+        if hasattr(self.settings_store, "diagnostic_log_directory"):
+            self.diagnostics.set_log_directory(self.settings_store.diagnostic_log_directory())
+
+    def _open_diagnostic_log_directory(self) -> None:
+        resolver = getattr(self.settings_store, "diagnostic_log_directory", None)
+        if resolver is None:
+            return
+        directory = resolver()
+        self.diagnostics.set_log_directory(directory)
+        if directory is None:
+            self.statusBar().showMessage("Loggmappe er ikke tilgjengelig. Hendelsene vises i Diagnostikk.", 8000)
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))):
+            self.statusBar().showMessage(f"Loggmappen kunne ikke åpnes: {directory}", 8000)
 
     def _refresh_overview_status(self) -> None:
         database_path = getattr(getattr(self.orchestrator, "database", None), "path", None)

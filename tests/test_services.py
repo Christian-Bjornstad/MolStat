@@ -79,7 +79,8 @@ def test_refresh_gui_runtime_reports_and_logs_configuration_failure(
     assert error == "ValueError: Lookup-fil mangler."
     log = local_app_data / "MolStat" / "logs" / "bootstrap.log"
     assert "gui_configuration_failed" in log.read_text(encoding="utf-8")
-    assert "ValueError: Lookup-fil mangler." in log.read_text(encoding="utf-8")
+    assert "gui_configuration_failed: ValueError" in log.read_text(encoding="utf-8")
+    assert "Lookup-fil mangler." not in log.read_text(encoding="utf-8")
 
 
 def test_save_settings_rejects_paths_that_do_not_exist(tmp_path: Path) -> None:

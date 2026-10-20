@@ -10,7 +10,6 @@ from pathlib import Path
 import socket
 import sqlite3
 from threading import Event
-import traceback
 from urllib.parse import urlparse
 
 from .archive import RawArchive
@@ -19,6 +18,7 @@ from .backlog import BacklogProcessor, CsvContract, CsvImportError
 from .backup import backup_before_migration
 from .config import MolStatSettings
 from .database import SCHEMA_VERSION, MolStatDatabase
+from .diagnostic_logs import diagnostic_log_directory, write_diagnostic_log
 from .fetching import UnifiedLvmsFetcher
 from .failures import RunFailure, database_failure
 from .unit_settings import load_active_units, load_unit_file, load_backlog_file, write_json, UnitConfigError
@@ -40,6 +40,7 @@ class DefaultServices:
     def __init__(self, settings_path: Path) -> None:
         self.settings_path = settings_path
         self._diagnostics: deque[str] = deque(maxlen=100)
+        self._diagnostic_log_directory: Path | None = None
         self._unit_readiness: dict[str, tuple[str, str]] = {}
         self._capability_readiness: dict[tuple[str, str], str | None] = {}
         self._settings_exist = settings_path.is_file()
@@ -620,17 +621,12 @@ class DefaultServices:
         return path
 
     def _record_failure(self, stage: str, error: BaseException) -> None:
-        local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
-        local_root = (
-            Path(local_text) if local_text else Path.home() / "AppData" / "Local"
-        )
-        log = local_root / "MolStat" / "logs" / "bootstrap.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with log.open("a", encoding="utf-8") as stream:
-            stream.write(f"\n[{stage}] {type(error).__name__}: {error}\n")
-            traceback.print_exception(type(error), error, error.__traceback__, file=stream)
+        self._record_diagnostic(stage, error, "bootstrap.log")
 
     def _record_job_failure(self, stage: str, error: BaseException) -> None:
+        self._record_diagnostic(stage, error, "runtime.log")
+
+    def _record_diagnostic(self, stage: str, error: BaseException, filename: str) -> None:
         safe_error = database_failure(error) if isinstance(error, sqlite3.Error) else error
         if isinstance(error, WriterLeaseLost):
             reason = error.reason if error.reason in {"OWNERSHIP_CHANGED", "EXPIRED", "RENEWAL_FAILED"} or (
@@ -640,14 +636,13 @@ class DefaultServices:
             safe_error = RunFailure("CSV_INVALID", "csv_import")
         message = f"{stage}: {safe_error if isinstance(safe_error, (RunFailure, UnitConfigError, ManualImportError)) else type(error).__name__}"
         self._diagnostics.append(message)
-        local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
-        local_root = Path(local_text) if local_text else Path.home() / "AppData" / "Local"
-        log = local_root / "MolStat" / "logs" / "runtime.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with log.open("a", encoding="utf-8") as stream:
-            stream.write(f"\n{message}\n")
-            if error.__traceback__ is not None:
-                stream.writelines(traceback.format_tb(error.__traceback__))
+        self._diagnostic_log_directory = write_diagnostic_log(
+            filename, message, error, preferred=self._diagnostic_log_directory,
+        )
+
+    def diagnostic_log_directory(self) -> Path | None:
+        self._diagnostic_log_directory = diagnostic_log_directory(self._diagnostic_log_directory)
+        return self._diagnostic_log_directory
 
     def diagnostic_messages(self) -> tuple[str, ...]:
         return tuple(self._diagnostics)
