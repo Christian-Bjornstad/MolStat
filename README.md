@@ -27,7 +27,7 @@ Ved oppgradering flyttes den gamle databasen fra `data/molstat.sqlite3`, og gaml
 
 Eksisterende `config/` og `work/` på en annen PC slettes ikke blindt: velg først egne JSON-filer utenfor gammel config, og bevar eventuelle uavklarte nedlastinger. Ny versjon oppretter ingen av disse mappene. Midlertidige jobber ligger privat under data/raw og ryddes når nedlastingene er arkivert.
 
-Rådata og databasen publiseres ikke. Bare avtalte rapportkolonner sendes til valgt SharePoint-mappe. Prøvesøk.xlsx kan genereres fra databasen. Patologs private rapporttabeller ligger under `data/processed/lege/powerbi/`.
+Rådata og databasen publiseres ikke. Bare avtalte rapportkolonner sendes til valgt SharePoint-mappe. Prøvesøk.xlsx kan genereres fra databasen. Patolog publiserer `Prøver.csv`, `Glass.csv`, `Signeringer.csv`, `Grupper.csv`, `Periode.csv`, `Leger.csv` og `Prioriteter.csv` i SharePoint-mappen `lege/`. De samme tabellene beholdes lokalt under `data/processed/lege/powerbi/`. Patologtabellene beholder prøvenummer, glass-ID og legeidentitet som i den lokale modellen. Nye kjøringer lager og publiserer ikke `prosess.csv`.
 
 ## Utvikling
 

@@ -18,7 +18,13 @@ Gamle config- og work-mapper fra andre installasjoner beholdes til egne oppsett 
 
 ## Power BI
 
-Koble analyseoppslagene i Power BI. Grupper, navn, priser og normer kommer ikke lenger fra MolStat-oppslag. Kontroller at rapportene bruker egne oppslag til disse verdiene før nye eksportfiler tas i bruk. Patologs private fakta ligger i `data/processed/lege/powerbi/`.
+Koble analyseoppslagene i Power BI. Grupper, navn, priser og normer kommer ikke lenger fra MolStat-oppslag. Kontroller at rapportene bruker egne oppslag til disse verdiene før nye eksportfiler tas i bruk.
+
+Patolog publiserer de sju tabellene `Prøver.csv`, `Glass.csv`, `Signeringer.csv`, `Grupper.csv`, `Periode.csv`, `Leger.csv` og `Prioriteter.csv` til SharePoint-mappen `lege/`, med samme kolonner og koblingsnøkler som de lokale kopiene i `data/processed/lege/powerbi/`. Tabellene inneholder prøvenummer, glass-ID og legeidentitet. Råfiler og `source_audit.json` følger ikke med. Nye kjøringer lager ikke `prosess.csv`; en eksisterende kopi slettes ikke automatisk. Rapporter som bruker den, må bytte til de nye tabellene.
+
+Kjør patolog eller importer et gyldig månedsuttrekk med den nye versjonen for å opprette den nye SharePoint-leveransen. En gammel publiseringskandidat med bare `prosess.csv` passer ikke den nye filkontrakten og må behandles på nytt. Nye kandidater med alle sju tabeller støtter vanlig «Prøv publisering igjen».
+
+Planen for en senere FISH-rapport ligger i [FISH-RAPPORTPLAN.md](docs/FISH-RAPPORTPLAN.md).
 
 ## Oppstart og diagnostikk
 
@@ -45,3 +51,5 @@ Hvis en råfil er sikkert arkivert, stopper ikke nektet sletting av nedlastingsk
 DB_LEASE_LOST betyr at databaseeierskapet er mistet. PRIVATE_FILES_LOCKED betyr at rapportfilene ikke kunne erstattes: lukk programmer som holder CSV-filene åpne og prøv igjen. PRIVATE_FILES_RECOVERY betyr at gjenopprettingskopier må kontrolleres før rapportene oppdateres.
 
 Manuell import validerer LVMS-filer før de arkiveres og bruker samme behandlings- og publiseringsflyt. Ved publiseringsfeil beholdes kandidaten for gjenforsøk. Bruk Oppdater Excel-søk eller Prøv publisering igjen fra appen etter at filtilgang er rettet.
+
+Ved statistikkimport oppgis perioden som faktisk ble valgt i LVMS. Et femdagersuttrekk kan overlappe to dager som allerede finnes: helt identiske rader fjernes ved sammenslåing, og historikken beholdes. Datoene gjettes eller omskrives ikke. Hvis samme post har fått nye verdier mellom ulike, overlappende perioder, kan begge versjonene beholdes; dette er ikke en generell oppdatering etter prøvenummer. Et korrigert uttrekk for nøyaktig samme fra-/til-periode erstatter derimot tidligere revisjoner av den perioden i behandlingen. Patolog krever første dag i én kalendermåned til månedsslutt eller valgt dato i samme måned. Restanse krever hele perioden fra 01.01.2024 til i dag.
