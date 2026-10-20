@@ -16,8 +16,10 @@ from .lvms.report import ReportRequest
 from .modules import DEFAULT_UNITS, JobKind, UnitRegistry
 from .publisher import SharePointPublisher
 from .delivery import deliver
-from ._writer_lease import guarded_output
+from ._writer_lease import WriterLeaseLost, guarded_output
 from .private_delivery import install_private_files
+from .recovery import check_cancelled, retry_operation
+from .failures import RunFailure
 
 
 FetchedReport = tuple[ReportRequest, Path]
@@ -112,7 +114,9 @@ class MolStatSystem:
             raise ValueError(f"Statistikkprosessor mangler for {unit_key}.")
         archived = tuple(self._archive_and_remove(item) for item in reports)
         output_dir = self.work_root / unit_key / "statistics" / uuid4().hex
+        check_cancelled()
         result = processor.process(unit_key, archived, output_dir)
+        check_cancelled()
         if result.private_files:
             install_private_files(result.private_files, self.work_root / unit_key / "powerbi")
         active_publisher = (
@@ -150,12 +154,14 @@ class MolStatSystem:
         if request.kind != "backlog" or request.unit != unit_key:
             raise ValueError("Restanserapporten har feil type eller enhet.")
         archived = self._archive_and_remove((request, source))
+        check_cancelled()
         imported = processor.import_snapshot(
             archived,
             self.database,
             date_from=request.date_from,
             date_to=request.date_to,
         )
+        check_cancelled()
         published_rows = 0
         if publisher is not None:
             filename = capability.publication_files[0][0]
@@ -197,13 +203,17 @@ class MolStatSystem:
             return False
         generated_at = self._excel_now()
         try:
-            snapshot = read_excel_snapshot(
-                self.database,
-                generated_at=generated_at,
+            snapshot = retry_operation(
+                lambda: read_excel_snapshot(self.database, generated_at=generated_at),
+                stage="excel_search_snapshot",
             )
             with guarded_output():
                 result = publish_search_workbook(snapshot, self.excel_search_path)
+        except WriterLeaseLost:
+            raise
         except Exception as exc:
+            if isinstance(exc, RunFailure) and exc.code == "CANCELLED":
+                raise
             self.excel_status = ExcelRefreshStatus(
                 "failed",
                 generated_at,
@@ -269,9 +279,15 @@ class MolStatSystem:
         unit_key: str,
         job_kind: JobKind,
     ) -> CapabilityRun:
+        check_cancelled()
         try:
             summary = self._run_capability(unit_key, job_kind)
+            check_cancelled()
+        except WriterLeaseLost:
+            raise
         except Exception as error:
+            if isinstance(error, RunFailure) and error.code == "CANCELLED":
+                raise
             return CapabilityRun(unit_key, job_kind, {}, error=error)
         return CapabilityRun(unit_key, job_kind, summary)
 
@@ -288,5 +304,8 @@ class MolStatSystem:
     def _archive_and_remove(self, fetched: FetchedReport) -> Path:
         request, source = fetched
         archived = self.archive.store(source, request)
-        remove_archived_download(source, self.archive.sensitive_root)
+        remove_archived_download(
+            source, self.archive.sensitive_root,
+            failure_reporter=self._excel_failure_reporter,
+        )
         return archived.path

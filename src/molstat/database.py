@@ -10,6 +10,7 @@ from urllib.parse import quote
 from ._sqlite_cleanup import rollback_after_failure
 from ._writer_lease import WriterLease, active_writer_lease
 from .database_access import DatabaseAccessError, prepare_writer_files, probe_writer_directory
+from .recovery import retry_operation, uncancellable_cleanup
 
 
 def readonly_uri(path: Path, *, immutable: bool = False) -> str:
@@ -329,6 +330,12 @@ class MolStatDatabase:
         self._now = now
 
     def _connect(self, *, guard_lease: bool = True) -> sqlite3.Connection:
+        return retry_operation(
+            lambda: self._open_writer_connection(guard_lease=guard_lease),
+            stage="database_write",
+        )
+
+    def _open_writer_connection(self, *, guard_lease: bool) -> sqlite3.Connection:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
@@ -348,8 +355,26 @@ class MolStatDatabase:
             connection.execute("PRAGMA temp_store = MEMORY")
             if guard_lease:
                 connection._writer_guard = active_writer_lease(self.path)
+            # Opening and BEGIN may both succeed after SQLite silently falls
+            # back to read-only. A rolled-back header write detects that before
+            # handing a connection to imports or lease mutations. No business
+            # transaction or uncertain COMMIT is repeated by the outer retry.
+            sqlite3.Connection.execute(connection, "BEGIN IMMEDIATE")
+            try:
                 if connection._writer_guard:
                     connection._writer_guard.assert_owned(connection)
+                version = sqlite3.Connection.execute(connection, "PRAGMA main.user_version").fetchone()[0]
+                sqlite3.Connection.execute(connection, f"PRAGMA main.user_version = {int(version)}")
+                sqlite3.Connection.execute(connection, "ROLLBACK")
+            except BaseException:
+                rollback_after_failure(connection)
+                raise
+            if connection._writer_guard:
+                connection._writer_guard.assert_owned(connection)
+        except sqlite3.Error as exc:
+            exc.database_stage = "database_write"
+            connection.close()
+            raise
         except BaseException:
             connection.close()
             raise
@@ -486,7 +511,7 @@ class MolStatDatabase:
         if ttl <= timedelta(0):
             raise ValueError("Lease-varighet må være positiv.")
 
-        probe_writer_directory(self.path)
+        retry_operation(lambda: probe_writer_directory(self.path), stage="database_directory")
         token = uuid4().hex
         with self._connect(guard_lease=False) as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -528,7 +553,7 @@ class MolStatDatabase:
             raise
         finally:
             try:
-                with self._connect(guard_lease=False) as connection:
+                with uncancellable_cleanup(), self._connect(guard_lease=False) as connection:
                     connection.execute("BEGIN IMMEDIATE")
                     try:
                         connection.execute(

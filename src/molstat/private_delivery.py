@@ -3,22 +3,25 @@ from pathlib import Path
 import logging
 import os
 import shutil
-import time
 from uuid import uuid4
 
 from ._writer_lease import guarded_output
-from .failures import RunFailure
+from .failures import RunFailure, storage_failure
+from .recovery import retry_operation, uncancellable_cleanup
+
+
+def _known_no_change(error):
+    failure = storage_failure(error)
+    return failure is not None and failure.code in {"FILE_ACCESS", "FILE_BUSY"}
 
 
 def _replace(source, destination, sleep):
-    for attempt in range(4):
-        try:
-            os.replace(source, destination)
-            return
-        except PermissionError:
-            if attempt == 3:
-                raise
-            sleep(0.25 * 2 ** attempt)
+    def known_unmoved(error):
+        # Even an access error can be reported after a remote rename completed.
+        # A consumed source must be reconciled/rolled back, never retried.
+        return _known_no_change(error) and source.exists()
+    retry_operation(lambda: os.replace(source, destination), stage="private_replace",
+                    sleep=sleep, retry_if=known_unmoved)
 
 
 def _copy(source, destination):
@@ -29,7 +32,7 @@ def _copy(source, destination):
         os.fsync(writer.fileno())
 
 
-def install_private_files(files, destination: Path, *, sleep=time.sleep):
+def install_private_files(files, destination: Path, *, sleep=None):
     if any(Path(name).name != name for name in files):
         raise ValueError('Ugyldig privat filnavn.')
     try:
@@ -42,36 +45,47 @@ def install_private_files(files, destination: Path, *, sleep=time.sleep):
 
 
 def _install(files, destination, sleep):
-    destination.mkdir(parents=True, exist_ok=True)
+    retry_operation(lambda: destination.mkdir(parents=True, exist_ok=True),
+                    stage="private_stage", sleep=sleep)
     staging = destination / ('.molstat-' + uuid4().hex)
-    staging.mkdir()
+    retry_operation(staging.mkdir, stage="private_stage", sleep=sleep)
     staged, backups, installed = {}, {}, []
     keep_recovery = False
     try:
         # Prepare every new file and every old copy before replacing the first CSV.
         for index, (name, source) in enumerate(files.items()):
             candidate = staging / f'{index}.new.tmp'
-            _copy(source, candidate)
+            retry_operation(lambda: _copy(source, candidate), stage="private_stage", sleep=sleep)
             staged[name] = candidate
             target = destination / name
             if target.exists():
                 backup = staging / f'{name}.old.tmp'
-                _copy(target, backup)
+                retry_operation(lambda: _copy(target, backup), stage="private_stage", sleep=sleep)
                 backups[name] = backup
         try:
             for name, candidate in staged.items():
-                _replace(candidate, destination / name, sleep)
                 installed.append(name)
+                try:
+                    _replace(candidate, destination / name, sleep)
+                except BaseException:
+                    # The unique candidate still exists only if its atomic
+                    # rename did not complete. Avoid restoring an unchanged,
+                    # locked target, but include consumed candidates on cancel.
+                    if candidate.exists():
+                        installed.pop()
+                    raise
         except BaseException:
             restore_errors = []
-            for name in reversed(installed):
-                try:
-                    if name in backups:
-                        _replace(backups[name], destination / name, sleep)
-                    else:
-                        (destination / name).unlink(missing_ok=True)
-                except OSError as exc:
-                    restore_errors.append(exc)
+            with uncancellable_cleanup():
+                for name in reversed(installed):
+                    try:
+                        if name in backups:
+                            _replace(backups[name], destination / name, sleep)
+                        else:
+                            retry_operation(lambda: (destination / name).unlink(missing_ok=True),
+                                            stage="private_rollback", sleep=sleep)
+                    except OSError as exc:
+                        restore_errors.append(exc)
             if restore_errors:
                 keep_recovery = True
                 raise RunFailure('PRIVATE_FILES_RECOVERY', 'patolog/private_files/rollback') from restore_errors[0]

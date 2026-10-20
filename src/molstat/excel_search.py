@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+import hashlib
 import os
+import logging
 from pathlib import Path
 import zipfile
 from uuid import uuid4
@@ -14,6 +16,8 @@ import xlsxwriter
 
 from .database import MolStatDatabase
 from ._sqlite_cleanup import rollback_after_failure
+from .recovery import retry_operation
+from .failures import storage_failure
 
 
 @dataclass(frozen=True, slots=True)
@@ -467,7 +471,7 @@ def validate_search_workbook(path: Path) -> None:
                 if name.startswith("xl/tables/table")
             )
             corrupt_member = archive.testzip()
-    except (OSError, KeyError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
+    except (KeyError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
         raise WorkbookValidationError("Arbeidsboken kunne ikke valideres.") from exc
     if corrupt_member is not None or bad_members:
         raise WorkbookValidationError("Arbeidsboken inneholder ugyldige deler.")
@@ -484,25 +488,68 @@ def publish_search_workbook(
     *,
     validate: Callable[[Path], None] = validate_search_workbook,
     replace: Callable[[Path, Path], None] = os.replace,
+    sleep: Callable[[float], None] | None = None,
 ) -> WorkbookPublication:
     """Generate, validate and atomically publish one workbook candidate."""
 
     target = Path(destination)
-    target.parent.mkdir(parents=True, exist_ok=True)
+    retry_operation(lambda: target.parent.mkdir(parents=True, exist_ok=True),
+                    stage="excel_candidate", sleep=sleep)
     pending = target.parent / f".{target.stem}.{uuid4().hex}.pending.xlsx"
+    keep_pending = False
     try:
-        generate_search_workbook(snapshot, pending)
-        with pending.open("r+b") as stream:
-            stream.flush()
-            os.fsync(stream.fileno())
-        validate(pending)
+        def prepare_candidate():
+            generate_search_workbook(snapshot, pending)
+            with pending.open("r+b") as stream:
+                stream.flush()
+                os.fsync(stream.fileno())
+            validate(pending)
+            with pending.open("rb") as stream:
+                return hashlib.file_digest(stream, "sha256").hexdigest()
+        expected_digest = retry_operation(prepare_candidate, stage="excel_candidate", sleep=sleep)
+        def known_no_change(error):
+            failure = storage_failure(error)
+            return (failure is not None and failure.code in {"FILE_ACCESS", "FILE_BUSY"}
+                    and pending.exists())
+        def install_candidate():
+            try:
+                replace(pending, target)
+            except OSError:
+                # A network/filesystem error can arrive after an atomic rename
+                # succeeded. Prove the validated bytes reached the target before
+                # reporting success; never retry a consumed candidate.
+                try:
+                    if not pending.exists():
+                        with target.open("rb") as stream:
+                            actual_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                        if actual_digest == expected_digest:
+                            return
+                except OSError:
+                    pass
+                raise
         try:
-            replace(pending, target)
+            retry_operation(install_candidate, stage="excel_replace",
+                            sleep=sleep, retry_if=known_no_change)
         except PermissionError:
+            if not pending.exists():
+                # A consumed candidate with an unverified destination is an
+                # uncertain installation, not an ordinary unchanged lock.
+                keep_pending = True
+                raise
             return WorkbookPublication("locked", target)
+        except BaseException:
+            # A valid workbook is useful recovery evidence after cancellation or
+            # an uncertain I/O failure. Only invalid/incomplete candidates and
+            # the established persistent-lock result are removed automatically.
+            keep_pending = True
+            raise
         return WorkbookPublication("published", target)
     finally:
-        pending.unlink(missing_ok=True)
+        if not keep_pending:
+            try:
+                pending.unlink(missing_ok=True)
+            except OSError:
+                logging.getLogger(__name__).warning("En midlertidig Excel-kandidat kunne ikke ryddes.")
 
 
 def generate_compatibility_workbook(destination: Path) -> None:

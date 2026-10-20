@@ -11,6 +11,7 @@ from threading import Event, Thread
 from typing import TYPE_CHECKING
 
 from ._sqlite_cleanup import rollback_after_failure
+from .recovery import recovery_context
 
 if TYPE_CHECKING:
     from .database import MolStatDatabase
@@ -92,7 +93,10 @@ class WriterLease:
         interval = min(30.0, self.ttl.total_seconds() / 3)
         while not self.stopped.wait(interval):
             try:
-                self.renew()
+                # This thread has its own context. Stop must interrupt a long
+                # storage backoff before the foreground releases ownership.
+                with recovery_context(cancel=self.stopped):
+                    self.renew()
             except sqlite3.OperationalError as exc:
                 # The current import/publication may hold the write lock. Its
                 # commit renews ownership under the same lock before releasing.
@@ -105,6 +109,8 @@ class WriterLease:
                 self.lost.set()
                 return
             except Exception:
+                if self.stopped.is_set():
+                    return
                 self.loss_reason = self.loss_reason or "RENEWAL_FAILED"
                 self.lost.set()
                 return
