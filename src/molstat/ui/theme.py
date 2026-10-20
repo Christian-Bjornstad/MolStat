@@ -89,18 +89,9 @@ def build_stylesheet() -> str:
         border: 1px solid {COLORS['border']};
         border-radius: 8px;
     }}
-    QFrame[unitStatus="coming"] {{
-        background: #EFF3F8;
-        border: 1px dashed #AAB8CD;
-        border-radius: 8px;
-    }}
     QLabel[unitTitle="true"] {{ font-size: 18px; font-weight: 700; }}
     QLabel[unitBadge="active"] {{
         color: {COLORS['success']};
-        font-weight: 700;
-    }}
-    QLabel[unitBadge="coming"] {{
-        color: {COLORS['muted_text']};
         font-weight: 700;
     }}
     QLabel[unitRunState="true"] {{ color: {COLORS['foreground']}; }}

@@ -63,11 +63,11 @@ class UnitCard(QFrame):
 
         names = {"statistics": "Statistikk", "backlog": "restanse"}
         capabilities = " + ".join(names[item.job_kind] for item in unit.capabilities)
-        self.capability_label = help_text(capabilities or "Enheten er under utvikling")
+        self.capability_label = help_text(capabilities or "Ingen funksjoner konfigurert")
         self.capability_label.setObjectName(f"capabilities-{unit.key}")
         layout.addWidget(self.capability_label)
 
-        self.status_label = QLabel("Klar for kjøring" if self.enabled else "Ikke tilgjengelig ennå")
+        self.status_label = QLabel("Klar for kjøring")
         self.status_label.setProperty("unitRunState", True)
         self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
@@ -92,11 +92,9 @@ class UnitCard(QFrame):
         )
         self.settings_button.setProperty("quiet", True)
         self.settings_button.setVisible(unit.status == "active")
-        text = f"Kjør {unit.display_name}" if self.enabled else "Kommer"
         self.run_button = action_button(
-            text, f"run-{unit.key}",
-            accessible_name=(f"Kjør alle funksjoner for {unit.display_name}"
-                             if self.enabled else f"{unit.display_name} kommer senere"),
+            f"Kjør {unit.display_name}", f"run-{unit.key}",
+            accessible_name=f"Kjør alle funksjoner for {unit.display_name}",
         )
         self.run_button.setEnabled(self.enabled)
         actions.addWidget(self.settings_button)
@@ -117,7 +115,7 @@ class UnitCard(QFrame):
         self.title_label.setText(unit.display_name)
         names = {"statistics": "Statistikk", "backlog": "restanse"}
         self.capability_label.setText(" + ".join(names[item.job_kind] for item in unit.capabilities)
-                                      or "Enheten er under utvikling")
+                                      or "Ingen funksjoner konfigurert")
         kinds = {item.job_kind for item in unit.capabilities}
         for kind in tuple(self.capability_status_labels):
             if kind not in kinds:
@@ -134,7 +132,7 @@ class UnitCard(QFrame):
             label.hide()
             self.capability_status_labels[capability.job_kind] = label
             self.capability_status_layout.addWidget(label)
-        self.run_button.setText(f"Kjør {unit.display_name}" if unit.status == "active" else "Kommer")
+        self.run_button.setText(f"Kjør {unit.display_name}")
         self.run_button.setAccessibleName(f"Kjør alle funksjoner for {unit.display_name}")
         self.backlog_button.setVisible(any(c.job_kind == "backlog" for c in unit.capabilities))
         self.backlog_button.setAccessibleName(f"Hent bare restanse for {unit.display_name}")
@@ -144,7 +142,7 @@ class UnitCard(QFrame):
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled and self.unit.status == "active"
-        self.badge.setText("Aktiv" if self.enabled else "Deaktivert" if self.unit.status == "active" else "Kommer")
+        self.badge.setText("Aktiv" if self.enabled else "Deaktivert")
         set_tone(self.badge, "success" if self.enabled else "neutral")
         self._refresh_accessible_name()
         self.status_changed.emit()
@@ -248,20 +246,6 @@ class OverviewPage(QWidget):
         self.empty_label = help_text("Ingen enheter passer til søket. Prøv et annet søk eller filter.", name="no-units")
         layout.addWidget(self.empty_label)
 
-        self.future_units = QWidget()
-        future_layout = QVBoxLayout(self.future_units)
-        future_layout.setContentsMargins(0, 0, 0, 0)
-        for card in self.unit_cards.values():
-            if card.unit.status != "active":
-                future_layout.addWidget(card)
-        self.future_units.hide()
-        self.show_future = action_button("Vis kommende enheter", "show-future-units")
-        self.show_future.setProperty("quiet", True)
-        self.show_future.setCheckable(True)
-        self.show_future.toggled.connect(self._toggle_future)
-        layout.addWidget(self.show_future, 0, Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self.future_units)
-
         layout.addWidget(section_title("Felles tjenester"))
         system_grid = QGridLayout()
         system_grid.setHorizontalSpacing(12)
@@ -326,7 +310,3 @@ class OverviewPage(QWidget):
                 self.unit_grid.addWidget(card, visible // 2, visible % 2)
                 visible += 1
         self.empty_label.setVisible(visible == 0)
-
-    def _toggle_future(self, visible: bool) -> None:
-        self.future_units.setVisible(visible)
-        self.show_future.setText("Skjul kommende enheter" if visible else "Vis kommende enheter")
