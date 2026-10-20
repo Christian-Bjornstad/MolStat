@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
+from molstat.recovery import check_cancelled
 
 from molstat.lvms.batch_controls import (
     BatchControlError,
@@ -192,7 +193,10 @@ def _navigation_anchor_script(label: str) -> str:
         "td.sitemap_TramStopNormText"
       ))
     : null;
-  const selected = tramLine || matches[0];
+  const interactive = matches.find((match) => match.control.matches("a,button"));
+  const moreSpan = normalizedWanted === clean("Mer")
+    ? matches.find((match) => match.control.matches("span")) : null;
+  const selected = tramLine || interactive || moreSpan;
   return selected ? identity(selected.control, selected.frame) : null;
 }})()
 """
@@ -283,6 +287,7 @@ class DefinedReportsNavigator:
         used_defined_reports = False
         last_missing_control: str | None = None
         while self._clock() < deadline:
+            check_cancelled()
             try:
                 current_origin = page.current_origin()
             except Exception:

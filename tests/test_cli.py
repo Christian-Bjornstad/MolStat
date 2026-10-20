@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from molstat.cli import main
 from molstat.config import MolStatSettings
 
@@ -46,10 +48,12 @@ def test_check_config_returns_two_without_printing_paths(
     tmp_path: Path, capsys
 ) -> None:
     settings_path = tmp_path / "settings.json"
-    MolStatSettings(
+    invalid = MolStatSettings(
         sensitive_root=tmp_path,
         sharepoint_root=tmp_path,
-    ).save(settings_path)
+    )
+    # Simulate an externally edited/corrupt file; save() rejects this state.
+    settings_path.write_text(json.dumps(invalid.to_transfer_payload()), encoding="utf-8")
 
     result = main(["check-config", "--settings", str(settings_path)])
 
@@ -67,6 +71,17 @@ def test_check_config_handles_missing_settings_file(tmp_path: Path, capsys) -> N
         "status": "invalid",
         "errors": ["Innstillingsfil mangler."],
     }
+
+
+@pytest.mark.parametrize("contents", ['{"sensitive_root":', '{"sensitive_root":42}', '[]', '\xff'])
+def test_check_config_rejects_malformed_external_files_safely(tmp_path, capsys, contents):
+    path = tmp_path / "settings.json"
+    path.write_bytes(contents.encode("latin-1"))
+    assert main(["check-config", "--settings", str(path)]) == 2
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["status"] == "invalid"
+    assert str(tmp_path) not in captured.out
+    assert not captured.err
 
 
 def test_cli_dispatches_all_integrated_commands(tmp_path: Path) -> None:

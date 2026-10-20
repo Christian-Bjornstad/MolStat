@@ -1,9 +1,50 @@
 import json
+import pytest
 from datetime import date
 from pathlib import Path
 
 from molstat.fetching import UnifiedLvmsFetcher, plan_window
 from molstat.lvms.report_job import batch_filename, load_report_jobs
+
+
+def test_fetcher_keeps_safe_batch_failure_and_retries_only_before_submission(tmp_path):
+    from molstat.failures import RunFailure
+    calls = []
+    successful = FakeBatchRunner()
+
+    def runner(*args, **kwargs):
+        calls.append(kwargs["repository_root"])
+        if len(calls) == 1:
+            kwargs["error_reporter"](RunFailure("LVMS_TIMEOUT", "lvms_open", retryable=True))
+            return 2
+        return successful(*args, **kwargs)
+
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog.json"),
+        run_batch=runner, sleep=lambda seconds: None,
+    )
+    assert fetcher.fetch_backlog()[1].is_file()
+    assert len(calls) == 2
+    assert calls[0] != calls[1]
+
+
+def test_fetcher_does_not_resubmit_after_download_timeout(tmp_path):
+    from molstat.failures import RunFailure
+    calls = []
+    def runner(*args, **kwargs):
+        calls.append(1)
+        kwargs["error_reporter"](RunFailure("DOWNLOAD_INCOMPLETE", "report_1_download"))
+        return 2
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
+        work_root=tmp_path / "work", units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog.json"), run_batch=runner,
+    )
+    with pytest.raises(RunFailure, match="DOWNLOAD_INCOMPLETE"):
+        fetcher.fetch_backlog()
+    assert len(calls) == 1
 
 
 class FakeBatchRunner:
@@ -39,6 +80,18 @@ def _units(path: Path) -> Path:
                         "reports": [
                             {
                                 "job_key": "ordered",
+                                "fetch_report_id": "PAT-DIT-ANTALL-OU",
+                                "report_id": "PAT-DIT-ANTALL-OU",
+                            }
+                        ],
+                    },
+                    "solide": {
+                        "label": "Solide",
+                        "profile": "solide",
+                        "analysis_codes": ["KRAS-VAR-OU"],
+                        "reports": [
+                            {
+                                "job_key": "solide-ordered",
                                 "fetch_report_id": "PAT-DIT-ANTALL-OU",
                                 "report_id": "PAT-DIT-ANTALL-OU",
                             }
@@ -90,13 +143,51 @@ def test_fetcher_runs_statistics_and_backlog_through_one_runtime(
     assert len(statistics["hemato"]) == 1
     assert statistics["hemato"][0][0].date_from == date(2024, 1, 1)
     assert statistics["hemato"][0][1].is_file()
-    assert backlog_request.date_from == date(2026, 1, 1)
+    assert backlog_request.date_from == date(2024, 1, 1)
     assert backlog_source.is_file()
     assert runner.jobs[-1].report_groups == ("OU-HEM", "OU-MOTTAKMOLPAT")
 
 
+def test_fetcher_scopes_statistics_to_requested_unit(tmp_path: Path) -> None:
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms-config.json",
+        sensitive_root=tmp_path / "sensitive",
+        work_root=tmp_path / "sensitive" / "work",
+        units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog-report.json"),
+        run_batch=runner,
+        today=lambda: date(2026, 9, 2),
+    )
+
+    statistics = fetcher.fetch_statistics(("solide",))
+
+    assert tuple(statistics) == ("solide",)
+    assert [job.job_key for job in runner.jobs] == ["solide-ordered"]
+
+
+def test_fetcher_rejects_unknown_unit_before_running_lvms(tmp_path: Path) -> None:
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms-config.json",
+        sensitive_root=tmp_path / "sensitive",
+        work_root=tmp_path / "sensitive" / "work",
+        units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog-report.json"),
+        run_batch=runner,
+    )
+
+    try:
+        fetcher.fetch_statistics(("ukjent",))
+    except ValueError as error:
+        assert "ukjent" in str(error)
+    else:
+        raise AssertionError("Unknown unit should be rejected")
+    assert runner.jobs == []
+
+
 def test_plan_window_uses_three_day_overlap_from_last_archive(tmp_path: Path) -> None:
-    archive = tmp_path / "raw" / "statistics" / "hemato"
+    archive = tmp_path / "data" / "raw" / "statistics" / "hemato"
     archive.mkdir(parents=True)
     (archive / "REPORT__2026-08-01__2026-08-31.csv").write_text("x")
 
@@ -107,3 +198,26 @@ def test_plan_window_uses_three_day_overlap_from_last_archive(tmp_path: Path) ->
         baseline=date(2024, 1, 1),
         today=date(2026, 9, 2),
     ) == (date(2026, 8, 29), date(2026, 9, 2))
+
+
+def test_backlog_window_ignores_existing_raw_archives(tmp_path: Path) -> None:
+    archive = tmp_path / "data" / "raw" / "backlog" / "hemato"
+    archive.mkdir(parents=True)
+    (archive / "PAT-DIT-RESTANSE-OU__2026-09-01__2026-09-09.csv").write_text("x")
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(
+        lvms_config_path=tmp_path / "lvms-config.json",
+        sensitive_root=tmp_path,
+        work_root=tmp_path / "work",
+        units_path=_units(tmp_path / "units.json"),
+        backlog_report_path=_backlog_report(tmp_path / "backlog-report.json"),
+        run_batch=runner,
+        today=lambda: date(2026, 9, 10),
+    )
+
+    request, _ = fetcher.fetch_backlog()
+
+    assert (request.date_from, request.date_to) == (
+        date(2024, 1, 1),
+        date(2026, 9, 10),
+    )

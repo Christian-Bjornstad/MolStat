@@ -24,8 +24,9 @@ REQUIRED_JOB_FIELDS = frozenset(
         "output_stem",
     }
 )
-OPTIONAL_JOB_FIELDS = frozenset({"report_groups"})
-CODE_PATTERN = re.compile(r"[A-Z0-9-]{1,80}")
+OPTIONAL_JOB_FIELDS = frozenset({"report_groups", "usernames", "laboratory", "process_codes"})
+FLOW_REPORT_IDS = frozenset({"PAT-TID-STØP-SNITT-OU", "PAT-TID-STOP-SNITT-OU"})
+CODE_PATTERN = re.compile(r"[A-Za-z0-9/-]{1,80}")
 KEY_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,79}")
 OUTPUT_STEM_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}")
 
@@ -61,12 +62,18 @@ class ReportJob:
     interval: ReportInterval
     output_stem: str
     report_groups: tuple[str, ...] = ()
+    usernames: tuple[str, ...] = ()
+    laboratory: str = ""
+    process_codes: tuple[str, ...] = ()
 
     def analysis_text(self) -> str:
         return ",".join(self.analysis_codes)
 
     def report_groups_text(self) -> str:
         return ",".join(self.report_groups)
+
+    def usernames_text(self) -> str:
+        return ",".join(self.usernames)
 
     def review(self) -> JobReview:
         start, end = self.interval.as_lvms()
@@ -130,7 +137,7 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
     ):
         raise ReportJobError("report job key is invalid")
     raw_codes = raw.get("analysis_codes")
-    if not isinstance(raw_codes, list) or not 1 <= len(raw_codes) <= 500:
+    if not isinstance(raw_codes, list) or len(raw_codes) > 500:
         raise ReportJobError("analysis codes are invalid")
     codes: list[str] = []
     for raw_code in raw_codes:
@@ -142,6 +149,37 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         codes.append(code)
     if len(set(codes)) != len(codes):
         raise ReportJobError("analysis codes contain duplicates")
+    doctor_report = raw.get("report_id") in {"PAT-EGEN MAKRO", "PAT-EGEN PRODUKSJON"}
+    if doctor_report and codes:
+        raise ReportJobError("doctor reports do not accept analysis codes")
+    workflow = raw.get("report_id") in FLOW_REPORT_IDS
+    laboratory = raw.get("laboratory", "")
+    processes = raw.get("process_codes", [])
+    if not isinstance(laboratory, str) or not isinstance(processes, list) or len(processes) > 100:
+        raise ReportJobError("workflow parameters are invalid")
+    if any(not isinstance(code, str) or not re.fullmatch(r"[A-ZÆØÅ0-9 -]{1,80}", code) for code in processes):
+        raise ReportJobError("workflow process code is invalid")
+    if len(set(processes)) != len(processes):
+        raise ReportJobError("workflow process codes contain duplicates")
+    if workflow:
+        if not re.fullmatch(r"[A-Z0-9-]{1,80}", laboratory) or not processes or codes:
+            raise ReportJobError("workflow requires a laboratory and process codes, without analysis codes")
+        if raw.get("report_type") != "PRODSTAT" or raw.get("category") != "PATOLOGI":
+            raise ReportJobError("workflow report type or category is invalid")
+    elif laboratory or processes:
+        raise ReportJobError("workflow parameters require a workflow report")
+    if not codes and raw.get("report_id") != "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU" and not doctor_report and not workflow:
+        raise ReportJobError("analysis codes are invalid")
+    raw_usernames = raw.get("usernames", [])
+    if not isinstance(raw_usernames, list) or len(raw_usernames) > 500:
+        raise ReportJobError("usernames are invalid")
+    usernames = []
+    for value in raw_usernames:
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Z0-9._-]{1,80}", value):
+            raise ReportJobError("username is invalid")
+        usernames.append(value)
+    if len(set(usernames)) != len(usernames) or (doctor_report and not usernames) or (not doctor_report and usernames):
+        raise ReportJobError("usernames are invalid")
     raw_groups = raw.get("report_groups", [])
     if not isinstance(raw_groups, list) or len(raw_groups) > 50:
         raise ReportJobError("report groups are invalid")
@@ -159,6 +197,8 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
     created_to = _date(raw, "created_to")
     if created_from > created_to:
         raise ReportJobError("report interval is invalid")
+    if workflow and created_from.replace(day=1) != created_to.replace(day=1):
+        raise ReportJobError("workflow interval must stay inside one calendar month")
     return ReportJob(
         job_key=job_key,
         report_type=_text(raw, "report_type"),
@@ -168,6 +208,9 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
         interval=ReportInterval(created_from, created_to),
         output_stem=output_stem,
         report_groups=tuple(groups),
+        usernames=tuple(usernames),
+        laboratory=laboratory,
+        process_codes=tuple(processes),
     )
 
 

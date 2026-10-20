@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from molstat.failures import RunFailure
+from molstat.recovery import check_cancelled
+
 import json
 import math
 import re
@@ -129,6 +132,7 @@ def wait_for_page_target(
 ) -> PageTarget:
     deadline = clock() + timeout_seconds
     while clock() < deadline:
+        check_cancelled()
         try:
             return discover(port)
         except CdpTimeout:
@@ -142,6 +146,10 @@ class CdpConnection:
         self._next_id = 1
         self._pending: dict[int, dict[str, object]] = {}
         self._closed = False
+        self._deadline: float | None = None
+
+    def set_deadline(self, deadline: float | None) -> None:
+        self._deadline = deadline
 
     @classmethod
     def open(
@@ -172,10 +180,16 @@ class CdpConnection:
         *,
         timeout_seconds: float = 10,
     ) -> dict[str, object]:
+        check_cancelled()
         if self._closed:
             raise CdpProtocolError("Edge DevTools connection is closed")
         if not method or timeout_seconds <= 0:
             raise CdpProtocolError("invalid DevTools command")
+        deadline = time.monotonic() + timeout_seconds
+        if self._deadline is not None:
+            deadline = min(deadline, self._deadline)
+        if deadline <= time.monotonic():
+            raise CdpTimeout(f"Edge timed out during {method}")
 
         command_id = self._next_id
         self._next_id += 1
@@ -184,14 +198,15 @@ class CdpConnection:
             command["params"] = params
 
         try:
+            self._socket.settimeout(max(0.001, deadline - time.monotonic()))
             self._socket.send(json.dumps(command, separators=(",", ":")))
-            self._socket.settimeout(timeout_seconds)
-            deadline = time.monotonic() + timeout_seconds
             while time.monotonic() < deadline:
+                check_cancelled()
                 pending = self._pending.pop(command_id, None)
                 if pending is not None:
                     return self._command_result(method, pending)
 
+                self._socket.settimeout(max(0.001, deadline - time.monotonic()))
                 raw_message = self._socket.recv()
                 if not isinstance(raw_message, str) or len(raw_message) > MAX_CDP_MESSAGE_CHARS:
                     raise CdpProtocolError("Edge returned an invalid DevTools response")
@@ -208,6 +223,8 @@ class CdpConnection:
                     self._pending[response_id] = message
                 # Asynchronous events are intentionally ignored in this slice.
         except CdpError:
+            raise
+        except RunFailure:
             raise
         except (TimeoutError, websocket.WebSocketTimeoutException) as exc:
             raise CdpTimeout(f"Edge timed out during {method}") from exc
@@ -238,6 +255,9 @@ class CdpConnection:
 class BrowserPage:
     def __init__(self, connection: Any) -> None:
         self._connection = connection
+
+    def set_deadline(self, deadline: float | None) -> None:
+        self._connection.set_deadline(deadline)
 
     def _evaluate(self, expression: str, *, timeout_seconds: float) -> object:
         response = self._connection.call(
@@ -575,6 +595,7 @@ return "selected";
         deadline = clock() + timeout_seconds
         last_origin: object = None
         while clock() < deadline:
+            check_cancelled()
             state = self._evaluate(
                 "document.readyState", timeout_seconds=min(2, timeout_seconds)
             )

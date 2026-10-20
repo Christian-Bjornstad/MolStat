@@ -1,21 +1,43 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .archive import RawArchive
+from .archive import RawArchive, remove_archived_download
 from ._backlog.export import export_backlog_history
 from .backlog import BacklogProcessor
 from .database import MolStatDatabase
+from .excel_search import publish_search_workbook, read_excel_snapshot
 from .lvms.report import ReportRequest
-from .modules import DEFAULT_MODULES, ModuleRegistry
+from .modules import DEFAULT_UNITS, JobKind, UnitRegistry
 from .publisher import SharePointPublisher
+from .delivery import deliver
+from ._writer_lease import WriterLeaseLost, guarded_output
+from .private_delivery import install_private_files
+from .recovery import check_cancelled, retry_operation
+from .failures import RunFailure
 
 
 FetchedReport = tuple[ReportRequest, Path]
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityRun:
+    unit_key: str
+    job_kind: JobKind
+    summary: Mapping[str, object]
+    error: BaseException | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ExcelRefreshStatus:
+    status: str
+    generated_at: datetime
+    error_type: str | None = None
 
 
 class MolStatSystem:
@@ -29,10 +51,18 @@ class MolStatSystem:
         publisher: SharePointPublisher | Mapping[str, SharePointPublisher],
         sharepoint_root: Path,
         work_root: Path,
-        statistics_fetch: Callable[[], Mapping[str, Sequence[FetchedReport]]],
+        statistics_fetch: Callable[
+            [Sequence[str] | None],
+            Mapping[str, Sequence[FetchedReport]],
+        ],
         backlog_fetch: Callable[[], FetchedReport],
         backlog_publisher: SharePointPublisher | None = None,
-        modules: ModuleRegistry = DEFAULT_MODULES,
+        excel_search_path: Path | None = None,
+        excel_now: Callable[[], datetime] = datetime.now,
+        excel_failure_reporter: Callable[[str, BaseException], None] | None = None,
+        units: UnitRegistry = DEFAULT_UNITS,
+        capability_errors: Mapping[tuple[str, JobKind], BaseException] | None = None,
+        fetch_error: BaseException | None = None,
     ) -> None:
         self.database = database
         self.archive = archive
@@ -44,69 +74,238 @@ class MolStatSystem:
         self.statistics_fetch = statistics_fetch
         self.backlog_fetch = backlog_fetch
         self.backlog_publisher = backlog_publisher
-        self.modules = modules
+        self.excel_search_path = excel_search_path
+        self._excel_now = excel_now
+        self._excel_failure_reporter = excel_failure_reporter
+        self.excel_status: ExcelRefreshStatus | None = None
+        self.units = units
+        self.capability_errors = dict(capability_errors or {})
+        self.fetch_error = fetch_error
 
     def run_statistics(self) -> dict[str, int]:
-        fetched = self.statistics_fetch()
+        fetched = self.statistics_fetch(None)
         total_rows = 0
-        for unit, reports in fetched.items():
-            module = self.modules.require(unit)
-            if module.job_kind != "statistics":
-                raise ValueError(f"Modulen {unit} er ikke en statistikkmodul.")
-            processor = self.statistics_processors.get(unit)
-            if processor is None:
-                raise ValueError(f"Statistikkprosessor mangler for {unit}.")
-            archived = tuple(self._archive_and_remove(item) for item in reports)
-            output_dir = self.work_root / f"statistics-{unit}-{uuid4().hex}"
-            result = processor.process(unit, archived, output_dir)
-            active_publisher = (
-                self.publisher[unit]
-                if isinstance(self.publisher, Mapping)
-                else self.publisher
-            )
-            active_publisher.publish(
-                {
-                    "antall.csv": result.antall,
-                    "resultater.csv": result.resultater,
-                },
-                self.sharepoint_root / module.sharepoint_folder,
-            )
-            total_rows += sum(int(value) for value in result.row_counts.values())
+        for unit_key, reports in fetched.items():
+            summary = self._process_statistics(unit_key, reports)
+            total_rows += int(summary["rows"])
         return {"rows": total_rows, "units": len(fetched)}
 
-    def run_backlog(self) -> dict[str, int]:
-        report = self.backlog_fetch()
-        archived = self._archive_and_remove(report)
-        imported = self.backlog_processor.import_snapshot(archived, self.database)
-        published_rows = 0
-        if self.backlog_publisher is not None:
-            module = self.modules.single_for_job("backlog")
-            output_dir = self.work_root / f"backlog-{uuid4().hex}"
-            candidate = output_dir / "restansehistorikk.csv"
-            published_rows = export_backlog_history(self.database, candidate)
-            self.backlog_publisher.publish(
-                {"restansehistorikk.csv": candidate},
-                self.sharepoint_root / module.sharepoint_folder,
+    def run_statistics_unit(self, unit_key: str) -> dict[str, int]:
+        self.units.require(unit_key).capability("statistics")
+        self._require_capability_ready(unit_key, "statistics")
+        if self.fetch_error is not None:
+            raise self.fetch_error
+        fetched = self.statistics_fetch((unit_key,))
+        if tuple(fetched) != (unit_key,):
+            raise RuntimeError(
+                f"Statistikkhenting returnerte ikke bare {unit_key}."
             )
-        with self.database._connect() as connection:
+        return self._process_statistics(unit_key, fetched[unit_key])
+
+    def _process_statistics(
+        self,
+        unit_key: str,
+        reports: Sequence[FetchedReport],
+    ) -> dict[str, int]:
+        capability = self.units.require(unit_key).capability("statistics")
+        self._require_capability_ready(unit_key, "statistics")
+        processor = self.statistics_processors.get(unit_key)
+        if processor is None:
+            raise ValueError(f"Statistikkprosessor mangler for {unit_key}.")
+        archived = tuple(self._archive_and_remove(item) for item in reports)
+        output_dir = self.work_root / unit_key / "statistics" / uuid4().hex
+        check_cancelled()
+        result = processor.process(unit_key, archived, output_dir)
+        check_cancelled()
+        if result.private_files:
+            install_private_files(result.private_files, self.work_root / unit_key / "powerbi")
+        active_publisher = (
+            self.publisher[unit_key]
+            if isinstance(self.publisher, Mapping)
+            else self.publisher
+        )
+        deliver(active_publisher,
+            result.publication_files or {
+                "antall.csv": result.antall,
+                "resultater.csv": result.resultater,
+            },
+            self.sharepoint_root / capability.sharepoint_folder,
+            output_dir,
+        )
+        excel_published = self._refresh_excel_search()
+        return {
+            "rows": sum(int(value) for value in result.row_counts.values()),
+            "units": 1,
+            "excel_published": excel_published,
+        }
+
+    def run_backlog(self) -> dict[str, int]:
+        return self.run_backlog_unit("hemato")
+
+    def run_backlog_unit(self, unit_key: str) -> dict[str, int]:
+        capability = self.units.require(unit_key).capability("backlog")
+        self._require_capability_ready(unit_key, "backlog")
+        if self.fetch_error is not None:
+            raise self.fetch_error
+        fetch = getattr(self, "backlog_fetchers", {}).get(unit_key, self.backlog_fetch)
+        processor = getattr(self, "backlog_processors", {}).get(unit_key, self.backlog_processor)
+        publisher = getattr(self, "backlog_publishers", {}).get(unit_key, self.backlog_publisher)
+        request, source = fetch()
+        if request.kind != "backlog" or request.unit != unit_key:
+            raise ValueError("Restanserapporten har feil type eller enhet.")
+        archived = self._archive_and_remove((request, source))
+        check_cancelled()
+        imported = processor.import_snapshot(
+            archived,
+            self.database,
+            date_from=request.date_from,
+            date_to=request.date_to,
+        )
+        check_cancelled()
+        published_rows = 0
+        if publisher is not None:
+            filename = capability.publication_files[0][0]
+            output_dir = self.work_root / unit_key / "backlog" / uuid4().hex
+            candidate = output_dir / filename
+            published_rows = export_backlog_history(
+                self.database,
+                candidate,
+                unit_key=unit_key,
+            )
+            deliver(publisher,
+                {filename: candidate},
+                self.sharepoint_root / capability.sharepoint_folder,
+                output_dir,
+            )
+        with self.database.read_connection() as connection:
             snapshots = int(
                 connection.execute(
-                    "SELECT COUNT(DISTINCT observed_at) FROM backlog_snapshot"
+                    """
+                    SELECT COUNT(DISTINCT observed_at)
+                    FROM backlog_snapshot
+                    WHERE unit_key = ?
+                    """,
+                    (unit_key,),
                 ).fetchone()[0]
             )
+        excel_published = self._refresh_excel_search()
         return {
             "rows": imported.rows_read,
             "invalid": imported.invalid_rows,
             "excluded": imported.excluded_rows,
             "snapshots": snapshots,
             "published_rows": published_rows,
+            "excel_published": excel_published,
         }
 
+    def _refresh_excel_search(self) -> bool:
+        if self.excel_search_path is None:
+            return False
+        generated_at = self._excel_now()
+        try:
+            snapshot = retry_operation(
+                lambda: read_excel_snapshot(self.database, generated_at=generated_at),
+                stage="excel_search_snapshot",
+            )
+            with guarded_output():
+                result = publish_search_workbook(snapshot, self.excel_search_path)
+        except WriterLeaseLost:
+            raise
+        except Exception as exc:
+            if isinstance(exc, RunFailure) and exc.code == "CANCELLED":
+                raise
+            self.excel_status = ExcelRefreshStatus(
+                "failed",
+                generated_at,
+                type(exc).__name__,
+            )
+            if self._excel_failure_reporter is not None:
+                try:
+                    self._excel_failure_reporter("excel_search_refresh_failed", exc)
+                except Exception:
+                    pass
+            return False
+        self.excel_status = ExcelRefreshStatus(result.status, generated_at)
+        return result.status == "published"
+
+    def _run_capability(
+        self,
+        unit_key: str,
+        job_kind: JobKind,
+    ) -> Mapping[str, object]:
+        if job_kind == "statistics":
+            return self.run_statistics_unit(unit_key)
+        if job_kind == "backlog":
+            return self.run_backlog_unit(unit_key)
+        raise ValueError(f"Ukjent kapabilitet: {job_kind}")
+
+    def _require_capability_ready(self, unit_key: str, job_kind: JobKind) -> None:
+        error = self.capability_errors.get((unit_key, job_kind))
+        if error is not None:
+            raise error
+
+    def run_unit(self, unit_key: str) -> tuple[CapabilityRun, ...]:
+        unit = self.units.require(unit_key)
+        if unit.status != "active":
+            raise ValueError(f"Enheten {unit.display_name} kommer senere.")
+        return tuple(
+            self._capture_capability(unit.key, capability.job_kind)
+            for capability in unit.capabilities
+        )
+
+    def run_all(
+        self, enabled_units: Sequence[str]
+    ) -> tuple[CapabilityRun, ...]:
+        for key in enabled_units:
+            self.units.require(key)
+        return tuple(
+            result
+            for unit in self.units.active(enabled_units)
+            for result in self.run_unit(unit.key)
+        )
+
+    def run_job(
+        self,
+        job_kind: JobKind,
+        enabled_units: Sequence[str],
+    ) -> tuple[CapabilityRun, ...]:
+        return tuple(
+            self._capture_capability(unit.key, job_kind)
+            for unit in self.units.for_job(job_kind, enabled_units)
+        )
+
+    def _capture_capability(
+        self,
+        unit_key: str,
+        job_kind: JobKind,
+    ) -> CapabilityRun:
+        check_cancelled()
+        try:
+            summary = self._run_capability(unit_key, job_kind)
+            check_cancelled()
+        except WriterLeaseLost:
+            raise
+        except Exception as error:
+            if isinstance(error, RunFailure) and error.code == "CANCELLED":
+                raise
+            return CapabilityRun(unit_key, job_kind, {}, error=error)
+        return CapabilityRun(unit_key, job_kind, summary)
+
     def public_snapshot(self, now: datetime) -> dict[str, object]:
+        if self.backlog_processor is None:
+            from ._backlog.dashboard import DashboardSnapshot
+
+            return DashboardSnapshot(
+                generated_at=now, unit_label="Ingen aktiv restanseenhet",
+                is_stale=True, analyses=(), empty_analysis_count=0,
+            ).to_public_dict()
         return self.backlog_processor.public_snapshot(self.database, now)
 
     def _archive_and_remove(self, fetched: FetchedReport) -> Path:
         request, source = fetched
         archived = self.archive.store(source, request)
-        source.unlink()
+        remove_archived_download(
+            source, self.archive.sensitive_root,
+            failure_reporter=self._excel_failure_reporter,
+        )
         return archived.path

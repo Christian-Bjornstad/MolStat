@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFileDialog, QPushButton, QStackedWidget
+from PyQt6.QtWidgets import QFileDialog, QPushButton, QScrollArea, QStackedWidget
 
 from molstat.orchestrator import JobResult
 from molstat.ui.app import MainWindow
@@ -17,17 +17,11 @@ class FakeOrchestrator:
         return JobResult(kind, "succeeded", {"rows": 4})
 
 
-class FakeBoardController:
-    def __init__(self) -> None:
-        self.opened = False
-
-    def open(self) -> None:
-        self.opened = True
-
-
 class FakeSettingsStore:
     def __init__(self) -> None:
         self.saved: dict[str, str] | None = None
+        self.exported: Path | None = None
+        self.imported: Path | None = None
 
     def load_settings_fields(self) -> dict[str, str]:
         return {
@@ -36,22 +30,35 @@ class FakeSettingsStore:
             "lvms_url": "https://lvms.example.invalid/app",
             "lookup_hemato": "K:/sensitiv/lookup-hemato.xlsx",
             "lookup_solide": "K:/sensitiv/lookup-solide.xlsx",
-            "power_bi_report_url": (
-                "https://app.powerbi.com/groups/me/reports/report-id"
-            ),
+            "enabled_hemato": "true",
+            "enabled_solide": "true",
         }
 
     def save_settings_fields(self, values: dict[str, str]) -> None:
         self.saved = values
 
+    def export_settings(self, path: Path) -> None:
+        self.exported = path
+
+    def import_settings(self, path: Path) -> tuple[str, ...]:
+        self.imported = path
+        return ("SharePoint-mappe",)
+
 
 class RefreshingSettingsStore(FakeSettingsStore):
-    def __init__(self, orchestrator, board, error: str | None = None) -> None:
+    def __init__(self, orchestrator, error: str | None = None) -> None:
         super().__init__()
-        self.runtime = (orchestrator, board, error)
+        self.runtime = (orchestrator, error)
 
     def refresh_gui_runtime(self):
         return self.runtime
+
+
+class DisabledSolideSettingsStore(FakeSettingsStore):
+    def load_settings_fields(self) -> dict[str, str]:
+        values = super().load_settings_fields()
+        values["enabled_solide"] = "false"
+        return values
 
 
 class DiagnosticSettingsStore(FakeSettingsStore):
@@ -81,18 +88,18 @@ def _contrast(first: str, second: str) -> float:
 
 def test_theme_uses_accessible_power_bi_pastel_palette() -> None:
     assert COLORS == {
-        "primary": "#F2C811",
-        "background": "#FFF9E6",
-        "muted": "#FFF3C4",
+        "primary": "#2457C5",
+        "background": "#F4F7FB",
+        "muted": "#EDF2FA",
         "surface": "#FFFFFF",
-        "foreground": "#2B2618",
-        "muted_text": "#5C553D",
-        "border": "#E6D17A",
-        "focus": "#8A6A00",
-        "success": "#1B7D3A",
-        "warning": "#9A6A00",
-        "danger": "#A4262C",
-        "sidebar": "#3A321B",
+        "foreground": "#172033",
+        "muted_text": "#526176",
+        "border": "#D6DFEB",
+        "focus": "#2457C5",
+        "success": "#18734A",
+        "warning": "#8A5800",
+        "danger": "#B42332",
+        "sidebar": "#18263D",
     }
     assert _contrast(COLORS["foreground"], COLORS["background"]) >= 4.5
     assert _contrast(COLORS["muted_text"], COLORS["background"]) >= 4.5
@@ -102,7 +109,7 @@ def test_theme_uses_accessible_power_bi_pastel_palette() -> None:
 
 
 def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
-    window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
+    window = MainWindow(FakeOrchestrator(), None)
     qtbot.addWidget(window)
     window.show()
 
@@ -112,9 +119,9 @@ def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
         "nav-overview",
         "nav-settings",
         "nav-diagnostics",
-        "run-statistics",
-        "run-backlog",
-        "open-power-bi",
+        "run-all",
+        "run-hemato",
+        "run-solide",
     ):
         button = window.findChild(QPushButton, object_name)
         assert button is not None
@@ -126,9 +133,55 @@ def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
     )
 
 
-def test_navigation_and_power_bi_action_work_without_icons(qtbot) -> None:
-    board = FakeBoardController()
-    window = MainWindow(FakeOrchestrator(), None, board)
+def test_unit_config_is_validated_and_saved_from_settings(qtbot):
+    from unit_fixtures import default_unit_file
+    store = FakeSettingsStore()
+    window = MainWindow(FakeOrchestrator(), store)
+    qtbot.addWidget(window)
+    window.settings_page.config_fields["hemato"].setText(str(default_unit_file("hemato")))
+    window.settings_page.schedule_fields["statistics_hour"].setValue(7)
+    window._save_settings()
+    assert store.saved["config_hemato"] == str(default_unit_file("hemato"))
+    assert store.saved["statistics_hour"] == "7"
+
+
+def test_worker_exception_releases_ui_controls(qtbot):
+    class Broken:
+        def run(self, *args):
+            raise RuntimeError("synthetic")
+    window = MainWindow(Broken(), FakeSettingsStore())
+    qtbot.addWidget(window)
+    window._start_job("hemato")
+    qtbot.waitUntil(lambda: not window._workers, timeout=3000)
+    assert window.settings_page.isEnabled()
+    assert window.overview.run_all.isEnabled()
+    assert "feilet" in window.statusBar().currentMessage().lower()
+
+
+def test_excel_action_does_not_claim_sharepoint_was_published(qtbot):
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+    window.overview.cards["sharepoint"].set_status("Venter", "Ikke publisert")
+    window._start_job("excel")
+    qtbot.waitUntil(lambda: not window._workers, timeout=3000)
+    assert window.overview.cards["sharepoint"].state_label.text() == "Venter"
+
+
+def test_primary_and_status_colors_have_accessible_contrast():
+    assert _contrast("#FFFFFF", COLORS["primary"]) >= 4.5
+    for name in ("success", "warning", "danger"):
+        assert _contrast(COLORS[name], COLORS["surface"]) >= 4.5
+
+
+def test_unconfigured_app_disables_all_run_controls(qtbot):
+    window = MainWindow(None, FakeSettingsStore())
+    qtbot.addWidget(window)
+    assert not window.overview.run_all.isEnabled()
+    assert not window.overview.unit_cards["hemato"].run_button.isEnabled()
+
+
+def test_navigation_works_and_power_bi_action_is_removed(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), None)
     qtbot.addWidget(window)
     window.show()
 
@@ -138,45 +191,150 @@ def test_navigation_and_power_bi_action_work_without_icons(qtbot) -> None:
     )
 
     qtbot.mouseClick(window.findChild(QPushButton, "nav-overview"), Qt.MouseButton.LeftButton)
-    power_bi = window.findChild(QPushButton, "open-power-bi")
-    assert power_bi.text() == "Åpne Prøveflyt i Power BI"
-    qtbot.mouseClick(power_bi, Qt.MouseButton.LeftButton)
-    assert board.opened is True
+    assert window.findChild(QPushButton, "open-power-bi") is None
 
 
-def test_manual_job_disables_buttons_and_reports_completion(qtbot) -> None:
+def test_manual_unit_job_dispatches_stable_target_and_reports_completion(qtbot) -> None:
     orchestrator = FakeOrchestrator()
-    window = MainWindow(orchestrator, None, FakeBoardController())
+    window = MainWindow(orchestrator, None)
     qtbot.addWidget(window)
     window.show()
-    button = window.findChild(QPushButton, "run-statistics")
+    button = window.findChild(QPushButton, "run-hemato")
 
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
 
     qtbot.waitUntil(lambda: button.isEnabled(), timeout=3000)
-    assert orchestrator.calls == [("statistics", "manual")]
+    assert orchestrator.calls == [("hemato", "manual")]
     assert "fullført" in window.statusBar().currentMessage().casefold()
 
 
+def test_overview_exposes_active_units_without_hist(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), None)
+    qtbot.addWidget(window)
+
+    assert "statistikk + restanse" in (
+        window.findChild(object, "capabilities-hemato").text().casefold()
+    )
+    assert "statistikk" in (
+        window.findChild(object, "capabilities-solide").text().casefold()
+    )
+    for key in ("flow", "fish", "pre", "lege"):
+        button = window.findChild(QPushButton, f"run-{key}")
+        assert button is not None
+        assert button.isEnabled() is True
+        assert button.accessibleName()
+    assert window.findChild(QPushButton, "run-hist") is None
+    assert window.findChild(object, "capabilities-hist") is None
+
+
+def test_run_all_and_solide_dispatch_explicit_targets(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    window = MainWindow(orchestrator, None)
+    qtbot.addWidget(window)
+
+    all_button = window.findChild(QPushButton, "run-all")
+    qtbot.mouseClick(all_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: all_button.isEnabled(), timeout=3000)
+    solide = window.findChild(QPushButton, "run-solide")
+    qtbot.mouseClick(solide, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: solide.isEnabled(), timeout=3000)
+
+    assert orchestrator.calls == [("all", "manual"), ("solide", "manual")]
+
+
+def test_disabled_unit_cannot_be_dispatched(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    window = MainWindow(orchestrator, DisabledSolideSettingsStore())
+    qtbot.addWidget(window)
+    solide = window.findChild(QPushButton, "run-solide")
+
+    assert solide.isEnabled() is False
+    assert "deaktivert" in (
+        window.overview.unit_cards["solide"].status_label.text().casefold()
+    )
+
+
+def test_unsaved_activation_does_not_enable_or_dispatch_unit(qtbot) -> None:
+    orchestrator = FakeOrchestrator()
+    window = MainWindow(orchestrator, DisabledSolideSettingsStore())
+    qtbot.addWidget(window)
+
+    window.settings_page.enabled_fields["solide"].setChecked(True)
+
+    assert not window.overview.unit_cards["solide"].run_button.isEnabled()
+    window._start_job("solide")
+    assert not window._workers
+    assert orchestrator.calls == []
+
+
+def test_unsaved_deactivation_keeps_saved_run_selection(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+
+    for field in window.settings_page.enabled_fields.values():
+        field.setChecked(False)
+
+    assert window.overview.run_all.isEnabled()
+    assert window.overview.unit_cards["hemato"].run_button.isEnabled()
+
+
+def test_saved_activation_updates_run_controls(qtbot) -> None:
+    class PersistingStore(DisabledSolideSettingsStore):
+        def load_settings_fields(self):
+            return self.saved or super().load_settings_fields()
+
+    window = MainWindow(FakeOrchestrator(), PersistingStore())
+    qtbot.addWidget(window)
+    window.settings_page.enabled_fields["solide"].setChecked(True)
+    window._save_settings()
+
+    assert window.overview.unit_cards["solide"].run_button.isEnabled()
+
+
+def test_failed_save_keeps_previous_run_selection(qtbot) -> None:
+    class RejectingStore(DisabledSolideSettingsStore):
+        def save_settings_fields(self, values):
+            raise ValueError("Synthetic invalid configuration")
+
+    window = MainWindow(FakeOrchestrator(), RejectingStore())
+    qtbot.addWidget(window)
+    window.settings_page.enabled_fields["solide"].setChecked(True)
+    window.settings_page.enabled_fields["hemato"].setChecked(False)
+    window._save_settings()
+
+    assert not window.overview.unit_cards["solide"].run_button.isEnabled()
+    assert window.overview.unit_cards["hemato"].run_button.isEnabled()
+    assert "Synthetic invalid configuration" in window.statusBar().currentMessage()
+
+
 def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
-    window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
+    window = MainWindow(FakeOrchestrator(), None)
     qtbot.addWidget(window)
 
     for name in (
         "sensitive-root",
         "sharepoint-root",
         "lvms-url",
-        "power-bi-report-url",
     ):
         field = window.findChild(object, name)
         assert field is not None
         assert field.accessibleName()
 
+    for key in ("hemato", "solide"):
+        enabled = window.findChild(object, f"enabled-{key}")
+        assert enabled is not None
+        assert enabled.accessibleName()
+        assert enabled.isChecked()
+
+    assert window.findChild(object, "lookup-lege") is None
+    assert window.findChild(QPushButton, "browse-lookup-lege") is None
+    assert window.findChild(object, "config-lege").accessibleName() == "Enhetsfil for Patologer"
+
 
 def test_settings_browse_buttons_fill_directory_and_lookup_paths(
     qtbot, monkeypatch
 ) -> None:
-    window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
+    window = MainWindow(FakeOrchestrator(), None)
     qtbot.addWidget(window)
 
     monkeypatch.setattr(
@@ -192,26 +350,26 @@ def test_settings_browse_buttons_fill_directory_and_lookup_paths(
     monkeypatch.setattr(
         QFileDialog,
         "getOpenFileName",
-        lambda *args, **kwargs: ("K:/sensitiv/Analyse_lookup.xlsx", "Excel (*.xlsx)"),
+        lambda *args, **kwargs: ("K:/sensitiv/hemato.json", "JSON (*.json)"),
     )
-    hemato_browse = window.findChild(QPushButton, "browse-lookup-hemato")
+    hemato_browse = window.findChild(QPushButton, "browse-config-hemato")
     assert hemato_browse is not None
     qtbot.mouseClick(hemato_browse, Qt.MouseButton.LeftButton)
     assert (
-        window.settings_page.lookup_hemato.text()
-        == "K:/sensitiv/Analyse_lookup.xlsx"
+        window.settings_page.config_fields["hemato"].text()
+        == "K:/sensitiv/hemato.json"
     )
 
 
 def test_settings_browse_buttons_are_accessible(qtbot) -> None:
-    window = MainWindow(FakeOrchestrator(), None, FakeBoardController())
+    window = MainWindow(FakeOrchestrator(), None)
     qtbot.addWidget(window)
 
     for name in (
         "browse-sensitive-root",
         "browse-sharepoint-root",
-        "browse-lookup-hemato",
-        "browse-lookup-solide",
+        "browse-config-hemato",
+        "browse-config-solide",
     ):
         button = window.findChild(QPushButton, name)
         assert button is not None
@@ -221,42 +379,64 @@ def test_settings_browse_buttons_are_accessible(qtbot) -> None:
 
 def test_settings_are_loaded_and_saved_through_controller(qtbot) -> None:
     store = FakeSettingsStore()
-    window = MainWindow(FakeOrchestrator(), store, FakeBoardController())
+    window = MainWindow(FakeOrchestrator(), store)
     qtbot.addWidget(window)
     window.show()
 
     assert window.settings_page.sensitive_root.text() == "K:/sensitiv"
     window.settings_page.sharepoint_root.setText("C:/SharePoint/Ny")
-    window.settings_page.power_bi_report_url.setText(
-        "https://app.powerbi.com/groups/me/reports/new-id"
-    )
     qtbot.mouseClick(
         window.settings_page.save_button, Qt.MouseButton.LeftButton
     )
 
     assert store.saved is not None
     assert store.saved["sharepoint_root"] == "C:/SharePoint/Ny"
-    assert store.saved["power_bi_report_url"].endswith("/new-id")
+    assert store.saved["enabled_hemato"] == "true"
+    assert "power_bi_report_url" not in store.saved
     assert "lagret" in window.statusBar().currentMessage().casefold()
+
+
+def test_settings_import_and_export_use_json_dialogs(qtbot, monkeypatch) -> None:
+    store = FakeSettingsStore()
+    window = MainWindow(FakeOrchestrator(), store)
+    qtbot.addWidget(window)
+    export_path = Path("C:/temp/molstat-innstillinger.json")
+    import_path = Path("C:/temp/fra-annen-pc.json")
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(export_path), "JSON (*.json)"),
+    )
+    export_button = window.findChild(QPushButton, "export-settings")
+    qtbot.mouseClick(export_button, Qt.MouseButton.LeftButton)
+    assert store.exported == export_path
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(import_path), "JSON (*.json)"),
+    )
+    import_button = window.findChild(QPushButton, "import-settings")
+    qtbot.mouseClick(import_button, Qt.MouseButton.LeftButton)
+    assert store.imported == import_path
+    assert "må velges" in window.statusBar().currentMessage().casefold()
 
 
 def test_saving_settings_reconfigures_jobs_without_restart(qtbot) -> None:
     orchestrator = FakeOrchestrator()
-    board = FakeBoardController()
-    store = RefreshingSettingsStore(orchestrator, board)
-    window = MainWindow(None, store, None)
+    store = RefreshingSettingsStore(orchestrator)
+    window = MainWindow(None, store)
     qtbot.addWidget(window)
 
     qtbot.mouseClick(window.settings_page.save_button, Qt.MouseButton.LeftButton)
 
     assert window.orchestrator is orchestrator
-    assert window.power_bi_controller is board
     assert "klar" in window.statusBar().currentMessage().casefold()
 
 
 def test_configuration_error_is_visible_in_diagnostics(qtbot) -> None:
     window = MainWindow(
-        None,
         None,
         None,
         configuration_error="ValueError: Lookup-fil mangler.",
@@ -266,14 +446,57 @@ def test_configuration_error_is_visible_in_diagnostics(qtbot) -> None:
     assert "Lookup-fil mangler" in window.diagnostics.log.toPlainText()
 
 
+def test_database_backup_error_is_visible_on_overview(qtbot) -> None:
+    window = MainWindow(
+        None,
+        FakeSettingsStore(),
+        configuration_error=(
+            "BackupIntegrityError: Databasefilen kunne ikke valideres "
+            "(SQLITE_CANTOPEN)."
+        ),
+    )
+    qtbot.addWidget(window)
+
+    database = window.overview.cards["database"]
+    assert database.state_label.text() == "Feil"
+    assert "Diagnostikk" in database.detail_label.text()
+
+
+def test_overview_and_settings_scroll_in_citrix_sized_window(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+    window.resize(1100, 720)
+    window.show()
+
+    overview_scroll = window.findChild(QScrollArea, "overview-scroll")
+    settings_scroll = window.findChild(QScrollArea, "settings-scroll")
+    assert overview_scroll is not None
+    assert settings_scroll is not None
+
+    qtbot.mouseClick(
+        window.findChild(QPushButton, "nav-settings"), Qt.MouseButton.LeftButton
+    )
+    assert settings_scroll.verticalScrollBar().maximum() > 0
+    settings_scroll.verticalScrollBar().setValue(
+        settings_scroll.verticalScrollBar().maximum()
+    )
+    qtbot.wait(10)
+    # Saving stays available while the selected unit editor scrolls.
+    button_top = window.settings_page.save_button.mapTo(
+        window.settings_page, window.settings_page.save_button.rect().topLeft()
+    ).y()
+    assert window.settings_page.save_button.isVisible()
+    assert 0 <= button_top < window.settings_page.height()
+    assert settings_scroll.horizontalScrollBar().maximum() == 0
+
+
 def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:
     window = MainWindow(
         FailingOrchestrator(),
         DiagnosticSettingsStore(),
-        FakeBoardController(),
     )
     qtbot.addWidget(window)
-    button = window.findChild(QPushButton, "run-statistics")
+    button = window.findChild(QPushButton, "run-hemato")
 
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
 
@@ -281,3 +504,29 @@ def test_failed_manual_job_refreshes_safe_diagnostics(qtbot) -> None:
     assert "statistics_run_failed: RuntimeError" in (
         window.diagnostics.log.toPlainText()
     )
+
+
+def test_partial_run_has_clear_non_success_feedback(qtbot) -> None:
+    class PartialOrchestrator:
+        def run(self, kind: str, trigger: str) -> JobResult:
+            return JobResult(
+                kind,
+                "partial",
+                {"capabilities": 3, "succeeded": 2, "failed": 1},
+            )
+
+    window = MainWindow(PartialOrchestrator(), DiagnosticSettingsStore())
+    qtbot.addWidget(window)
+    button = window.findChild(QPushButton, "run-all")
+
+    qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(lambda: button.isEnabled(), timeout=3000)
+    assert "delvis" in window.statusBar().currentMessage().casefold()
+
+
+def test_window_has_packaged_molstat_icon(qtbot) -> None:
+    window = MainWindow(FakeOrchestrator(), FakeSettingsStore())
+    qtbot.addWidget(window)
+
+    assert window.windowIcon().isNull() is False

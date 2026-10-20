@@ -3,10 +3,13 @@ from __future__ import annotations
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO
 from urllib.parse import urlsplit
+from uuid import uuid4
+from molstat.failures import RunFailure
+from molstat.recovery import check_cancelled, retry_operation
 
 from molstat.lvms.batch_form import BatchFormError, BatchReportForm
 from molstat.lvms.batch_navigation import (
@@ -68,7 +71,7 @@ def _default_dependencies() -> BatchRunnerDependencies:
         actions_factory=lambda page, origin: DocumentDomActions(
             page,
             origin,
-            action_delay_seconds=2.0,
+            action_delay_seconds=0.75,
             sleep=time.sleep,
         ),
         navigator_factory=lambda origin, clock, sleeper: DefinedReportsNavigator(
@@ -90,6 +93,8 @@ def _write_review(stream: TextIO, job: ReportJob) -> None:
     stream.write(f"Job: {review.job_key}\n")
     stream.write(f"Report ID: {review.report_id}\n")
     stream.write(f"Analysis count: {review.analysis_count}\n")
+    if job.usernames:
+        stream.write(f"User count: {len(job.usernames)}\n")
     stream.write(f"Interval: {review.created_from} to {review.created_to}\n")
 
 
@@ -132,6 +137,7 @@ def _wait_for_page(
 ) -> DefinedReportsPage:
     deadline = dependencies.clock() + timeout_seconds
     while dependencies.clock() < deadline:
+        check_cancelled()
         contract = dependencies.contract_discover(page, expected_origin)
         if contract is not None:
             return contract
@@ -143,9 +149,11 @@ def _wait_for_csv(
     detector: Any,
     dependencies: BatchRunnerDependencies,
     timeout_seconds: float,
+    *, deadline: float | None = None,
 ) -> Path:
-    deadline = dependencies.clock() + timeout_seconds
+    deadline = deadline if deadline is not None else dependencies.clock() + timeout_seconds
     while dependencies.clock() < deadline:
+        check_cancelled()
         status = detector.poll()
         if status is DownloadStatus.DETECTED:
             detected = detector.detected_path()
@@ -166,9 +174,10 @@ def run_report_batch(
     dependencies: BatchRunnerDependencies | None = None,
     output: TextIO | None = None,
     repository_root: Path | None = None,
-    timeout_seconds: float = 600,
+    timeout_seconds: float = 300,
     progress: Callable[[int, int], None] | None = None,
     failure: Callable[[str], None] | None = None,
+    error_reporter: Callable[[RunFailure], None] | None = None,
 ) -> int:
     active = dependencies or _default_dependencies()
     stream = output or sys.stdout
@@ -177,13 +186,16 @@ def run_report_batch(
     connection: Any | None = None
     current_job: str | None = None
     current_stage = "configuration"
+    attempt_downloads: Path | None = None
     result = 2
 
     def set_stage(stage: str) -> None:
         nonlocal current_stage
+        check_cancelled()
         current_stage = stage
 
     try:
+        check_cancelled()
         if not 1 <= timeout_seconds <= 3600:
             raise ValueError("report timeout is invalid")
         config = active.config_load(config_path, root)
@@ -209,9 +221,14 @@ def run_report_batch(
             current_job = job.job_key
             if progress is not None:
                 progress(index, len(pending))
-            edge, connection, page = open_page(config, active, stage=set_stage)
+            # A late CSV or partial download from a previous timed-out browser
+            # must never be mistaken for the report in this session.
+            attempt_downloads = config.download_directory / f".molstat-{uuid4().hex}"
+            attempt_downloads.mkdir(parents=True, exist_ok=False)
+            session_config = replace(config, download_directory=attempt_downloads)
+            edge, connection, page = open_page(session_config, active, stage=set_stage)
             set_stage("download_setup")
-            page.configure_downloads(config.download_directory)
+            page.configure_downloads(attempt_downloads)
             actions = active.actions_factory(page, config.expected_origin)
             navigator = active.navigator_factory(
                 config.expected_origin, active.clock, active.sleeper
@@ -235,29 +252,81 @@ def run_report_batch(
             _write_review(stream, job)
             set_stage(f"report_{index}_export")
             contract = _wait_for_page(page, config.expected_origin, active)
-            page.configure_downloads(config.download_directory)
-            detector = active.detector_factory(config.download_directory)
+            page.configure_downloads(attempt_downloads)
+            detector = active.detector_factory(attempt_downloads)
             detector.start()
+            deadline = active.clock() + timeout_seconds
+            if hasattr(page, "set_deadline"):
+                page.set_deadline(deadline)
             actions.activate(contract.export)
             set_stage(f"report_{index}_download")
-            source = _wait_for_csv(detector, active, timeout_seconds)
-            active.finalizer(source, output_directory, filename)
+            source = _wait_for_csv(detector, active, timeout_seconds, deadline=deadline)
+            if hasattr(page, "set_deadline"):
+                page.set_deadline(None)
+            set_stage(f"report_{index}_finalize")
+            retry_operation(lambda: active.finalizer(source, output_directory, filename),
+                            stage="lvms_finalize", sleep=active.sleeper)
             stream.write(f"Batch job completed: {job.job_key} -> {filename}\n")
             set_stage(f"report_{index}_cleanup")
             if close_owned(connection, edge):
                 raise BrowserCleanupError("owned browser cleanup did not complete")
             connection = None
             edge = None
+            try:
+                attempt_downloads.rmdir()
+            except OSError:
+                pass
         result = 0
     except BrowserCleanupError:
+        if error_reporter:
+            error_reporter(RunFailure("BROWSER_CLEANUP", current_stage))
         if failure is not None:
             failure(current_stage)
         stream.write("Batch cleanup did not complete.\n")
         result = 2
     except KeyboardInterrupt:
+        if error_reporter:
+            error_reporter(RunFailure("CANCELLED", current_stage))
         stream.write("Batch cancelled.\n")
         result = 130
+    except RunFailure as exc:
+        if error_reporter:
+            error_reporter(exc)
+        if failure is not None:
+            failure(current_stage)
+        stream.write("Batch cancelled.\n" if exc.code == "CANCELLED" else "Batch failed safely.\n")
+        result = 130 if exc.code == "CANCELLED" else 2
     except Exception as exc:
+        if error_reporter:
+            # Retrying export is safe only after this call finishes its owned
+            # browser cleanup. Cleanup failure is reported last and blocks retry.
+            timeout = isinstance(exc, (TimeoutError, CdpTimeout)) or (
+                isinstance(exc, BatchNavigationError) and str(exc) == "Defined Reports navigation timed out")
+            safe_to_retry = (current_stage in {"edge_start", "cdp_connect", "lvms_open"}
+                             or current_stage.startswith("defined_reports")
+                             or current_stage.endswith(("_clear", "_fill")))
+            code = "LVMS_TIMEOUT" if timeout else "LVMS_FAILED"
+            if current_stage.endswith(("_download", "_export")) and not timeout:
+                code = "DOWNLOAD_INCOMPLETE"
+            if current_stage.endswith(("_download", "_export")) and timeout:
+                safe_to_retry = True
+            if isinstance(exc, BatchFormError):
+                code = "LVMS_FORM"
+            detail = ""
+            if isinstance(exc, BatchFormError):
+                missing = str(exc).removeprefix("report form control ").removesuffix(" did not appear")
+                if str(exc) == f"report form control {missing} did not appear" and missing in {
+                    "category", "report_id", "report_groups", "analysis_codes",
+                    "created_from", "created_to", "macro_usernames",
+                    "production_usernames", "period_from", "period_to", "laboratory", "process_codes",
+                }:
+                    detail = f"mangler felt: {missing}"
+            if isinstance(exc, CdpTimeout) and str(exc) == "SSO did not return to the expected origin":
+                code, safe_to_retry = "LVMS_LOGIN_REQUIRED", False
+            transient = timeout or isinstance(exc, CdpProtocolError)
+            if isinstance(exc, BatchFormError) and str(exc).endswith((" did not appear", " did not clear")):
+                transient = True
+            error_reporter(RunFailure(code, current_stage, retryable=transient and safe_to_retry, detail=detail))
         if failure is not None:
             failure(current_stage)
         reason = _safe_failure_reason(exc, current_stage)
@@ -270,9 +339,17 @@ def run_report_batch(
         result = 2
     finally:
         if close_owned(connection, edge):
+            if error_reporter:
+                error_reporter(RunFailure("BROWSER_CLEANUP", "cleanup"))
             if failure is not None:
                 failure("cleanup")
             stream.write("Batch cleanup did not complete.\n")
             result = 2
+        if attempt_downloads is not None:
+            try:
+                attempt_downloads.rmdir()
+            except OSError:
+                # Incomplete data stays isolated in its original attempt.
+                pass
     return result
 

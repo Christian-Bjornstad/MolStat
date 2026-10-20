@@ -41,5 +41,5 @@ def test_archive_uses_kind_and_unit_boundaries(tmp_path: Path) -> None:
     result = RawArchive(tmp_path / "sensitive").store(source, _request())
 
     assert result.path.parent == (
-        tmp_path / "sensitive" / "raw" / "backlog" / "hemato"
+        tmp_path / "sensitive" / "data" / "raw" / "backlog" / "hemato"
     )

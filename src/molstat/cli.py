@@ -45,7 +45,12 @@ def main(
                 )
             )
             return 2
-        errors = MolStatSettings.load(args.settings).validate()
+        try:
+            errors = MolStatSettings.load(args.settings).validate()
+        except (ValueError, OSError):
+            # Settings files can be edited externally. Keep paths and raw
+            # contents out of CLI output, including parser/decoder exceptions.
+            errors = ("Innstillingsfilen er ugyldig eller kan ikke leses. Kontroller MolStat-oppsettet.",)
         if errors:
             print(json.dumps({"status": "invalid", "errors": errors}))
             return 2

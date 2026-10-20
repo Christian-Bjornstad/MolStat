@@ -12,47 +12,55 @@ from molstat.database import MolStatDatabase
 EXPECTED_COLUMNS = (
     "Observert_tidspunkt",
     "Enhet",
+    "Materiale",
+    "Analyse",
+    "Nukleinsyre",
     "Analysegruppe_kode",
     "Analysegruppe",
-    "Klar",
-    "Mangler_godkjenning",
-    "På_vei",
-    "Over_frist",
-    "Median_klare_timer",
-    "Eldste_klare_timer",
-    "Alvorlighetsgrad",
-    "Ugyldige_rader",
-    "Ekskluderte_rader",
-    "Kilde_fersk",
+    "Tidspunkt.prøvetaking",
+    "Tidspunkt.ankomst",
+    "Tidspunkt.analysebestilling",
+    "Prioritet.analyse",
+    "Prioritet.rekvisisjon",
+    "Status.analyse",
+    "Status.prelgruppe",
+    "Restansestatus",
+    "Svarfrist",
+    "Analyseresultat",
+    "Ekstern.analysekommentar",
     "Klassifikatorversjon",
+    "MolStat-ID",
 )
 
 
-def _insert_snapshot(
+def _insert_detail(
     database: MolStatDatabase,
     observed_at: str,
     unit: str,
     code: str,
-    *,
-    median_hours: float | None,
-    oldest_hours: float | None,
-    source_is_fresh: int,
 ) -> None:
     with database._connect() as connection:
         connection.execute(
             """
-            INSERT INTO backlog_snapshot VALUES
-            (?, ?, ?, ?, 2, 1, 3, 1, ?, ?, 'WARNING', 4, 5, ?, 2,
-             'internal-secret-fingerprint')
+            INSERT INTO backlog_detail_snapshot(
+             observed_at, unit_key, row_number, material, analysis_code,
+             nucleic_acid, report_group, analysis_group_code,
+             analysis_group_label, collected_at, arrived_at, ordered_at,
+             analysis_priority, request_priority, analysis_status,
+             preliminary_status, workflow_stage, response_deadline,
+             analysis_result, external_analysis_comment, classifier_version,
+             source_fingerprint, molstat_key
+            ) VALUES
+            (?, ?, 1, 'Blod', ?, 'DNA', 'lymfom', 'KLONALITET',
+             'Klonalitet', '2026-09-06T07:30:00', '2026-09-06T08:00:00',
+             '2026-09-06T08:15:00', 'Høy', 'Vanlig', 'Initial', 'Initial',
+             'ready', '14', 'Påvist – behold æøå', 'Ordrett kommentar',
+             2, 'internal-secret-fingerprint', 'M-000001')
             """,
             (
                 observed_at,
                 unit,
                 code,
-                f"Analyse {code}",
-                median_hours,
-                oldest_hours,
-                source_is_fresh,
             ),
         )
 
@@ -62,49 +70,58 @@ def test_export_is_deterministic_and_contains_only_public_columns(
 ) -> None:
     database = MolStatDatabase(tmp_path / "molstat.sqlite3")
     database.migrate()
-    _insert_snapshot(
+    _insert_detail(
         database,
         "2026-09-07T11:00:00",
         "hemato",
         "B",
-        median_hours=None,
-        oldest_hours=None,
-        source_is_fresh=0,
     )
-    _insert_snapshot(
+    _insert_detail(
         database,
         "2026-09-07T10:00:00",
         "hemato",
         "A",
-        median_hours=7.5,
-        oldest_hours=12.0,
-        source_is_fresh=1,
     )
-    destination = tmp_path / "export" / "restansehistorikk.csv"
+    _insert_detail(
+        database,
+        "2026-09-07T10:00:00",
+        "solide",
+        "SKAL-IKKE-MED",
+    )
+    destination = tmp_path / "export" / "restansehistorikk_hemato.csv"
 
-    exported = export_backlog_history(database, destination)
+    exported = export_backlog_history(database, destination, unit_key="hemato")
 
     assert exported == 2
     assert BACKLOG_PUBLIC_COLUMNS == EXPECTED_COLUMNS
     raw = destination.read_bytes()
-    assert not raw.startswith(b"\xef\xbb\xbf")
-    text = raw.decode("utf-8")
+    assert raw.startswith(b"\xef\xbb\xbf")
+    text = raw.decode("utf-8-sig")
     assert text.splitlines()[0] == ";".join(EXPECTED_COLUMNS)
     assert "internal-secret-fingerprint" not in text
     with destination.open(encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream, delimiter=";"))
-    assert [row["Analysegruppe_kode"] for row in rows] == ["A", "B"]
-    assert rows[0]["Median_klare_timer"] == "7.5"
-    assert rows[0]["Eldste_klare_timer"] == "12.0"
-    assert rows[0]["Kilde_fersk"] == "Ja"
-    assert rows[1]["Median_klare_timer"] == ""
-    assert rows[1]["Eldste_klare_timer"] == ""
-    assert rows[1]["Kilde_fersk"] == "Nei"
+    assert [row["Analyse"] for row in rows] == ["A", "B"]
+    assert "Rapportgruppe" not in rows[0]
+    assert rows[0]["Analysegruppe"] == "Klonalitet"
+    assert rows[0]["Svarfrist"] == "14"
+    assert rows[0]["Analyseresultat"] == "Påvist – behold æøå"
+    assert rows[0]["Ekstern.analysekommentar"] == "Ordrett kommentar"
+    assert rows[0]["MolStat-ID"] == "M-000001"
+    serialized = repr(rows)
+    for forbidden in (
+        "SampleID",
+        "PID",
+        "WorkItem",
+        "internal-secret-fingerprint",
+        "SKAL-IKKE-MED",
+    ):
+        assert forbidden not in serialized
 
 
-def test_power_bi_sample_matches_public_contract_and_hourly_grid() -> None:
+def test_detail_sample_matches_public_contract_and_hourly_history() -> None:
     root = Path(__file__).parents[2]
-    sample = root / "docs" / "powerbi" / "sample_restansehistorikk.csv"
+    sample = root / "tests" / "fixtures" / "sample_restansehistorikk.csv"
 
     with sample.open(encoding="utf-8", newline="") as stream:
         reader = csv.DictReader(stream, delimiter=";")
@@ -118,53 +135,15 @@ def test_power_bi_sample_matches_public_contract_and_hourly_grid() -> None:
             row["Analysegruppe_kode"]
         )
     assert len({frozenset(groups) for groups in groups_by_time.values()}) == 1
-    assert any(
-        row["Klar"] == "0"
-        and row["Mangler_godkjenning"] == "0"
-        and row["På_vei"] == "0"
-        for row in rows
-    )
+    assert all(groups == {"KLONALITET"} for groups in groups_by_time.values())
+    assert {row["Analyse"] for row in rows} == {"IGH-VDJ-OU", "TRG-OU"}
+    assert any("æøå" in row["Analyseresultat"] for row in rows)
     serialized = repr(rows).casefold()
-    for forbidden in ("sampleid", "workitem", "fingerprint", "pasient"):
+    for forbidden in (
+        "sampleid",
+        "pid",
+        "workitem",
+        "fingerprint",
+        "pasient",
+    ):
         assert forbidden not in serialized
-
-
-def test_power_bi_tmdl_uses_portable_ascii_ids_and_export_number_culture() -> None:
-    root = Path(__file__).parents[2]
-    definition = root / "docs" / "powerbi" / "MolStatProveflyt.SemanticModel" / "definition"
-    fact = (definition / "tables" / "FactRestanse.tmdl").read_text(
-        encoding="utf-8"
-    )
-    expressions = (definition / "expressions.tmdl").read_text(encoding="utf-8")
-
-    assert "expression ProveflytFil" in expressions
-    assert "column Paa_vei" in fact
-    assert '"en-US"' in fact
-    assert "FactRestanse[På_vei]" not in fact
-    assert "PrøveflytFil" not in expressions
-
-
-def test_power_bi_report_starter_has_expected_pages_and_model_reference() -> None:
-    root = Path(__file__).parents[2]
-    project = root / "docs" / "powerbi" / "MolStatProveflyt.Report"
-    report = project / "MolStatProveflyt.Report"
-    pages = json.loads(
-        (report / "definition" / "pages" / "pages.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    reference = json.loads((report / "definition.pbir").read_text(encoding="utf-8"))
-
-    assert (project / "MolStatProveflyt.pbip").is_file()
-    semantic_model = project.parent / "MolStatProveflyt.SemanticModel"
-    model_manifest = json.loads(
-        (semantic_model / "definition.pbism").read_text(encoding="utf-8")
-    )
-    assert model_manifest["version"] == "4.0"
-    assert (semantic_model / ".platform").is_file()
-    assert pages["pageOrder"] == ["proveflyt-naa", "utvikling", "analysegruppe"]
-    assert pages["activePageName"] == "proveflyt-naa"
-    assert reference["datasetReference"]["byPath"]["path"] == (
-        "../../MolStatProveflyt.SemanticModel"
-    )
-    assert (report / reference["datasetReference"]["byPath"]["path"]).resolve().is_dir()

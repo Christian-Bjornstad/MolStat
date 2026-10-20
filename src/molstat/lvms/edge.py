@@ -8,6 +8,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from molstat.recovery import check_cancelled
 
 
 EPHEMERAL_PORT_MIN = 1024
@@ -81,6 +82,7 @@ def wait_for_devtools_port(
     port_file = profile / "DevToolsActivePort"
     deadline = clock() + timeout_seconds
     while clock() < deadline:
+        check_cancelled()
         if process.poll() is not None:
             raise EdgeLaunchError(
                 "managed Microsoft Edge exited before DevTools was available"

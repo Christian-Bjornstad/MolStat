@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+import pytest
+
 from molstat.lvms.batch_controls import DocumentControlIdentity
 from molstat.lvms.batch_form import (
     BatchFormError,
@@ -15,6 +17,27 @@ from molstat.lvms.control_identity import ControlIdentity
 
 EXPECTED_ORIGIN = "https://lvms.example.invalid"
 OTHER_ORIGIN = "https://other.example.invalid"
+
+
+@pytest.mark.parametrize(
+    ("role", "label"),
+    [
+        ("macro_usernames", "makro utført av"),
+        ("production_usernames", "brukernavn"),
+        ("period_from", "godkjent fra og med dato:"),
+        ("period_to", "makro utført til og med dato:"),
+    ],
+)
+def test_doctor_report_accepts_gridcell_parameters(role: str, label: str) -> None:
+    payload = raw_control(
+        "INPUT", role, label=label, control_type="text", role="gridcell"
+    )
+
+    result = discover_report_role(FakeSafePage(payload), EXPECTED_ORIGIN, role)
+
+    assert result is not None
+    assert result.control.element_id == role
+    assert result.control.role == "gridcell"
 
 
 def raw_control(
@@ -50,7 +73,33 @@ ROLE_PAYLOADS = {
     "created_to": raw_control(
         "INPUT", "created-to", label="analyse opprettet tom:", control_type="text"
     ),
+    "macro_usernames": raw_control("TEXTAREA", "macro-users", label="makro utført av"),
+    "production_usernames": raw_control("TEXTAREA", "production-users", label="brukernavn"),
+    "period_from": raw_control("INPUT", "period-from", label="fra dato", control_type="text"),
+    "period_to": raw_control("INPUT", "period-to", label="til dato", control_type="text"),
+    "laboratory": raw_control("INPUT", "flow-lab", label="lab:", control_type="text", role="gridcell"),
+    "process_codes": raw_control("INPUT", "flow-process", label="prosess:", control_type="text", role="gridcell"),
 }
+
+
+def test_workflow_form_uses_arrival_dates_lab_processes_and_full_last_day():
+    workflow = validate_report_job({"job_key": "workflow", "report_type": "PRODSTAT", "category": "PATOLOGI",
+        "report_id": "PAT-TID-STØP-SNITT-OU", "analysis_codes": [], "created_from": "01.09.2026",
+        "created_to": "30.09.2026", "output_stem": "PAT-TID-STOP-SNITT-OU",
+        "laboratory": "OU-PAT-HIST-RA", "process_codes": ["HEMATO", "HEMATO BENMARG"]})
+    state = FormState()
+    form = BatchReportForm(state.page, state.actions, EXPECTED_ORIGIN, sleep=lambda _: None)
+    form.populate(defined_reports_page(), workflow)
+    values = {call[2]: call[3] for call in state.calls if call[0] == "replace"}
+    assert values["flow-lab"] == "OU-PAT-HIST-RA"
+    assert values["flow-process"] == "HEMATO,HEMATO BENMARG"
+    assert values["created-to"] == "30.09.2026 23:59:59"
+
+
+@pytest.mark.parametrize("role,label", [("created_from", "ankomsttid f.o.m.:"), ("created_to", "ankomsttid t.o.m.:")])
+def test_workflow_arrival_parameter_labels(role, label):
+    assert discover_report_role(FakeSafePage(raw_control("INPUT", "date", label=label,
+        control_type="text", role="gridcell")), EXPECTED_ORIGIN, role) is not None
 
 
 def identity(
@@ -258,6 +307,10 @@ class BatchFormTests(unittest.TestCase):
             "analysis_codes": "analyses",
             "created_from": "created-from",
             "created_to": "created-to",
+            "macro_usernames": "macro-users",
+            "production_usernames": "production-users",
+            "period_from": "period-from",
+            "period_to": "period-to",
         }
         for role, expected_id in expected_ids.items():
             with self.subTest(role=role):
@@ -328,6 +381,20 @@ class BatchFormTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(result)
+
+    def test_role_discovery_accepts_live_pathology_date_labels(self) -> None:
+        cases = (
+            ("created_from", "Mottatt dato fra og med"),
+            ("created_to", "Mottatt dato til og med"),
+            ("period_from", "Makro utført fra og med dato:"),
+            ("period_to", "Makro utført til og med dato:"),
+            ("period_from", "Godkjent fra og med dato:"),
+            ("period_to", "Godkjent til og med dato:"),
+        )
+        for role, label in cases:
+            with self.subTest(role=role, label=label):
+                payload = raw_control("INPUT", role, label=label.lower(), control_type="text")
+                self.assertIsNotNone(discover_report_role(FakeSafePage(payload), EXPECTED_ORIGIN, role))
 
     def test_populate_advances_in_strict_stage_order(self) -> None:
         state = FormState()
@@ -435,6 +502,32 @@ class BatchFormTests(unittest.TestCase):
             ],
         )
         self.assertEqual(state.report_id_checks, 3)
+
+    def test_doctor_reports_fill_distinct_username_fields_and_dates(self) -> None:
+        for report_id, expected_id in (
+            ("PAT-EGEN MAKRO", "macro-users"),
+            ("PAT-EGEN PRODUKSJON", "production-users"),
+        ):
+            with self.subTest(report_id=report_id):
+                state = FormState()
+                doctor_job = validate_report_job({
+                    "job_key": "doctor", "report_type": "PRODSTAT",
+                    "category": "PATOLOGI", "report_id": report_id,
+                    "analysis_codes": [], "usernames": ["ESP", "UXYSGA"],
+                    "created_from": "01.08.2026", "created_to": "31.08.2026",
+                    "output_stem": "DOCTOR-REPORT",
+                })
+                form = BatchReportForm(state.page, state.actions, EXPECTED_ORIGIN,
+                                       clock=TickingClock(), sleep=lambda _seconds: None)
+
+                form.populate(defined_reports_page(), doctor_job)
+
+                self.assertIn(("replace", "_nav_frame1", expected_id, "ESP,UXYSGA"), state.calls)
+                self.assertEqual(state.calls[-2:], [
+                    ("replace", "_nav_frame1", "period-from", "01.08.2026"),
+                    ("replace", "_nav_frame1", "period-to", "31.08.2026"),
+                ])
+                self.assertFalse(any(call[2] == "analyses" for call in state.calls))
 
     def test_wait_until_clear_allows_persistent_empty_choice_controls(self) -> None:
         page = ClearingPage(dynamic_roles_present=False)

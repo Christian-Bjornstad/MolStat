@@ -74,6 +74,26 @@ def test_task_xml_has_exact_schedule_and_never_overlaps(tmp_path: Path) -> None:
     assert root.findtext(".//t:LogonType", namespaces=ns) == "InteractiveToken"
 
 
+def test_task_xml_uses_configured_schedule(tmp_path: Path) -> None:
+    install_automation(
+        _paths(tmp_path),
+        username="DOMAIN\\bruker",
+        runner=RecordingRunner(),
+        statistics_hour=4,
+        backlog_first_hour=7,
+        backlog_last_hour=9,
+    )
+
+    assert _trigger_hours(_paths(tmp_path).app_root / "statistics-task.xml") == [
+        "04:00:00"
+    ]
+    assert _trigger_hours(_paths(tmp_path).app_root / "backlog-task.xml") == [
+        "07:00:00",
+        "08:00:00",
+        "09:00:00",
+    ]
+
+
 def test_launchers_use_one_molstat_cli(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     install_automation(paths, username="DOMAIN\\bruker", runner=RecordingRunner())

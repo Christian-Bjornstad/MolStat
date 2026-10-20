@@ -4,6 +4,7 @@ import json
 import time
 from collections.abc import Callable
 from typing import Protocol
+from molstat.recovery import check_cancelled
 
 from molstat.lvms.batch_controls import (
     BatchControlError,
@@ -29,23 +30,52 @@ _ROLE_ALIASES = {
         "velg en eller flere rapportgrupper",
     ),
     "created_from": (
+        "ankomsttid f.o.m.:", "ankomsttid f.o.m.",
         "created from",
         "analyse opprettet fom:",
         "analysebestilling fra og med dato",
         "analysebestilling fra og med dato:",
+        "mottatt dato fra og med",
+        "mottatt dato fra og med:",
     ),
     "created_to": (
+        "ankomsttid t.o.m.:", "ankomsttid t.o.m.",
         "created to",
         "analyse opprettet tom:",
         "analysebestilling til og med dato",
         "analysebestilling til og med dato:",
+        "mottatt dato til og med",
+        "mottatt dato til og med:",
+    ),
+    "macro_usernames": ("makro utført av", "makro utført av:"),
+    "production_usernames": ("brukernavn", "brukernavn:", "brukernanv", "brukernanv:"),
+    "period_from": (
+        "fra dato", "fra dato:",
+        "makro utført fra og med dato", "makro utført fra og med dato:",
+        "godkjent fra og med dato", "godkjent fra og med dato:",
+    ),
+    "period_to": (
+        "til dato", "til dato:",
+        "makro utført til og med dato", "makro utført til og med dato:",
+        "godkjent til og med dato", "godkjent til og med dato:",
     ),
 }
+_ROLE_ALIASES.update(laboratory=("lab", "lab:"), process_codes=("prosess", "prosess:"))
 _CLEAR_DYNAMIC_ROLES = (
     "analysis_codes",
     "created_from",
     "created_to",
 )
+_GRIDCELL_PARAMETER_ROLES = frozenset({
+    "analysis_codes",
+    "created_from",
+    "created_to",
+    "macro_usernames",
+    "production_usernames",
+    "period_from",
+    "period_to",
+    "laboratory", "process_codes",
+})
 _ROLE_TAGS = {
     "category": frozenset({"INPUT", "SELECT"}),
     "report_id": frozenset({"INPUT", "SELECT"}),
@@ -54,7 +84,12 @@ _ROLE_TAGS = {
     "report_groups": frozenset({"INPUT", "TEXTAREA"}),
     "created_from": frozenset({"INPUT"}),
     "created_to": frozenset({"INPUT"}),
+    "macro_usernames": frozenset({"INPUT", "TEXTAREA"}),
+    "production_usernames": frozenset({"INPUT", "TEXTAREA"}),
+    "period_from": frozenset({"INPUT"}),
+    "period_to": frozenset({"INPUT"}),
 }
+_ROLE_TAGS.update(laboratory=frozenset({"INPUT", "TEXTAREA"}), process_codes=frozenset({"INPUT", "TEXTAREA"}))
 _ROLE_TYPES = {
     "category": frozenset({"", "text", "search"}),
     "report_id": frozenset({"", "text", "search"}),
@@ -63,7 +98,12 @@ _ROLE_TYPES = {
     "report_groups": frozenset({"", "text", "search"}),
     "created_from": frozenset({"", "text", "date"}),
     "created_to": frozenset({"", "text", "date"}),
+    "macro_usernames": frozenset({"", "text", "search"}),
+    "production_usernames": frozenset({"", "text", "search"}),
+    "period_from": frozenset({"", "text", "date"}),
+    "period_to": frozenset({"", "text", "date"}),
 }
+_ROLE_TYPES.update(laboratory=frozenset({"", "text", "search"}), process_codes=frozenset({"", "text", "search"}))
 
 
 class FormPage(Protocol):
@@ -204,7 +244,7 @@ def discover_report_role(
         or control.role.lower() in {"grid", "treegrid"}
         or (
             control.role.lower() == "gridcell"
-            and role not in _CLEAR_DYNAMIC_ROLES
+            and role not in _GRIDCELL_PARAMETER_ROLES
         )
         or not any(label == alias or label.startswith(alias + " ") for alias in aliases)
     ):
@@ -235,17 +275,19 @@ class BatchReportForm:
     def _wait_for(self, role: str) -> DocumentControlIdentity:
         deadline = self._clock() + self._timeout_seconds
         while self._clock() < deadline:
+            check_cancelled()
             control = discover_report_role(
                 self._page, self._expected_origin, role
             )
             if control is not None:
                 return control
             self._sleep(0.1)
-        raise BatchFormError("report form did not reach the required stage")
+        raise BatchFormError(f"report form control {role} did not appear")
 
     def wait_until_clear(self) -> None:
         deadline = self._clock() + self._timeout_seconds
         while self._clock() < deadline:
+            check_cancelled()
             cleared = tuple(
                 discover_report_role(self._page, self._expected_origin, role)
                 is None
@@ -272,8 +314,15 @@ class BatchReportForm:
         ):
             raise BatchFormError("report form input is invalid")
         self._actions.choose_text(page_contract.job_type, job.report_type)
+        # LVMS uses editable choice inputs.  Typing a label alone leaves the
+        # dropdown's underlying value unset until Enter commits the choice.
+        if page_contract.job_type.control.tag == "INPUT":
+            self._actions.commit_choice(page_contract.job_type)
         category = self._wait_for("category")
         self._actions.choose_text(category, job.category)
+        category = self._wait_for("category")
+        if category.control.tag == "INPUT":
+            self._actions.commit_choice(category)
         report_id = self._wait_for("report_id")
         self._actions.choose_text(report_id, job.report_id)
         self._sleep(0.5)
@@ -286,18 +335,31 @@ class BatchReportForm:
         self._sleep(0.5)
         report_id = self._wait_for("report_id")
         self._actions.commit_choice(report_id)
+        if job.laboratory:
+            self._actions.replace_text(self._wait_for("laboratory"), job.laboratory)
+            self._actions.replace_text(self._wait_for("process_codes"), ",".join(job.process_codes))
         if job.report_groups:
             report_groups = self._wait_for("report_groups")
             self._actions.replace_text(
                 report_groups, job.report_groups_text()
             )
-        analysis_codes = self._wait_for("analysis_codes")
+        if job.report_id in {"PAT-EGEN MAKRO", "PAT-EGEN PRODUKSJON"}:
+            role = "macro_usernames" if job.report_id == "PAT-EGEN MAKRO" else "production_usernames"
+            usernames = self._wait_for(role)
+            self._actions.replace_text(usernames, job.usernames_text())
+            start, end = job.interval.as_lvms()
+            self._actions.replace_text(self._wait_for("period_from"), start)
+            self._sleep(0.5)
+            self._actions.replace_text(self._wait_for("period_to"), end)
+            return
+        analysis_codes = self._wait_for("analysis_codes") if job.analysis_codes else None
         created_from = self._wait_for("created_from")
         created_to = self._wait_for("created_to")
         start, end = job.interval.as_lvms()
-        self._actions.replace_text(analysis_codes, job.analysis_text())
+        if analysis_codes is not None:
+            self._actions.replace_text(analysis_codes, job.analysis_text())
         self._actions.replace_text(created_from, start)
         self._sleep(0.5)
         created_to = self._wait_for("created_to")
-        self._actions.replace_text(created_to, end)
+        self._actions.replace_text(created_to, end + " 23:59:59" if job.laboratory else end)
 

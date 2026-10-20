@@ -1,18 +1,94 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
+from urllib.parse import quote
+from ._sqlite_cleanup import rollback_after_failure
+from ._writer_lease import WriterLease, active_writer_lease
+from .database_access import DatabaseAccessError, prepare_writer_files, probe_writer_directory
+from .recovery import retry_operation, uncancellable_cleanup
+
+
+def readonly_uri(path: Path, *, immutable: bool = False) -> str:
+    # Empty URI authority also supports Windows UNC paths with default SQLite.
+    location = path.resolve().as_posix()
+    if not location.startswith("/"):
+        location = "/" + location
+    return "file://" + quote(location, safe="/:") + "?mode=ro" + ("&immutable=1" if immutable else "")
+
+
+class ManagedConnection(sqlite3.Connection):
+    """Retain SQLite transaction semantics and always release the file handle."""
+    _writer_guard: WriterLease | None = None
+
+    def _guarded_write(self, operation, sql, parameters):
+        guard = self._writer_guard
+        if guard is None:
+            return operation(sql, parameters)
+        if self.in_transaction:
+            if guard.lost.is_set():
+                guard.assert_owned(self)
+            return operation(sql, parameters)
+        # Autocommit mutations need the same token fence as explicit imports.
+        sqlite3.Connection.execute(self, "BEGIN IMMEDIATE")
+        try:
+            guard.assert_owned(self)
+            result = operation(sql, parameters)
+            guard.renew_locked(self)
+            sqlite3.Connection.execute(self, "COMMIT")
+            return result
+        except BaseException:
+            rollback_after_failure(self)
+            raise
+
+    def execute(self, sql, parameters=()):
+        command = sql.lstrip().split(None, 1)[0].upper() if sql.strip() else ""
+        guard = self._writer_guard
+        if guard is not None and command == "BEGIN":
+            # A reserved write lock makes the ownership check and all subsequent
+            # import changes atomic with respect to another lease acquisition.
+            result = super().execute("BEGIN IMMEDIATE")
+            try:
+                guard.assert_owned(self)
+            except BaseException:
+                rollback_after_failure(self)
+                raise
+            return result
+        if guard is not None and command in ("COMMIT", "END") and self.in_transaction:
+            guard.renew_locked(self)
+        if command in ("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER", "DROP"):
+            return self._guarded_write(super().execute, sql, parameters)
+        return super().execute(sql, parameters)
+
+    def executemany(self, sql, parameters):
+        return self._guarded_write(super().executemany, sql, parameters)
+
+    def commit(self):
+        if self._writer_guard is not None and self.in_transaction:
+            self._writer_guard.renew_locked(self)
+        return super().commit()
+
+    def __exit__(self, *args):
+        try:
+            if args[0] is not None:
+                rollback_after_failure(self)
+                return False
+            if self._writer_guard is not None and self.in_transaction:
+                self._writer_guard.renew_locked(self)
+            return super().__exit__(*args)
+        finally:
+            self.close()
 
 
 class WriterLeaseBusy(RuntimeError):
     """Raised when another MolStat writer still owns the database lease."""
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 7
 
 _SCHEMA = (
     """
@@ -62,13 +138,103 @@ _SCHEMA = (
     """,
     """
     CREATE TABLE IF NOT EXISTS backlog_sample (
+        unit_key TEXT NOT NULL DEFAULT 'hemato',
         sample_key TEXT NOT NULL,
         analysis_group TEXT NOT NULL,
         ordered_at TEXT NOT NULL,
         arrived_at TEXT,
         workflow_stage TEXT NOT NULL,
         observed_at TEXT NOT NULL,
-        PRIMARY KEY (sample_key, analysis_group)
+        PRIMARY KEY (unit_key, sample_key, analysis_group)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS import_run (
+        id INTEGER PRIMARY KEY,
+        kind TEXT NOT NULL,
+        unit_key TEXT NOT NULL,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        status TEXT NOT NULL,
+        source_fingerprint TEXT,
+        row_count INTEGER CHECK (row_count IS NULL OR row_count >= 0),
+        invalid_rows INTEGER CHECK (invalid_rows IS NULL OR invalid_rows >= 0),
+        excluded_rows INTEGER CHECK (excluded_rows IS NULL OR excluded_rows >= 0)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS sample (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        molstat_key TEXT NOT NULL UNIQUE,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS sample_identifier (
+        id INTEGER PRIMARY KEY,
+        sample_id INTEGER NOT NULL REFERENCES sample(id) ON DELETE RESTRICT,
+        source_system TEXT NOT NULL,
+        identifier_type TEXT NOT NULL,
+        identifier_value TEXT NOT NULL,
+        normalized_value TEXT NOT NULL,
+        UNIQUE (source_system, identifier_type, normalized_value)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS analysis_occurrence (
+        id INTEGER PRIMARY KEY,
+        sample_id INTEGER NOT NULL REFERENCES sample(id) ON DELETE RESTRICT,
+        occurrence_key TEXT NOT NULL UNIQUE,
+        source_system TEXT NOT NULL,
+        source_occurrence_id TEXT,
+        analysis_code TEXT NOT NULL,
+        ordered_at TEXT NOT NULL,
+        uses_fallback INTEGER NOT NULL CHECK (uses_fallback IN (0, 1)),
+        identity_status TEXT NOT NULL DEFAULT 'resolved',
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS analysis_event (
+        id INTEGER PRIMARY KEY,
+        occurrence_id INTEGER NOT NULL
+            REFERENCES analysis_occurrence(id) ON DELETE RESTRICT,
+        event_type TEXT NOT NULL,
+        event_at TEXT NOT NULL,
+        source_kind TEXT NOT NULL,
+        import_run_id INTEGER REFERENCES import_run(id) ON DELETE RESTRICT,
+        UNIQUE (occurrence_id, event_type, event_at, source_kind)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS source_observation (
+        occurrence_id INTEGER NOT NULL
+            REFERENCES analysis_occurrence(id) ON DELETE RESTRICT,
+        source_kind TEXT NOT NULL,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        last_import_run_id INTEGER REFERENCES import_run(id) ON DELETE RESTRICT,
+        PRIMARY KEY (occurrence_id, source_kind)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS backlog_current (
+        occurrence_id INTEGER NOT NULL
+            REFERENCES analysis_occurrence(id) ON DELETE RESTRICT,
+        import_run_id INTEGER NOT NULL REFERENCES import_run(id) ON DELETE RESTRICT,
+        unit_key TEXT NOT NULL,
+        analysis_group TEXT NOT NULL,
+        workflow_stage TEXT NOT NULL,
+        collected_at TEXT,
+        arrived_at TEXT,
+        analysis_status TEXT NOT NULL DEFAULT '',
+        preliminary_status TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (unit_key, occurrence_id)
     )
     """,
     """
@@ -98,6 +264,54 @@ _SCHEMA = (
         )
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS backlog_detail_snapshot (
+        observed_at TEXT NOT NULL,
+        unit_key TEXT NOT NULL,
+        row_number INTEGER NOT NULL CHECK (row_number > 0),
+        material TEXT NOT NULL,
+        analysis_code TEXT NOT NULL,
+        nucleic_acid TEXT NOT NULL,
+        report_group TEXT NOT NULL,
+        analysis_group_code TEXT NOT NULL,
+        analysis_group_label TEXT NOT NULL,
+        collected_at TEXT,
+        arrived_at TEXT,
+        ordered_at TEXT NOT NULL,
+        analysis_priority TEXT NOT NULL,
+        request_priority TEXT NOT NULL,
+        analysis_status TEXT NOT NULL,
+        preliminary_status TEXT NOT NULL,
+        workflow_stage TEXT NOT NULL,
+        response_deadline TEXT NOT NULL,
+        analysis_result TEXT NOT NULL DEFAULT '',
+        external_analysis_comment TEXT NOT NULL DEFAULT '',
+        classifier_version INTEGER NOT NULL,
+        source_fingerprint TEXT NOT NULL,
+        molstat_key TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (observed_at, unit_key, row_number, classifier_version)
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sample_identifier_value
+    ON sample_identifier(normalized_value)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_analysis_occurrence_sample
+    ON analysis_occurrence(sample_id)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_analysis_occurrence_code
+    ON analysis_occurrence(analysis_code)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_analysis_occurrence_ordered
+    ON analysis_occurrence(ordered_at)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_source_observation_kind
+    ON source_observation(source_kind, last_seen_at)
+    """,
 )
 
 
@@ -115,20 +329,125 @@ class MolStatDatabase:
         self.path = path
         self._now = now
 
-    def _connect(self) -> sqlite3.Connection:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        connection.execute("PRAGMA busy_timeout = 30000")
-        connection.execute("PRAGMA journal_mode = DELETE")
-        connection.execute("PRAGMA synchronous = FULL")
+    def _connect(self, *, guard_lease: bool = True) -> sqlite3.Connection:
+        return retry_operation(
+            lambda: self._open_writer_connection(guard_lease=guard_lease),
+            stage="database_write",
+        )
+
+    def _open_writer_connection(self, *, guard_lease: bool) -> sqlite3.Connection:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise DatabaseAccessError("database_directory", exc) from exc
+        prepare_writer_files(self.path)
+        try:
+            connection = sqlite3.connect(self.path, timeout=30, isolation_level=None, factory=ManagedConnection)
+        except sqlite3.Error as exc:
+            exc.database_stage = "database_open"
+            raise
+        try:
+            connection.execute("PRAGMA busy_timeout = 30000")
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA synchronous = FULL")
+            # Sorts and temporary indexes must not depend on the Python runtime's
+            # TEMP directory being writable on the work PC.
+            connection.execute("PRAGMA temp_store = MEMORY")
+            if guard_lease:
+                connection._writer_guard = active_writer_lease(self.path)
+            # Opening and BEGIN may both succeed after SQLite silently falls
+            # back to read-only. A rolled-back header write detects that before
+            # handing a connection to imports or lease mutations. No business
+            # transaction or uncertain COMMIT is repeated by the outer retry.
+            sqlite3.Connection.execute(connection, "BEGIN IMMEDIATE")
+            try:
+                if connection._writer_guard:
+                    connection._writer_guard.assert_owned(connection)
+                version = sqlite3.Connection.execute(connection, "PRAGMA main.user_version").fetchone()[0]
+                sqlite3.Connection.execute(connection, f"PRAGMA main.user_version = {int(version)}")
+                sqlite3.Connection.execute(connection, "ROLLBACK")
+            except BaseException:
+                rollback_after_failure(connection)
+                raise
+            if connection._writer_guard:
+                connection._writer_guard.assert_owned(connection)
+        except sqlite3.Error as exc:
+            exc.database_stage = "database_write"
+            connection.close()
+            raise
+        except BaseException:
+            connection.close()
+            raise
         return connection
+
+    def read_connection(self) -> sqlite3.Connection:
+        """Read an existing database without activating or renewing a writer lease."""
+        connection = sqlite3.connect(readonly_uri(self.path), uri=True, timeout=30,
+            isolation_level=None, factory=ManagedConnection)
+        try:
+            connection.execute("PRAGMA busy_timeout = 30000")
+            connection.execute("PRAGMA temp_store = MEMORY")
+        except BaseException:
+            connection.close()
+            raise
+        return connection
+
+    def schema_version_if_present(self) -> int | None:
+        """Read the schema marker without creating or modifying the database."""
+
+        candidate = self.path.resolve()
+        if not candidate.is_file():
+            return None
+        uri = readonly_uri(candidate)
+        with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
+            connection.execute("PRAGMA busy_timeout = 30000")
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'schema_info'"
+            ).fetchone()
+            if table is None:
+                return None
+            row = connection.execute(
+                "SELECT version FROM schema_info LIMIT 1"
+            ).fetchone()
+        return int(row[0]) if row is not None else None
 
     def migrate(self) -> None:
         with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode = DELETE")
             connection.execute("BEGIN IMMEDIATE")
             try:
                 for statement in _SCHEMA:
                     connection.execute(statement)
+                self._migrate_unit_scopes(connection)
+                detail_columns = {
+                    str(column[1])
+                    for column in connection.execute(
+                        "PRAGMA table_info(backlog_detail_snapshot)"
+                    )
+                }
+                if "analysis_result" not in detail_columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE backlog_detail_snapshot
+                        ADD COLUMN analysis_result TEXT NOT NULL DEFAULT ''
+                        """
+                    )
+                if "external_analysis_comment" not in detail_columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE backlog_detail_snapshot
+                        ADD COLUMN external_analysis_comment
+                        TEXT NOT NULL DEFAULT ''
+                        """
+                    )
+                if "molstat_key" not in detail_columns:
+                    connection.execute(
+                        """
+                        ALTER TABLE backlog_detail_snapshot
+                        ADD COLUMN molstat_key TEXT NOT NULL DEFAULT ''
+                        """
+                    )
                 row = connection.execute(
                     "SELECT version FROM schema_info LIMIT 1"
                 ).fetchone()
@@ -137,7 +456,7 @@ class MolStatDatabase:
                         "INSERT INTO schema_info(version) VALUES (?)",
                         (SCHEMA_VERSION,),
                     )
-                elif row[0] == 1:
+                elif row[0] in (1, 2, 3, 4, 5, 6):
                     connection.execute(
                         "UPDATE schema_info SET version = ?", (SCHEMA_VERSION,)
                     )
@@ -145,11 +464,31 @@ class MolStatDatabase:
                     raise RuntimeError(f"Ukjent databaseskjema: {row[0]}")
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
 
+    @staticmethod
+    def _migrate_unit_scopes(connection: sqlite3.Connection) -> None:
+        for table in ("backlog_sample", "backlog_current"):
+            columns = connection.execute(f"PRAGMA table_info({table})").fetchall()
+            primary = {column[1] for column in columns if column[5]}
+            if "unit_key" in primary:
+                continue
+            # Both tables are leaves: no foreign keys reference them. Rebuild
+            # transactionally, preserving rows and the original Hemato scope.
+            connection.execute(f"ALTER TABLE {table} RENAME TO {table}_before_v7")
+            statement = next(sql for sql in _SCHEMA if f"CREATE TABLE IF NOT EXISTS {table} (" in sql)
+            connection.execute(statement)
+            names = ", ".join(column[1] for column in columns)
+            connection.execute(f"INSERT INTO {table} ({names}) SELECT {names} FROM {table}_before_v7")
+            connection.execute(f"DROP TABLE {table}_before_v7")
+        # Rebuilt tables lose their old indexes with the staging tables.
+        for statement in _SCHEMA:
+            if "CREATE INDEX" in statement:
+                connection.execute(statement)
+
     def schema_version(self) -> int:
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             row = connection.execute(
                 "SELECT version FROM schema_info LIMIT 1"
             ).fetchone()
@@ -158,7 +497,7 @@ class MolStatDatabase:
         return int(row[0])
 
     def table_names(self) -> set[str]:
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             rows = connection.execute(
                 "SELECT name FROM sqlite_master "
                 "WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
@@ -166,18 +505,19 @@ class MolStatDatabase:
         return {str(row[0]) for row in rows}
 
     @contextmanager
-    def writer_lease(self, owner: str, ttl: timedelta) -> Iterator[None]:
+    def writer_lease(self, owner: str, ttl: timedelta, *, renew: bool = False) -> Iterator[WriterLease | None]:
         if not owner.strip():
             raise ValueError("Lease-eier kan ikke være tom.")
         if ttl <= timedelta(0):
             raise ValueError("Lease-varighet må være positiv.")
 
+        retry_operation(lambda: probe_writer_directory(self.path), stage="database_directory")
         token = uuid4().hex
-        acquired_at = _as_utc(self._now())
-        expires_at = acquired_at + ttl
-        with self._connect() as connection:
+        with self._connect(guard_lease=False) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
+                acquired_at = _as_utc(self._now())
+                expires_at = acquired_at + ttl
                 active = connection.execute(
                     "SELECT owner, expires_at FROM writer_lease WHERE singleton = 1"
                 ).fetchone()
@@ -198,27 +538,41 @@ class MolStatDatabase:
                 )
                 connection.execute("COMMIT")
             except BaseException:
-                connection.execute("ROLLBACK")
+                rollback_after_failure(connection)
                 raise
 
+        body_failed = False
         try:
-            yield
+            if renew:
+                with WriterLease(self, token, ttl).activate() as lease:
+                    yield lease
+            else:
+                yield None
+        except BaseException:
+            body_failed = True
+            raise
         finally:
-            with self._connect() as connection:
-                connection.execute("BEGIN IMMEDIATE")
-                try:
-                    connection.execute(
-                        "DELETE FROM writer_lease WHERE singleton = 1 AND token = ?",
-                        (token,),
-                    )
-                    connection.execute("COMMIT")
-                except BaseException:
-                    connection.execute("ROLLBACK")
+            try:
+                with uncancellable_cleanup(), self._connect(guard_lease=False) as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    try:
+                        connection.execute(
+                            "DELETE FROM writer_lease WHERE singleton = 1 AND token = ?",
+                            (token,),
+                        )
+                        connection.execute("COMMIT")
+                    except BaseException:
+                        rollback_after_failure(connection)
+                        raise
+            except Exception:
+                # Lost storage during cleanup must not hide the original
+                # runner/ownership failure that caused this context to exit.
+                if not body_failed:
                     raise
 
     def current_lease_owner(self) -> str | None:
         now = _as_utc(self._now())
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             row = connection.execute(
                 "SELECT owner, expires_at FROM writer_lease WHERE singleton = 1"
             ).fetchone()
@@ -227,7 +581,7 @@ class MolStatDatabase:
         return str(row[0])
 
     def job_statuses(self) -> tuple[tuple[str, str], ...]:
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             rows = connection.execute(
                 "SELECT kind, status FROM job_run ORDER BY id"
             ).fetchall()
@@ -238,7 +592,7 @@ class MolStatDatabase:
             "statistics": None,
             "backlog": None,
         }
-        with self._connect() as connection:
+        with self.read_connection() as connection:
             rows = connection.execute(
                 """
                 SELECT kind, MAX(finished_at)

@@ -1,95 +1,108 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from dataclasses import replace
 import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
+import stat
 from threading import Event
-import traceback
 from urllib.parse import urlparse
-import webbrowser
-from collections.abc import Callable
 
 from .archive import RawArchive
-from .backlog import BacklogProcessor, CsvContract, load_app_config, load_restanse_columns
-from .config import MolStatSettings, _valid_power_bi_url
-from .database import MolStatDatabase
+from .storage_layout import StorageLayout, prepare_storage_layout
+from .backlog import BacklogProcessor, CsvContract, CsvImportError
+from .backup import backup_before_migration
+from .config import MolStatSettings
+from .database import SCHEMA_VERSION, MolStatDatabase
+from .diagnostic_logs import diagnostic_log_directory, write_diagnostic_log
 from .fetching import UnifiedLvmsFetcher
-from .modules import DEFAULT_MODULES
-from .orchestrator import MolStatOrchestrator
+from .failures import RunFailure, database_failure, storage_failure
+from .recovery import RetryEvent, retry_operation, recovery_context
+from .unit_settings import load_active_units, load_unit_file, load_backlog_file, write_json, UnitConfigError
+from ._backlog.config import validate_app_config
+from .delivery import retry_pending
+from .excel_search import read_excel_snapshot, publish_search_workbook
+from .modules import DEFAULT_UNITS, UnitRegistry, configured_registry
+from .orchestrator import JobResult, MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
-from .statistics import StatisticsProcessor, load_units
-from .system import MolStatSystem
-
-
-class PowerBiController:
-    def __init__(
-        self,
-        report_url: str,
-        *,
-        opener: Callable[[str], object] = webbrowser.open,
-    ) -> None:
-        if not _valid_power_bi_url(report_url):
-            raise ValueError("Power BI-rapportlenken er ugyldig.")
-        self.report_url = report_url.strip()
-        self._opener = opener
-
-    def open(self) -> None:
-        self._opener(self.report_url)
+from .statistics import StatisticsProcessor
+from .lvms.config import validate_app_config as validate_lvms_config
+from .system import CapabilityRun, MolStatSystem, ExcelRefreshStatus
+from .manual_import import ManualImportPlan, ManualImportError
+from ._writer_lease import guarded_output, WriterLeaseLost
 
 
 class DefaultServices:
     def __init__(self, settings_path: Path) -> None:
         self.settings_path = settings_path
         self._diagnostics: deque[str] = deque(maxlen=100)
+        self._diagnostic_log_directory: Path | None = None
+        self._unit_readiness: dict[str, tuple[str, str]] = {}
+        self._capability_readiness: dict[tuple[str, str], str | None] = {}
         self._settings_exist = settings_path.is_file()
-        self.settings = (
-            MolStatSettings.load(settings_path)
-            if self._settings_exist
-            else MolStatSettings(sensitive_root=Path("."))
-        )
+        self._settings_load_error: str | None = None
+        self.settings = MolStatSettings(sensitive_root=Path("."))
+        if self._settings_exist:
+            try:
+                self.settings = MolStatSettings.load(settings_path)
+            except (ValueError, OSError) as exc:
+                self._settings_exist = False
+                self._settings_load_error = "Innstillingsfilen kunne ikke leses. Originalfilen er bevart. Rett opp eller importer innstillinger."
+                self._record_job_failure("settings_configuration_failed", exc)
 
     def gui(self) -> int:
         from .ui.app import MainWindow, create_application
 
         application = create_application(self.settings_path)
-        orchestrator, power_bi, error = self.refresh_gui_runtime()
+        orchestrator, error = self.refresh_gui_runtime()
         window = MainWindow(
             orchestrator,
             self,
-            power_bi,
             configuration_error=error,
         )
         window.show()
         return int(application.exec())
 
-    def refresh_gui_runtime(self) -> tuple[object | None, object | None, str | None]:
+    def refresh_gui_runtime(self) -> tuple[object | None, str | None]:
         try:
             system = self._build_system(require_statistics=True)
             orchestrator = self._orchestrator(system)
-            power_bi = (
-                PowerBiController(self.settings.power_bi_report_url)
-                if self.settings.power_bi_report_url
-                else None
-            )
         except Exception as exc:
             self._record_failure("gui_configuration_failed", exc)
-            return None, None, f"{type(exc).__name__}: {exc}"
-        return orchestrator, power_bi, None
+            if isinstance(exc, sqlite3.Error):
+                return None, str(database_failure(exc))
+            if (failure := storage_failure(exc, stage="runtime_configuration")) is not None:
+                return None, str(failure)
+            return None, f"{type(exc).__name__}: {exc}"
+        return orchestrator, None
 
     def run(self, kind: str) -> int:
         try:
-            system = self._build_system(require_statistics=kind == "statistics")
-            result = self._orchestrator(system).run(kind, "scheduled")
-        except Exception:
-            print(json.dumps({"status": "failed", "message": "Kontroller MolStat-oppsettet."}, ensure_ascii=False))
-            return 2
-        print(json.dumps({"status": result.status, **result.summary}, ensure_ascii=False))
+            with recovery_context(observer=self.record_retry):
+                system = self._build_system(require_statistics=kind != "backlog")
+                result = self._orchestrator(system).run(kind, "scheduled")
+        except Exception as error:
+            return self._scheduled_failure(f"{kind}_scheduled_run_failed", error)
+        payload = {"status": result.status, **result.summary}
+        if result.message:
+            payload["message"] = result.message
+        if result.error_code:
+            payload["error_code"] = result.error_code
+        print(json.dumps(payload, ensure_ascii=False))
         return 0 if result.status == "succeeded" else 2
+
+    def _scheduled_failure(self, stage: str, error: BaseException) -> int:
+        self._record_job_failure(stage, error)
+        failure = storage_failure(error, stage=stage)
+        print(json.dumps({"status": "failed", "error_code": failure.code if failure else "CONFIG_INVALID",
+                          "message": str(failure) if failure else "Kontroller MolStat-oppsettet."}, ensure_ascii=False))
+        return 2
 
     def serve(self) -> int:
         from .web import BoardServer
@@ -105,9 +118,22 @@ class DefaultServices:
         return 0
 
     def auto(self) -> int:
-        database = self._database()
-        now = datetime.now(timezone.utc)
-        due = due_jobs(now, database.last_successes())
+        if not self._settings_exist:
+            print(json.dumps({"status": "failed", "message": "Konfigurer MolStat først."}, ensure_ascii=False))
+            return 2
+        try:
+            with recovery_context(observer=self.record_retry):
+                database = self._database()
+                now = datetime.now(timezone.utc)
+                due = due_jobs(
+                    now,
+                    retry_operation(database.last_successes, stage="database_read"),
+                    statistics_hour=self.settings.statistics_hour,
+                    backlog_first_hour=self.settings.backlog_first_hour,
+                    backlog_last_hour=self.settings.backlog_last_hour,
+                )
+        except Exception as error:
+            return self._scheduled_failure("automatic_schedule_failed", error)
         statuses = [self.run(kind) for kind in due]
         if not due:
             print(json.dumps({"status": "idle"}))
@@ -123,7 +149,12 @@ class DefaultServices:
             project_root=Path(__file__).resolve().parents[2],
             settings_path=self.settings_path,
         )
-        result = install_automation(paths)
+        result = install_automation(
+            paths,
+            statistics_hour=self.settings.statistics_hour,
+            backlog_first_hour=self.settings.backlog_first_hour,
+            backlog_last_hour=self.settings.backlog_last_hour,
+        )
         print(
             json.dumps(
                 {
@@ -139,97 +170,252 @@ class DefaultServices:
         return 0
 
     def _database(self) -> MolStatDatabase:
-        database = MolStatDatabase(
-            self.settings.sensitive_root / "data" / "molstat.sqlite3"
+        if self._settings_load_error:
+            raise ValueError(self._settings_load_error)
+        self._require_sensitive_root()
+        layout = prepare_storage_layout(self.settings.sensitive_root)
+        database = MolStatDatabase(layout.database_path)
+        if retry_operation(database.schema_version_if_present, stage="database_read") == SCHEMA_VERSION:
+            return database
+        backup_before_migration(
+            database,
+            layout.backups_root,
         )
         database.migrate()
         return database
 
-    def _build_system(self, *, require_statistics: bool) -> MolStatSystem:
+    def _require_sensitive_root(self) -> None:
+        details = retry_operation(self.settings.sensitive_root.stat, stage="storage_root")
+        if not stat.S_ISDIR(details.st_mode):
+            raise ValueError("K-sensitiv mappe er ikke tilgjengelig. Ingen erstatningsdatabase opprettes.")
+
+    def _build_system(
+        self,
+        *,
+        require_statistics: bool,
+        unit_keys: Sequence[str] | None = None,
+        require_lvms: bool = True,
+    ) -> MolStatSystem:
         if not self._settings_exist:
-            raise ValueError("MolStat må konfigureres i Innstillinger.")
+            raise ValueError(self._settings_load_error or "MolStat må konfigureres i Innstillinger.")
         if self.settings.sharepoint_root is None:
             raise ValueError("SharePoint-mappe mangler.")
-        root = Path(__file__).resolve().parents[2]
-        config_root = root / "config"
-        local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
-        local_root = (
-            Path(local_text) if local_text else Path.home() / "AppData" / "Local"
-        ) / "MolStat"
-        lvms_config = self._ensure_lvms_config(local_root)
-        units_path = config_root / "units.json"
-        backlog_config = load_app_config(config_root / "backlog-analyses.json")
-        raw_contract = load_restanse_columns(config_root / "backlog-columns.json")
-        contract = CsvContract(
-            delimiter=raw_contract["delimiter"],
-            encoding=raw_contract["encoding"],
-            columns=raw_contract["columns"],
-            completed_values=tuple(raw_contract["completed_values"]),
-            classifier_version=int(raw_contract["classifier_version"]),
-        )
+        errors = self.settings.validate()
+        if errors:
+            raise ValueError(errors[0])
+        self._require_sensitive_root()
+        selected = tuple(self.settings.enabled_units if unit_keys is None else unit_keys)
+        if set(selected) - set(self.settings.enabled_units):
+            raise ValueError("Aktiver enheten i Innstillinger før kjøring.")
+        definitions = {}
+        definition_errors = {}
+        for key in selected:
+            try:
+                definitions.update(retry_operation(lambda: load_active_units(
+                    self.settings.sensitive_root, self.settings.unit_config_paths, (key,),
+                    backlog_paths=self.settings.backlog_config_paths,
+                ), stage="unit_configuration_read"))
+            except Exception as exc:
+                definition_errors[key] = RunFailure("CONFIG_INVALID", "unit_configuration")
+                self._record_job_failure(f"{key}_configuration_failed", exc)
+        valid_registry = configured_registry(definitions)
+        valid_by_key = {unit.key: unit for unit in valid_registry}
+        registry = UnitRegistry(tuple(
+            valid_by_key.get(key) or DEFAULT_UNITS.require(key) for key in selected
+        ))
+        capability_errors = {
+            (key, capability.job_kind): error
+            for key, error in definition_errors.items()
+            for capability in registry.require(key).capabilities
+        }
+        local_root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "MolStat"
         database = self._database()
-        fetcher = UnifiedLvmsFetcher(
-            lvms_config_path=lvms_config,
-            sensitive_root=self.settings.sensitive_root,
-            work_root=self.settings.sensitive_root / "work" / "fetch",
-            units_path=units_path,
-            backlog_report_path=config_root / "backlog-report.json",
-        )
-        statistics_processors: dict[str, StatisticsProcessor] = {}
-        publishers: dict[str, SharePointPublisher] = {}
-        if require_statistics:
-            units = {unit.key: unit for unit in load_units(units_path)}
-            for module in DEFAULT_MODULES.for_job("statistics"):
-                unit = units.get(module.key)
-                if unit is None:
-                    raise ValueError(f"Hentedefinisjon mangler for {module.key}.")
-                if unit.profile != module.processor_profile:
-                    raise ValueError(
-                        f"Prosessorprofil for {module.key} stemmer ikke med modulregisteret."
-                    )
-                lookup = self.settings.statistics_lookup_paths.get(module.key)
-                if lookup is None:
-                    raise ValueError(f"Lookup-fil mangler for {module.key}.")
-                statistics_processors[module.key] = StatisticsProcessor(
-                    lookup, profile=module.processor_profile
+        fetcher, fetch_error = None, None
+        if require_lvms:
+            try:
+                lvms_config = self._ensure_lvms_config(local_root)
+                fetcher = UnifiedLvmsFetcher(
+                    lvms_config_path=lvms_config, sensitive_root=self.settings.sensitive_root,
+                    work_root=StorageLayout(self.settings.sensitive_root).raw_root / ".jobs",
+                    units=tuple(item.unit for item in definitions.values()),
+                    backlog_reports={key: item.payload["backlog"]["report"] for key, item in definitions.items() if item.payload.get("backlog")},
                 )
-                publishers[module.key] = SharePointPublisher(
-                    PublicationPolicy(
-                        allowed_columns=module.allowed_columns,
-                        forbidden_patterns=default_forbidden_patterns(),
-                    )
-                )
-        backlog_module = DEFAULT_MODULES.single_for_job("backlog")
-        backlog_publisher = SharePointPublisher(
-            PublicationPolicy(
-                allowed_columns=backlog_module.allowed_columns,
-                forbidden_patterns=default_forbidden_patterns(),
+            except Exception as exc:
+                fetch_error = RunFailure("LVMS_CONFIG_INVALID", "lvms_configuration")
+                self._record_job_failure("lvms_configuration_failed", exc)
+
+        def unavailable_fetch(*args, **kwargs):
+            raise RunFailure("LVMS_CONFIG_INVALID", "fetch_unavailable")
+
+        statistics_fetch = fetcher.fetch_statistics if fetcher else unavailable_fetch
+        backlog_fetch = fetcher.fetch_backlog if fetcher else unavailable_fetch
+        statistics_processors, publishers = {}, {}
+        for definition in valid_registry.for_job("statistics") if require_statistics else ():
+            capability = definition.capability("statistics")
+            publishers[definition.key] = SharePointPublisher(PublicationPolicy(
+                allowed_columns=capability.allowed_columns, forbidden_patterns=default_forbidden_patterns(),
+            ))
+            statistics_processors[definition.key] = StatisticsProcessor(
+                profile=capability.processor_profile, database=database,
+                analysis_codes=set(definitions[definition.key].unit.analysis_codes),
+                report_codes={role: report["analysis_codes"] for role, report in definitions[definition.key].payload["statistics"].items()},
+                report_ids={role: report["report_id"] for role, report in definitions[definition.key].payload["statistics"].items()},
             )
-        )
-        return MolStatSystem(
-            database=database,
-            archive=RawArchive(self.settings.sensitive_root),
+        backlog_processors, backlog_publishers, backlog_fetchers = {}, {}, {}
+        for definition in valid_registry.for_job("backlog"):
+            key = definition.key
+            payload = definitions[key].payload["backlog"]
+            raw = payload["columns"]
+            contract = CsvContract(delimiter=raw["delimiter"], encoding=raw["encoding"],
+                                   columns=raw["columns"], completed_values=tuple(raw["completed_values"]),
+                                   classifier_version=raw["classifier_version"])
+            backlog_publishers[key] = SharePointPublisher(PublicationPolicy(
+                allowed_columns=definition.capability("backlog").allowed_columns,
+                forbidden_patterns=default_forbidden_patterns(),
+            ))
+            try:
+                backlog_processors[key] = BacklogProcessor(validate_app_config(payload["analyses"]), contract,
+                                                           analysis_lookup={})
+            except Exception as exc:
+                capability_errors[(key, "backlog")] = RunFailure("CONFIG_INVALID", "backlog_configuration")
+                self._record_job_failure(f"{key}_backlog_configuration_failed", exc)
+            # Preserve the default no-argument hook for existing integrations.
+            backlog_fetchers[key] = (backlog_fetch if key == "hemato" or fetcher is None else
+                                    lambda unit=key: fetcher.fetch_backlog(unit))
+        system = MolStatSystem(
+            database=database, archive=RawArchive(self.settings.sensitive_root),
             statistics_processors=statistics_processors,
-            backlog_processor=BacklogProcessor(backlog_config, contract),
-            publisher=publishers,
-            backlog_publisher=backlog_publisher,
+            backlog_processor=backlog_processors.get("hemato"), publisher=publishers,
+            backlog_publisher=backlog_publishers.get("hemato"),
+            excel_search_path=self.settings.sensitive_root / "Prøvesøk.xlsx",
+            excel_failure_reporter=self._record_job_failure,
             sharepoint_root=self.settings.sharepoint_root,
-            work_root=self.settings.sensitive_root / "work" / "processing",
-            statistics_fetch=fetcher.fetch_statistics,
-            backlog_fetch=fetcher.fetch_backlog,
-            modules=DEFAULT_MODULES,
+            work_root=StorageLayout(self.settings.sensitive_root).processed_root,
+            statistics_fetch=statistics_fetch, backlog_fetch=backlog_fetch,
+            units=registry,
+            capability_errors=capability_errors,
+            fetch_error=fetch_error,
         )
+        system.backlog_processors = backlog_processors
+        system.backlog_publishers = backlog_publishers
+        system.backlog_fetchers = backlog_fetchers
+        for unit in registry:
+            considered = tuple(cap for cap in unit.capabilities
+                               if require_statistics or cap.job_kind != "statistics" or unit.key in definition_errors)
+            if not considered:
+                continue
+            for cap in considered:
+                error = capability_errors.get((unit.key, cap.job_kind))
+                self._capability_readiness[(unit.key, cap.job_kind)] = error.code if error else None
+            errors = tuple(self._capability_readiness[(unit.key, cap.job_kind)]
+                           for cap in unit.capabilities
+                           if self._capability_readiness.get((unit.key, cap.job_kind)))
+            if errors:
+                label = "Oppsett må rettes" if len(errors) == len(unit.capabilities) else "Delvis klar"
+                detail = "; ".join(dict.fromkeys(
+                    "Kontroller enhetsfilen i Innstillinger" if code == "CONFIG_INVALID"
+                    else "Kontroller enhetsoppsettet i Innstillinger" for code in errors
+                ))
+                self._unit_readiness[unit.key] = (label, detail)
+            elif fetch_error is not None:
+                self._unit_readiness[unit.key] = ("Manuell import tilgjengelig", "LVMS-oppsettet må rettes for automatisk uttrekk")
+            else:
+                self._unit_readiness[unit.key] = ("Klar", "Oppsettet er validert for denne enheten")
+        self._last_system = system
+        return system
 
     def _orchestrator(self, system: MolStatSystem) -> MolStatOrchestrator:
+        enabled = self.settings.enabled_units
+        runners = {
+            "all": lambda: self._build_system(require_statistics=True).run_all(enabled),
+            "statistics": lambda: self._build_system(require_statistics=True).run_job("statistics", enabled),
+            "backlog": lambda: self._build_system(require_statistics=False).run_job("backlog", enabled),
+            "excel": self.regenerate_excel,
+            "publish": self.retry_publication,
+        }
+        runners.update(
+            {
+                unit.key: lambda key=unit.key: self._build_system(require_statistics=True, unit_keys=(key,)).run_unit(key)
+                for unit in system.units.active(enabled)
+            }
+        )
+        runners.update({
+            f"{unit.key}:backlog": lambda key=unit.key: self._build_system(
+                require_statistics=False, unit_keys=(key,)).run_job("backlog", (key,))
+            for unit in system.units.for_job("backlog", enabled)
+        })
+
         return MolStatOrchestrator(
             system.database,
-            {
-                "statistics": system.run_statistics,
-                "backlog": system.run_backlog,
-            },
+            runners,
             owner=socket.gethostname() or "molstat-pc",
             failure_reporter=self._record_job_failure,
+            retry_reporter=self.record_retry,
         )
+
+    def unit_status_fields(self) -> dict[str, tuple[str, str]]:
+        return {
+            key: self._unit_readiness.get(key, ("Ikke kontrollert", "Lagre eller kontroller innstillingene"))
+            for key in self.settings.enabled_units
+        }
+
+    def unit_definitions(self) -> UnitRegistry:
+        system = getattr(self, "_last_system", None)
+        return system.units if system is not None else DEFAULT_UNITS
+
+    def _manual_import_definition(self, unit_key: str):
+        if unit_key not in self.settings.enabled_units:
+            raise ManualImportError("Aktiver enheten i Innstillinger før manuell import.")
+        if not self._settings_exist or not self.settings.sensitive_root.is_dir():
+            raise ManualImportError("Konfigurer en tilgjengelig K-sensitiv mappe før manuell import.")
+        return load_active_units(
+            self.settings.sensitive_root, self.settings.unit_config_paths, (unit_key,),
+            backlog_paths=self.settings.backlog_config_paths,
+        )[unit_key]
+
+    def manual_import_available_jobs(self, unit_key: str) -> tuple[str, ...]:
+        definition = self._manual_import_definition(unit_key)
+        return ("statistics", "backlog") if definition.payload.get("backlog") else ("statistics",)
+
+    def manual_import_roles(self, unit_key: str, job_kind: str) -> tuple[str, ...]:
+        from .manual_import import manual_import_roles
+
+        return manual_import_roles(self._manual_import_definition(unit_key), job_kind)
+
+    def manual_import(self, plan: ManualImportPlan) -> JobResult:
+        from .manual_import import process_manual_import, validate_manual_import
+
+        if plan.unit_key not in self.settings.enabled_units:
+            raise ManualImportError("Aktiver enheten i Innstillinger før manuell import.")
+        if plan.job_kind not in ("statistics", "backlog"):
+            raise ManualImportError("Velg statistikk eller restanse.")
+        if not self._settings_exist or not self.settings.sensitive_root.is_dir():
+            raise ManualImportError("Konfigurer en tilgjengelig K-sensitiv mappe før manuell import.")
+
+        def runner():
+            try:
+                definition = self._manual_import_definition(plan.unit_key)
+                validate_manual_import(plan, definition)
+                system = self._build_system(
+                    require_statistics=plan.job_kind == "statistics",
+                    unit_keys=(plan.unit_key,), require_lvms=False,
+                )
+                error = system.capability_errors.get((plan.unit_key, plan.job_kind))
+                if error is not None:
+                    raise error
+                return process_manual_import(system, plan, definition)
+            except Exception as exc:
+                if isinstance(exc, UnitConfigError):
+                    self._unit_readiness[plan.unit_key] = ("Oppsett må rettes", "Kontroller enhetsfilen i Innstillinger")
+                return (CapabilityRun(plan.unit_key, plan.job_kind, {}, exc),)
+
+        orchestrator = MolStatOrchestrator(
+            self._database(), {plan.unit_key: runner},
+            owner=socket.gethostname() or "molstat-pc",
+            failure_reporter=self._record_job_failure,
+            retry_reporter=self.record_retry,
+        )
+        return orchestrator.run(plan.unit_key, "manual_import")
 
     def load_settings_fields(self) -> dict[str, str]:
         if not self._settings_exist:
@@ -237,16 +423,16 @@ class DefaultServices:
                 "sensitive_root": "",
                 "sharepoint_root": "",
                 "lvms_url": "",
-                "power_bi_report_url": "",
             }
             fields.update(
                 {
-                    f"lookup_{module.key}": ""
-                    for module in DEFAULT_MODULES.for_job("statistics")
+                    f"enabled_{unit.key}": (
+                        "true" if unit.key in self.settings.enabled_units else "false"
+                    )
+                    for unit in DEFAULT_UNITS.active()
                 }
             )
             return fields
-        lookups = self.settings.statistics_lookup_paths
         fields = {
             "sensitive_root": str(self.settings.sensitive_root),
             "sharepoint_root": (
@@ -255,15 +441,56 @@ class DefaultServices:
                 else ""
             ),
             "lvms_url": self.settings.lvms_url,
-            "power_bi_report_url": self.settings.power_bi_report_url,
         }
         fields.update(
             {
-                f"lookup_{module.key}": str(lookups.get(module.key, ""))
-                for module in DEFAULT_MODULES.for_job("statistics")
+                f"enabled_{unit.key}": (
+                    "true" if unit.key in self.settings.enabled_units else "false"
+                )
+                for unit in DEFAULT_UNITS.active()
             }
         )
+
+        for unit in DEFAULT_UNITS.active():
+            configured = self.settings.unit_config_paths.get(unit.key)
+            fields[f"config_{unit.key}"] = str(configured or "")
+        fields.update({f"backlog_{key}": str(self.settings.backlog_config_paths.get(key, ""))
+                       for key in ("hemato", "solide")})
+        fields.update({key: str(getattr(self.settings, key)) for key in ("statistics_hour", "backlog_first_hour", "backlog_last_hour")})
         return fields
+
+    def regenerate_excel(self) -> dict[str, object]:
+        if self._settings_load_error:
+            raise ValueError(self._settings_load_error)
+        database = self._database()
+        now = datetime.now()
+        snapshot = read_excel_snapshot(database, generated_at=now)
+        with guarded_output():
+            result = publish_search_workbook(snapshot, self.settings.sensitive_root / "Prøvesøk.xlsx")
+        if hasattr(self, "_last_system"):
+            self._last_system.excel_status = ExcelRefreshStatus(result.status, now)
+        if result.status != "published":
+            raise RunFailure("EXCEL_REFRESH_FAILED", "excel_publication")
+        return {"excel_published": True}
+
+    def retry_publication(self) -> tuple[CapabilityRun, ...]:
+        system = self._build_system(require_statistics=True, require_lvms=False)
+        runs = []
+        for unit in system.units:
+            for capability in unit.capabilities:
+                try:
+                    publishers = system.publisher if capability.job_kind == "statistics" else system.backlog_publishers
+                    publisher = publishers.get(unit.key)
+                    if publisher is None:
+                        raise system.capability_errors.get(
+                            (unit.key, capability.job_kind), RunFailure("CONFIG_INVALID", "publication_configuration")
+                        )
+                    published = retry_pending(publisher, system.work_root / unit.key / capability.job_kind,
+                                              system.sharepoint_root / capability.sharepoint_folder)
+                    runs.append(CapabilityRun(unit.key, capability.job_kind, {"published": published}))
+                except Exception as error:
+                    runs.append(CapabilityRun(unit.key, capability.job_kind, {}, error))
+        return tuple(runs)
 
     def overview_status_fields(self) -> dict[str, tuple[str, str]]:
         if not self._settings_exist:
@@ -274,53 +501,137 @@ class DefaultServices:
 
         database_status = (
             ("Klar", "K-sensitiv mappe er tilgjengelig")
-            if self.settings.sensitive_root.is_dir()
+            if _directory_available(self.settings.sensitive_root)
             else ("Ikke tilgjengelig", "Kontroller K-sensitiv mappe")
         )
         sharepoint = self.settings.sharepoint_root
         if sharepoint is None:
             sharepoint_status = ("Ikke satt opp", "Velg mappe i Innstillinger")
-        elif sharepoint.is_dir():
+        elif _directory_available(sharepoint):
             sharepoint_status = ("Klar", "Konfigurert mappe er tilgjengelig")
         else:
             sharepoint_status = (
                 "Ikke tilgjengelig",
                 "Kontroller SharePoint-synkronisering og mappe",
             )
-        return {
+        statuses = {
             "database": database_status,
             "sharepoint": sharepoint_status,
         }
+        workbook = self.settings.sensitive_root / "Prøvesøk.xlsx"
+        try:
+            statuses["excel"] = (("Tilgjengelig", "Sist oppdatert " + datetime.fromtimestamp(workbook.stat().st_mtime).strftime("%d.%m.%Y %H:%M"))
+                                 if workbook.is_file() else ("Ikke generert", "Oppdater fra eksisterende database"))
+        except OSError:
+            statuses["excel"] = ("Ikke tilgjengelig", "Filområdet kunne ikke leses. Prøv igjen når forbindelsen er tilbake.")
+        system = getattr(self, "_last_system", None)
+        if system and system.fetch_error is not None:
+            statuses["lvms"] = ("Oppsett må rettes", "Manuell import kan brukes mens LVMS-oppsettet rettes")
+        else:
+            statuses["lvms"] = ("Konfigurert", "Innlogging og forbindelse kontrolleres ved automatisk uttrekk")
+        excel_status = getattr(system, "excel_status", None)
+        if excel_status and excel_status.status != "published":
+            statuses["excel"] = ("Ikke oppdatert", "Lukk Excel-filen og velg Oppdater Excel-søk")
+        return statuses
 
     def save_settings_fields(self, values: dict[str, str]) -> None:
         sensitive_text = values.get("sensitive_root", "").strip()
         if not sensitive_text:
             raise ValueError("K-sensitiv mappe må fylles ut.")
         sharepoint_text = values.get("sharepoint_root", "").strip()
-        lookups = {
-            module.key: Path(text)
-            for module in DEFAULT_MODULES.for_job("statistics")
-            if (text := values.get(f"lookup_{module.key}", "").strip())
-        }
         updated = replace(
             self.settings,
             sensitive_root=Path(sensitive_text),
             sharepoint_root=Path(sharepoint_text) if sharepoint_text else None,
-            statistics_lookup_paths=lookups,
+            statistics_hour=int(values.get("statistics_hour", self.settings.statistics_hour)),
+            backlog_first_hour=int(values.get("backlog_first_hour", self.settings.backlog_first_hour)),
+            backlog_last_hour=int(values.get("backlog_last_hour", self.settings.backlog_last_hour)),
             lvms_url=values.get("lvms_url", "").strip(),
-            power_bi_report_url=values.get("power_bi_report_url", "").strip(),
+            enabled_units=tuple(
+                unit.key
+                for unit in DEFAULT_UNITS.active()
+                if values.get(
+                    f"enabled_{unit.key}",
+                    "true" if unit.key in self.settings.enabled_units else "false",
+                ).casefold()
+                == "true"
+            ),
         )
         errors = updated.validate()
         if errors:
             raise ValueError(errors[0])
         _validate_production_paths(updated)
+        config_paths = dict(updated.unit_config_paths)
+        backlog_paths = dict(updated.backlog_config_paths)
+        for key in DEFAULT_UNITS.active():
+            name = key.key
+            config_text = values.get(f"config_{name}")
+            if config_text is not None:
+                if config_text.strip():
+                    config_paths[name] = Path(config_text.strip()).resolve()
+                else:
+                    config_paths.pop(name, None)
+            if name in {"hemato", "solide"}:
+                backlog_text = values.get(f"backlog_{name}")
+                if backlog_text is not None:
+                    if backlog_text.strip():
+                        backlog_paths[name] = Path(backlog_text.strip()).resolve()
+                    else:
+                        backlog_paths.pop(name, None)
+        for key in updated.enabled_units:
+            source = config_paths.get(key)
+            if source is None:
+                raise UnitConfigError(f"Enhetsfil (JSON) mangler for {key}.")
+            load_unit_file(source, key, backlog_path=backlog_paths.get(key))
+        updated = replace(updated, unit_config_paths=config_paths, backlog_config_paths=backlog_paths)
         updated.save(self.settings_path)
         self.settings = updated
         self._settings_exist = True
+        self._settings_load_error = None
+        self._unit_readiness.clear()
+        self._capability_readiness.clear()
+
+    def export_settings(self, path: Path) -> None:
+        self.settings.export_to(path)
+
+    def import_settings(self, path: Path) -> tuple[str, ...]:
+        imported = MolStatSettings.import_from(path)
+        for key, source in imported.backlog_config_paths.items():
+            if source.is_file():
+                load_backlog_file(source, key)
+        for key, source in imported.unit_config_paths.items():
+            if source.is_file():
+                backlog_path = imported.backlog_config_paths.get(key)
+                load_unit_file(source, key, backlog_path=backlog_path if backlog_path and backlog_path.is_file() else None)
+        warnings = _unavailable_path_messages(imported)
+        imported.save(self.settings_path)
+        self.settings = imported
+        self._settings_exist = True
+        self._settings_load_error = None
+        self._unit_readiness.clear()
+        self._capability_readiness.clear()
+        return warnings
 
     def _ensure_lvms_config(self, local_root: Path) -> Path:
         path = self.settings.lvms_config_path or local_root / "lvms-config.json"
         if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("LVMS-oppsettet må være et JSON-objekt.")
+            if self.settings.lvms_url and payload.get("landing_url") != self.settings.lvms_url:
+                payload["landing_url"] = self.settings.lvms_url
+                # The origin is derived from the newly selected URL. Preserve
+                # other local runtime fields and validate before replacing it.
+                had_origin = "expected_origin" in payload
+                payload.pop("expected_origin", None)
+                validated = validate_lvms_config(
+                    payload,
+                    repository_root=Path(__file__).resolve().parents[2],
+                    allowed_local_root=local_root.parent,
+                )
+                if had_origin:
+                    payload["expected_origin"] = validated.expected_origin
+                write_json(path, payload)
             return path
         if not self.settings.lvms_url:
             raise ValueError("LVMS-adresse mangler.")
@@ -340,30 +651,45 @@ class DefaultServices:
         return path
 
     def _record_failure(self, stage: str, error: BaseException) -> None:
-        local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
-        local_root = (
-            Path(local_text) if local_text else Path.home() / "AppData" / "Local"
-        )
-        log = local_root / "MolStat" / "logs" / "bootstrap.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with log.open("a", encoding="utf-8") as stream:
-            stream.write(f"\n[{stage}] {type(error).__name__}: {error}\n")
-            traceback.print_exception(type(error), error, error.__traceback__, file=stream)
+        self._record_diagnostic(stage, error, "bootstrap.log")
 
     def _record_job_failure(self, stage: str, error: BaseException) -> None:
-        message = f"{stage}: {type(error).__name__}"
+        self._record_diagnostic(stage, error, "runtime.log")
+
+    def _record_diagnostic(self, stage: str, error: BaseException, filename: str) -> None:
+        safe_error = storage_failure(error, stage=stage) or error
+        if isinstance(error, WriterLeaseLost):
+            reason = error.reason if error.reason in {"OWNERSHIP_CHANGED", "EXPIRED", "RENEWAL_FAILED"} or (
+                error.reason.startswith("SQLITE_") and isinstance(getattr(sqlite3, error.reason, None), int)) else ""
+            safe_error = RunFailure("DB_LEASE_LOST", "writer_lease", detail=reason)
+        if isinstance(error, CsvImportError):
+            safe_error = RunFailure("CSV_INVALID", "csv_import")
+        message = f"{stage}: {safe_error if isinstance(safe_error, (RunFailure, UnitConfigError, ManualImportError)) else type(error).__name__}"
         self._diagnostics.append(message)
-        local_text = str(os.environ.get("LOCALAPPDATA") or "").strip()
-        local_root = Path(local_text) if local_text else Path.home() / "AppData" / "Local"
-        log = local_root / "MolStat" / "logs" / "runtime.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with log.open("a", encoding="utf-8") as stream:
-            stream.write(f"\n{message}\n")
-            if error.__traceback__ is not None:
-                stream.writelines(traceback.format_tb(error.__traceback__))
+        self._diagnostic_log_directory = write_diagnostic_log(
+            filename, message, error, preferred=self._diagnostic_log_directory,
+        )
+
+    def record_retry(self, event: RetryEvent) -> None:
+        message = str(event)
+        self._diagnostics.append(message)
+        self._diagnostic_log_directory = write_diagnostic_log(
+            "runtime.log", message, RuntimeError("retry"), preferred=self._diagnostic_log_directory,
+        )
+
+    def diagnostic_log_directory(self) -> Path | None:
+        self._diagnostic_log_directory = diagnostic_log_directory(self._diagnostic_log_directory)
+        return self._diagnostic_log_directory
 
     def diagnostic_messages(self) -> tuple[str, ...]:
         return tuple(self._diagnostics)
+
+
+def _directory_available(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
 
 
 def _validate_production_paths(settings: MolStatSettings) -> None:
@@ -371,10 +697,21 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
         raise ValueError("K-sensitiv mappe finnes ikke eller er ikke tilgjengelig.")
     if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
         raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
-    for module in DEFAULT_MODULES.for_job("statistics"):
-        lookup = settings.statistics_lookup_paths.get(module.key)
-        if lookup is None or not lookup.is_file():
-            raise ValueError(f"Lookup-fil for {module.display_name} finnes ikke.")
     parsed = urlparse(settings.lvms_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("LVMS-adressen må være en fullstendig http- eller https-adresse.")
+
+
+def _unavailable_path_messages(settings: MolStatSettings) -> tuple[str, ...]:
+    unavailable: list[str] = []
+    if not settings.sensitive_root.is_dir():
+        unavailable.append("K-sensitiv mappe")
+    if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
+        unavailable.append("SharePoint-mappe")
+    for key, source in settings.unit_config_paths.items():
+        if key in settings.enabled_units and not source.is_file():
+            unavailable.append(f"Enhetsfil for {key}")
+    for key, source in settings.backlog_config_paths.items():
+        if key in settings.enabled_units and not source.is_file():
+            unavailable.append(f"Restansefil for {key}")
+    return tuple(unavailable)

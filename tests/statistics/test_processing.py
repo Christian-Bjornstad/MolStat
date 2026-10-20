@@ -1,4 +1,5 @@
 from __future__ import annotations
+from unit_fixtures import analysis_codes
 
 import csv
 import zipfile
@@ -18,7 +19,6 @@ from molstat.statistics import (
     build_resultater_solide,
     clean_text,
     klassifiser_ekstraksjon,
-    load_lookup,
     parse_tidspunkt,
     process_reports,
     read_lvms_csv,
@@ -31,66 +31,8 @@ def write_raw(path: Path, rows: list[list[str]]) -> None:
         csv.writer(f, delimiter=";").writerows(rows)
 
 
-def make_lookup(tmp_path: Path) -> Path:
-    """Minimal xlsx with one sheet: Analyse/Nukleinsyre/Rapportgruppe/Svarfrist."""
-    path = tmp_path / "lookup.xlsx"
-    content_types = (
-        '<?xml version="1.0"?>'
-        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        '<Default Extension="xml" ContentType="application/xml"/>'
-        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-        '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
-        "</Types>"
-    )
-    root_rels = (
-        '<?xml version="1.0"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
-        "</Relationships>"
-    )
-    workbook = (
-        '<?xml version="1.0"?>'
-        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
-        ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>'
-    )
-    rels = (
-        '<?xml version="1.0"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
-        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'
-        "</Relationships>"
-    )
-    strings = [
-        "Analyse", "Nukleinsyre", "Rapportgruppe", "Svarfrist",
-        "CALR-OU", "DNA", "MPN", "21",
-    ]
-    shared = (
-        '<?xml version="1.0"?>'
-        '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        + "".join(
-            f'<si><t>{value}</t></si>' for value in strings
-        )
-        + "</sst>"
-    )
-    sheet = (
-        '<?xml version="1.0"?>'
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        "<sheetData>"
-        '<row r="1"><c t="s"><v>0</v></c><c t="s"><v>1</v></c><c t="s"><v>2</v></c><c t="s"><v>3</v></c></row>'
-        '<row r="2"><c t="s"><v>4</v></c><c t="s"><v>5</v></c><c t="s"><v>6</v></c><c t="s"><v>7</v></c></row>'
-        "</sheetData></worksheet>"
-    )
-    with zipfile.ZipFile(path, "w") as z:
-        z.writestr("[Content_Types].xml", content_types)
-        z.writestr("_rels/.rels", root_rels)
-        z.writestr("xl/workbook.xml", workbook)
-        z.writestr("xl/_rels/workbook.xml.rels", rels)
-        z.writestr("xl/sharedStrings.xml", shared)
-        z.writestr("xl/worksheets/sheet1.xml", sheet)
-    return path
+def make_lookup(tmp_path):
+    return {"CALR-OU", "KRAS-VAR-OU"}
 
 
 def test_report_archives_include_old_and_new_intervals(tmp_path: Path) -> None:
@@ -126,8 +68,9 @@ def test_statistics_processor_merges_complete_archive_before_processing(
         output_dir: Path,
         *,
         profile: str,
+        molstat_ids: Mapping[str, str],
     ) -> dict[str, int]:
-        del lookup_path, profile
+        del lookup_path, profile, molstat_ids
         for marker, path in zip(
             ("ANTALL", "RESULTATER", "EKSTRAKSJON"),
             (ordered, answered, extraction),
@@ -144,7 +87,7 @@ def test_statistics_processor_merges_complete_archive_before_processing(
     monkeypatch.setattr("molstat.statistics.process_reports", record_inputs)
     output_dir = tmp_path / "processed"
 
-    result = StatisticsProcessor(tmp_path / "lookup.xlsx").process(
+    result = StatisticsProcessor(analysis_codes=analysis_codes("hemato")).process(
         "hemato", current, output_dir
     )
 
@@ -196,6 +139,22 @@ def test_best_extraction_priority(tmp_path: Path) -> None:
     assert _best_extraction("S1", "RNA", godk, late) is None
 
 
+def test_best_extraction_prefers_generic_then_latest_completion() -> None:
+    from datetime import datetime
+    from molstat.statistics import _best_extraction
+
+    candidates = [
+        {"nukleinsyre": "DNA", "ferdig": datetime(2026, 9, 24)},
+        {"nukleinsyre": "Ukjent/generell", "ferdig": datetime(2026, 9, 23)},
+        {"nukleinsyre": "Ukjent/generell", "ferdig": datetime(2026, 9, 22)},
+    ]
+    chosen = _best_extraction("SYNTHETIC", "RNA", datetime(2026, 9, 25), candidates)
+    assert chosen["nukleinsyre"] == "Ukjent/generell"
+    assert chosen["ferdig"] == datetime(2026, 9, 23)
+
+
+
+
 def test_process_reports_golden_flow(tmp_path: Path) -> None:
     lookup_path = make_lookup(tmp_path)
 
@@ -240,28 +199,35 @@ def test_process_reports_golden_flow(tmp_path: Path) -> None:
 
     out_dir = tmp_path / "prosessert"
     counts = process_reports(
-        antall_csv, resultater_csv, ekstraksjon_csv, lookup_path, out_dir
+        antall_csv,
+        resultater_csv,
+        ekstraksjon_csv,
+        lookup_path,
+        out_dir,
+        molstat_ids={"S1": "M-000001"},
     )
-    assert counts == {"antall": 2, "resultater": 1}
+    assert counts == {"antall": 1, "resultater": 1}
 
     antall_rows = list(
         csv.DictReader(open(out_dir / "antall.csv", encoding="utf-8-sig"), delimiter=";")
     )
-    assert antall_rows[0]["Nukleinsyre"] == "DNA"
-    assert antall_rows[0]["Rapportgruppe"] == "MPN"
+    assert antall_rows[0]["Nukleinsyre"] == ""
+    assert antall_rows[0]["Rapportgruppe"] == ""
     assert antall_rows[0]["Maaned"] == "1"
-    assert antall_rows[1]["Nukleinsyre"] == ""
+    assert len(antall_rows) == 1  # Unconfigured code is filtered by JSON.
 
     res_rows = list(
         csv.DictReader(open(out_dir / "resultater.csv", encoding="utf-8-sig"), delimiter=";")
     )
     row = res_rows[0]
+    assert row["MolStat-ID"] == "M-000001"
     assert row["Ekstraksjon.ferdig"] == "2024/01/06 09:00:00"
-    assert row["Svarfrist"] == "21"
+    assert row["Svarfrist"] == ""
 
     # BOM present (write_excel_csv2 behaviour)
     raw_bytes = (out_dir / "resultater.csv").read_bytes()
     assert raw_bytes.startswith(b"\xef\xbb\xbf")
+    assert "MolStat-ID" not in antall_rows[0]
 
 
 def test_read_lvms_csv_normalises_headers_and_wrappers(tmp_path: Path) -> None:
@@ -275,9 +241,6 @@ def test_read_lvms_csv_normalises_headers_and_wrappers(tmp_path: Path) -> None:
     assert rows[0]["Analyse"] == "CALR"
 
 
-def test_load_lookup_reads_shared_strings(tmp_path: Path) -> None:
-    lookup = load_lookup(make_lookup(tmp_path))
-    assert lookup["CALR-OU"]["Nukleinsyre"] == "DNA"
 
 
 # --- solide profile ----------------------------------------------------
@@ -323,6 +286,19 @@ def test_build_resultater_solide_picks_latest_finished_before_approval() -> None
     assert row["Svarfrist"] == "7"
 
 
+def test_result_export_fails_closed_when_registry_mapping_is_missing() -> None:
+    results = [
+        {
+            "Sample.ID": "S1",
+            "Analyse": "CALR-OU",
+            "Tidspunkt.godkjenning": "08.01.2024 08:00",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="MolStat-ID"):
+        build_resultater(results, (), {}, molstat_ids={})
+
+
 def test_build_antall_solide_has_no_nucleic_acid_column() -> None:
     rows = [
         {
@@ -338,9 +314,9 @@ def test_build_antall_solide_has_no_nucleic_acid_column() -> None:
     assert antall[0]["Svarfrist"] == "7"
 
 
-def test_process_reports_solide_writes_13_column_export(tmp_path: Path) -> None:
+def test_process_reports_solide_writes_result_export_contract(tmp_path: Path) -> None:
     def raw_rows(header: list[str], data: list[list[str]]) -> Path:
-        p = tmp_path / f"{header[0]}.csv"
+        p = tmp_path / f"report-{len(list(tmp_path.glob('*.csv')))}.csv"
         write_raw(p, [header, *data])
         return p
 

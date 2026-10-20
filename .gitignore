@@ -9,3 +9,26 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Lokale data og genererte rapport-/byggeartefakter
+/data/
+/database/
+/raw/
+/processed/
+/work/
+/config/
+/outputs/
+/artifacts/
+/powerbi/
+/node_modules/
+/.superpowers/
+*.sqlite3
+*.sqlite3-*
+*.sqlite
+*.db
+*.pbix
+*.pbip
+*.xlsm
+*.xlsx
+*.csv
+!tests/fixtures/**/*.csv

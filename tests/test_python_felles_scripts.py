@@ -1,12 +1,70 @@
 from __future__ import annotations
 
 import runpy
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_start_replaces_stale_molstat_modules_in_existing_python_session(tmp_path):
+    project = tmp_path / "updated"
+    package = project / "src" / "molstat"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "cli.py").write_text('def main(args):\n    print("UPDATED_GUI")\n    return 0\n', encoding="utf-8")
+    script = '''import runpy,sys,types
+old = types.ModuleType("molstat")
+old.__path__ = []
+cli = types.ModuleType("molstat.cli")
+def stale(args):
+    raise TypeError("MolStatSettings.__init__() got an unexpected keyword argument 'schema_version'")
+cli.main = stale
+sys.modules["molstat"] = old
+sys.modules["molstat.cli"] = cli
+functions = runpy.run_path(sys.argv[1])
+functions["start"](project_dir=__import__('pathlib').Path(sys.argv[2]))
+'''
+    result = subprocess.run([sys.executable, "-c", script, str(ROOT / "start_python_felles.py"), str(project)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "UPDATED_GUI" in result.stdout
+
+
+def test_start_reports_program_settings_and_local_log_paths(tmp_path, capsys):
+    functions = runpy.run_path(str(ROOT / "start_python_felles.py"))
+    (tmp_path / "src" / "molstat").mkdir(parents=True)
+    settings = tmp_path / "redirected" / "settings.json"
+    functions["start"](project_dir=tmp_path, settings_file=settings, app_main=lambda _: 0)
+    output = capsys.readouterr().out
+    assert str(tmp_path.resolve()) in output
+    assert str(settings) in output
+    assert "bootstrap.log" in output
+
+
+def test_bootstrap_failure_uses_temp_log_when_appdata_is_unavailable(tmp_path, monkeypatch):
+    functions = runpy.run_path(str(ROOT / "start_python_felles.py"))
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("occupied", encoding="utf-8")
+    monkeypatch.setenv("LOCALAPPDATA", str(blocked))
+    monkeypatch.setattr(functions["tempfile"], "gettempdir", lambda: str(tmp_path / "temporary"))
+    path = functions["_record_failure"]("synthetic_failure", TypeError("synthetic schema_version failure"))
+    assert path == tmp_path / "temporary/MolStat/logs/bootstrap.log"
+    assert "synthetic schema_version failure" in path.read_text("utf-8")
+    assert "Startskript:" in path.read_text("utf-8")
+
+
+def test_current_settings_load_versioned_file_without_passing_schema_to_constructor(tmp_path):
+    from molstat.config import MolStatSettings
+    path = tmp_path / "settings.json"
+    original = MolStatSettings(sensitive_root=tmp_path / "sensitive", enabled_units=("lege",))
+    original.save(path)
+    before = path.read_bytes()
+    assert MolStatSettings.load(path) == original
+    assert path.read_bytes() == before
 
 
 def test_installer_installs_editable_project_and_verifies_imports(tmp_path: Path) -> None:
@@ -83,3 +141,14 @@ def test_python_felles_scripts_require_python_314() -> None:
     if functions["sys"].version_info[:2] != (3, 14):
         with pytest.raises(RuntimeError, match="Python FELLES 3.14"):
             functions["activate_user_site"]()
+
+
+def test_icon_assets_are_present_and_packaged() -> None:
+    png = ROOT / "src" / "molstat" / "assets" / "molstat.png"
+    ico = ROOT / "src" / "molstat" / "assets" / "molstat.ico"
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert png.stat().st_size > 1000
+    assert ico.stat().st_size > 1000
+    assert '"assets/*.png"' in pyproject
+    assert '"assets/*.ico"' in pyproject

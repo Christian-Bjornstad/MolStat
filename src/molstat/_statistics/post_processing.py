@@ -35,7 +35,7 @@ def find_report_archives(
 
 def process_unit(
     unit_dir: Path,
-    lookup_path: Path,
+    analysis_codes: set[str],
     report_ids: Mapping[str, str],
     *,
     profile: str = "hemato",
@@ -99,7 +99,7 @@ def process_unit(
         inputs["ordered"],
         inputs["answered"],
         inputs.get("extraction", inputs["answered"]),
-        lookup_path,
+        analysis_codes,
         output_dir,
         profile=profile,
     )

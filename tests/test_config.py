@@ -1,7 +1,11 @@
+import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, Lock
 
 import pytest
 
+import molstat.config as config
 from molstat.config import MolStatSettings
 
 
@@ -30,12 +34,9 @@ def test_settings_round_trip_json(tmp_path: Path) -> None:
     expected = MolStatSettings(
         sensitive_root=tmp_path / "sensitive",
         sharepoint_root=tmp_path / "sharepoint",
-        statistics_lookup_paths={
-            "hemato": tmp_path / "lookup-hemato.xlsx",
-            "solide": tmp_path / "lookup-solide.xlsx",
-        },
+
         lvms_config_path=tmp_path / "lvms-config.json",
-        power_bi_report_url="https://app.powerbi.com/groups/me/reports/report-id",
+        enabled_units=("hemato",),
     )
 
     expected.save(settings_path)
@@ -43,23 +44,196 @@ def test_settings_round_trip_json(tmp_path: Path) -> None:
     assert MolStatSettings.load(settings_path) == expected
 
 
-@pytest.mark.parametrize(
-    "url",
-    (
-        "http://app.powerbi.com/groups/me/reports/id",
-        "https://example.invalid/groups/me/reports/id",
-        "https://user@app.powerbi.com/groups/me/reports/id",
-        "https://app.powerbi.com:8443/groups/me/reports/id",
-    ),
-)
-def test_settings_reject_unsafe_power_bi_report_url(
-    tmp_path: Path, url: str
-) -> None:
-    settings = MolStatSettings(
-        sensitive_root=tmp_path / "sensitive",
-        power_bi_report_url=url,
+def test_settings_load_ignores_removed_power_bi_report_url(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(
+        '{"sensitive_root":"K:/sensitiv","power_bi_report_url":'
+        '"https://app.powerbi.com/legacy"}',
+        encoding="utf-8",
     )
 
-    assert settings.validate() == (
-        "Power BI-lenken må være en HTTPS-lenke på app.powerbi.com.",
+    settings = MolStatSettings.load(settings_path)
+
+    assert settings.sensitive_root == Path("K:/sensitiv")
+    assert not hasattr(settings, "power_bi_report_url")
+
+
+def test_transfer_payload_is_versioned_and_excludes_local_runtime_data(
+    tmp_path: Path,
+) -> None:
+    settings = MolStatSettings(
+        sensitive_root=tmp_path / "sensitiv",
+        sharepoint_root=tmp_path / "sharepoint",
+        lvms_url="https://lvms.example.invalid/clims/",
+        lvms_config_path=tmp_path / "private-lvms.json",
+        enabled_units=("hemato",),
+
     )
+
+    payload = settings.to_transfer_payload()
+    serialized = json.dumps(payload, ensure_ascii=False).casefold()
+
+    assert payload["schema_version"] == config.SETTINGS_SCHEMA_VERSION == 3
+    assert payload["units"]["hemato"]["enabled"] is True
+    assert payload["units"]["solide"]["enabled"] is False
+    for forbidden in (
+        "lvms_config_path",
+        "profile_directory",
+        "cookie",
+        "session",
+        "cdp",
+        "token",
+    ):
+        assert forbidden not in serialized
+
+
+def test_transfer_file_round_trips_utf8_norwegian_paths(tmp_path: Path) -> None:
+    transfer = tmp_path / "molstat-innstillinger.json"
+    expected = MolStatSettings(
+        sensitive_root=tmp_path / "K-sensitiv æøå",
+        sharepoint_root=tmp_path / "Prøveflyt",
+
+        enabled_units=("hemato",),
+        statistics_hour=4,
+        backlog_first_hour=7,
+        backlog_last_hour=19,
+        lvms_url="https://lvms.example.invalid/clims/",
+    )
+
+    expected.export_to(transfer)
+    imported = MolStatSettings.import_from(transfer)
+
+    assert imported == expected
+    assert "æøå" in transfer.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"schema_version": 999},
+        {"schema_version": 2, "units": {"ukjent": {"enabled": True}}},
+        {"schema_version": 2, "units": {"hemato": {"enabled": "ja"}}},
+    ),
+)
+def test_transfer_import_rejects_unknown_schema_units_and_types(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    transfer = tmp_path / "ugyldig.json"
+    transfer.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        MolStatSettings.import_from(transfer)
+
+
+def test_invalid_transfer_does_not_replace_existing_settings(tmp_path: Path) -> None:
+    current_path = tmp_path / "settings.json"
+    current = MolStatSettings(sensitive_root=tmp_path / "original")
+    current.save(current_path)
+    before = current_path.read_bytes()
+    transfer = tmp_path / "bad.json"
+    transfer.write_text('{"schema_version": 999}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="skjemaversjon"):
+        MolStatSettings.import_from(transfer)
+
+    assert current_path.read_bytes() == before
+
+
+def test_unversioned_settings_migrate_in_memory_with_active_defaults(
+    tmp_path: Path,
+) -> None:
+    settings_path = tmp_path / "legacy.json"
+    settings_path.write_text(
+        json.dumps(
+            {
+                "sensitive_root": "K:/sensitiv",
+                "sharepoint_root": "S:/MolStat",
+                "statistics_hour": 4,
+                "backlog_first_hour": 7,
+                "backlog_last_hour": 17,
+                "statistics_lookup_paths": {
+                    "hemato": "K:/lookup-hemato.xlsx",
+                    "solide": "K:/lookup-solide.xlsx",
+                },
+                "lvms_url": "https://lvms.example.invalid/clims/",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings = MolStatSettings.load(settings_path)
+
+    assert settings.enabled_units == ("hemato", "solide")
+    assert settings.statistics_hour == 4
+    assert settings.backlog_first_hour == 7
+    assert not hasattr(settings, "statistics_lookup_paths")
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_settings_reject_nested_sensitive_and_sharepoint_roots(tmp_path, reverse):
+    first, second = tmp_path, tmp_path / "nested"
+    if reverse:
+        first, second = second, first
+    assert MolStatSettings(sensitive_root=first, sharepoint_root=second).validate()
+
+
+def test_settings_load_accepts_utf8_bom(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"sensitive_root":"K:/sensitiv"}', encoding="utf-8-sig")
+    assert MolStatSettings.load(path).sensitive_root == Path("K:/sensitiv")
+
+
+def test_settings_reject_duplicate_json_keys(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"sensitive_root":"K:/one","sensitive_root":"K:/two"}')
+    with pytest.raises(ValueError, match="duplikat"):
+        MolStatSettings.load(path)
+
+
+@pytest.mark.parametrize("updates", [
+    {"statistics_hour": 24}, {"statistics_hour": True},
+    {"backlog_first_hour": 19, "backlog_last_hour": 18},
+    {"sensitive_root": "   "},
+])
+def test_invalid_local_settings_fail_at_load_boundary(tmp_path, updates):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"sensitive_root": "K:/sensitiv", **updates}))
+    with pytest.raises(ValueError):
+        MolStatSettings.load(path)
+
+
+def test_invalid_settings_are_not_saved_over_good_file(tmp_path):
+    path = tmp_path / "settings.json"
+    MolStatSettings(sensitive_root=tmp_path / "sensitive").save(path)
+    before = path.read_bytes()
+    with pytest.raises(ValueError):
+        MolStatSettings(sensitive_root=tmp_path / "sensitive", statistics_hour=99).save(path)
+    assert path.read_bytes() == before
+
+
+def test_versioned_settings_reject_misspelled_fields(tmp_path):
+    payload = MolStatSettings(sensitive_root=tmp_path / "sensitive").to_transfer_payload()
+    payload["units"]["hemato"]["lookup_patth"] = "K:/lookup.xlsx"
+    with pytest.raises(ValueError, match="lookup_patth"):
+        MolStatSettings.from_transfer_payload(payload)
+
+
+def test_simultaneous_settings_saves_do_not_share_temporary_files(tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    barrier = Barrier(2)
+    replace_lock = Lock()
+    replace = config.os.replace
+
+    def synchronized_replace(source, destination):
+        barrier.wait(timeout=5)
+        # Windows can reject two simultaneous replacements of one destination.
+        # Serialize only replacement to isolate collisions between candidates.
+        with replace_lock:
+            replace(source, destination)
+
+    monkeypatch.setattr(config.os, "replace", synchronized_replace)
+    candidates = [MolStatSettings(sensitive_root=tmp_path / name) for name in ("one", "two")]
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        list(executor.map(lambda settings: settings.save(path), candidates))
+    assert MolStatSettings.load(path) in candidates
+    assert not list(tmp_path.glob(".*.tmp"))

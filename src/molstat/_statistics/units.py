@@ -2,7 +2,7 @@
 
 A unit is one clinical area (hemato, solide, ...) with its own report
 IDs. The unit configuration is data, not code: adding a new unit means
-editing ``units.json`` next to the app config, nothing else.
+editing the selected unit JSON. The app does not generate unit files.
 """
 
 from __future__ import annotations
@@ -44,6 +44,8 @@ class UnitReport:
     report_id: str
     # None = inherit the unit-level analysis_codes.
     analysis_codes: tuple[str, ...] | None = None
+    laboratory: str = ""
+    process_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -54,8 +56,7 @@ class Unit:
     label: str
     reports: tuple[UnitReport, ...]
     analysis_codes: tuple[str, ...]
-    # Processing dialect for the R-port export: "hemato" (default) or
-    # "solide" - see lvms_stat.processing.process_reports.
+    # Processing profile selects the unit-specific export processor.
     profile: str = "hemato"
 
     def report_by_key(self, job_key: str) -> UnitReport:
@@ -103,7 +104,9 @@ def _reports(raw: Mapping[str, object]) -> tuple[UnitReport, ...]:
         fetch_id_raw = item.get("fetch_report_id")
         if isinstance(fetch_id_raw, str) and fetch_id_raw.strip():
             fetch_report_id = fetch_id_raw.strip()
-            if not OUTPUT_STEM_PATTERN.fullmatch(fetch_report_id):
+            if not (OUTPUT_STEM_PATTERN.fullmatch(fetch_report_id) or fetch_report_id in {
+                "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "PAT-EGEN PRODUKSJON", "PAT-EGEN MAKRO", "PAT-TID-STØP-SNITT-OU"
+            }):
                 raise UnitsConfigError(
                     "unit report fetch id is invalid"
                 )
@@ -114,7 +117,7 @@ def _reports(raw: Mapping[str, object]) -> tuple[UnitReport, ...]:
         codes_raw = item.get("analysis_codes")
         report_codes: tuple[str, ...] | None = None
         if codes_raw is not None:
-            if not isinstance(codes_raw, list) or not 1 <= len(codes_raw) <= 500:
+            if not isinstance(codes_raw, list) or len(codes_raw) > 500:
                 raise UnitsConfigError(
                     "unit report analysis codes are invalid"
                 )
@@ -140,6 +143,8 @@ def _reports(raw: Mapping[str, object]) -> tuple[UnitReport, ...]:
                 fetch_report_id=fetch_report_id,
                 report_id=report_id,
                 analysis_codes=report_codes,
+                laboratory=item.get("laboratory", ""),
+                process_codes=tuple(item.get("process_codes", [])),
             )
         )
     return tuple(reports)
@@ -147,7 +152,7 @@ def _reports(raw: Mapping[str, object]) -> tuple[UnitReport, ...]:
 
 def _analysis_codes(raw: Mapping[str, object]) -> tuple[str, ...]:
     items = raw.get("analysis_codes")
-    if not isinstance(items, list) or not 1 <= len(items) <= 500:
+    if not isinstance(items, list) or len(items) > 500:
         raise UnitsConfigError("unit analysis codes are invalid")
     codes: list[str] = []
     for item in items:
@@ -162,8 +167,8 @@ def _analysis_codes(raw: Mapping[str, object]) -> tuple[str, ...]:
 
 def _profile(raw: Mapping[str, object]) -> str:
     value = raw.get("profile", "hemato")
-    if not isinstance(value, str) or value not in ("hemato", "solide"):
-        raise UnitsConfigError("unit profile must be \"hemato\" or \"solide\"")
+    if not isinstance(value, str) or value not in ("hemato", "solide", "flow", "fish", "pre", "lege"):
+        raise UnitsConfigError("unit profile is invalid")
     return value
 
 
@@ -191,6 +196,8 @@ def validate_units(raw: object) -> tuple[Unit, ...]:
                 profile=_profile(raw_unit),
             )
         )
+        if not units[-1].analysis_codes and units[-1].profile != "lege":
+            raise UnitsConfigError("unit analysis codes are invalid")
     return tuple(units)
 
 

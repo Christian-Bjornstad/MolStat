@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "key": "lege",
+  "label": "Patologer",
+  "profile": "lege",
+  "statistics": {
+    "workflow": {
+      "job_key": "workflow",
+      "fetch_report_id": "PAT-TID-STØP-SNITT-OU",
+      "report_id": "PAT-TID-STOP-SNITT-OU",
+      "analysis_codes": [],
+      "laboratory": "OU-PAT-HIST-RA",
+      "process_codes": [
+        "BEN-BLØTVEV",
+        "GI",
+        "GYN",
+        "HEMATO",
+        "HEMATO BENMARG",
+        "HJERTE-TX",
+        "HODE-HALS-ORAL",
+        "HUD",
+        "IKKE NEOPLASTISK NYR",
+        "LEVER",
+        "LUNGE-TX",
+        "MAMMA",
+        "NEVRO BIOPSI",
+        "NEVRO MUSKEL",
+        "NEVRO OBD MUSKEL",
+        "SOLIDE SVULSTER BARN",
+        "TARMSCREENING",
+        "THORAX",
+        "THYREOIDEA",
+        "URO",
+        "ØYE"
+      ]
+    }
+  },
+  "backlog": null
+}

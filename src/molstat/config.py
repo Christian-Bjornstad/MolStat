@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
-from urllib.parse import urlparse
+from typing import Any
+from uuid import uuid4
+
+
+SETTINGS_SCHEMA_VERSION = 3
+ACTIVE_UNIT_KEYS = ("hemato", "solide", "flow", "fish", "pre", "lege")
+DEFAULT_ENABLED_UNIT_KEYS = ("hemato", "solide")
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,10 +21,11 @@ class MolStatSettings:
     statistics_hour: int = 5
     backlog_first_hour: int = 6
     backlog_last_hour: int = 18
-    statistics_lookup_paths: dict[str, Path] = field(default_factory=dict)
     lvms_config_path: Path | None = None
     lvms_url: str = ""
-    power_bi_report_url: str = ""
+    enabled_units: tuple[str, ...] = DEFAULT_ENABLED_UNIT_KEYS
+    unit_config_paths: dict[str, Path] = field(default_factory=dict)
+    backlog_config_paths: dict[str, Path] = field(default_factory=dict)
 
     def validate(self) -> tuple[str, ...]:
         errors: list[str] = []
@@ -25,66 +33,279 @@ class MolStatSettings:
             self.sensitive_root, self.sharepoint_root
         ):
             errors.append("K-sensitiv og SharePoint må være ulike mapper.")
-        if self.power_bi_report_url and not _valid_power_bi_url(
-            self.power_bi_report_url
-        ):
-            errors.append(
-                "Power BI-lenken må være en HTTPS-lenke på app.powerbi.com."
-            )
+        elif self.sharepoint_root is not None:
+            sensitive, public = self.sensitive_root.resolve(), self.sharepoint_root.resolve()
+            if sensitive.is_relative_to(public) or public.is_relative_to(sensitive):
+                errors.append("K-sensitiv og SharePoint kan ikke ligge inni hverandre.")
+        if type(self.statistics_hour) is not int or not 0 <= self.statistics_hour <= 23:
+            errors.append("Klokkeslett for statistikk må være mellom 0 og 23.")
+        if type(self.backlog_first_hour) is not int or not 0 <= self.backlog_first_hour <= 23:
+            errors.append("Første restansetime må være mellom 0 og 23.")
+        if type(self.backlog_last_hour) is not int or not 0 <= self.backlog_last_hour <= 23:
+            errors.append("Siste restansetime må være mellom 0 og 23.")
+        if (type(self.backlog_first_hour) is int and type(self.backlog_last_hour) is int
+                and self.backlog_first_hour > self.backlog_last_hour):
+            errors.append("Første restansetime kan ikke være etter siste time.")
+        unknown = set(self.enabled_units) - set(ACTIVE_UNIT_KEYS)
+        if unknown:
+            errors.append("Ukjent aktiv enhet: " + ", ".join(sorted(unknown)))
+        if len(self.enabled_units) != len(set(self.enabled_units)):
+            errors.append("Enhetslisten inneholder duplikater.")
+        unknown_paths = set(self.unit_config_paths) - set(ACTIVE_UNIT_KEYS)
+        if unknown_paths:
+            errors.append("Ukjent enhet for filsti: " + ", ".join(sorted(unknown_paths)))
+        if set(self.backlog_config_paths) - {"hemato", "solide"}:
+            errors.append("Restansefil kan bare velges for Hemato og Solide.")
         return tuple(errors)
 
-    def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = asdict(self)
-        payload["sensitive_root"] = str(self.sensitive_root)
-        payload["sharepoint_root"] = (
-            str(self.sharepoint_root) if self.sharepoint_root is not None else None
-        )
-        payload["statistics_lookup_paths"] = {
-            unit: str(value)
-            for unit, value in self.statistics_lookup_paths.items()
+    def to_transfer_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": SETTINGS_SCHEMA_VERSION,
+            "sensitive_root": str(self.sensitive_root),
+            "sharepoint_root": (
+                str(self.sharepoint_root)
+                if self.sharepoint_root is not None
+                else None
+            ),
+            "lvms_url": self.lvms_url,
+            "schedules": {
+                "statistics_hour": self.statistics_hour,
+                "backlog_first_hour": self.backlog_first_hour,
+                "backlog_last_hour": self.backlog_last_hour,
+            },
+            "units": {
+                key: {
+                    "enabled": key in self.enabled_units,
+                    "config_path": str(self.unit_config_paths.get(key, "")),
+                    "backlog_config_path": str(self.backlog_config_paths.get(key, "")),
+                }
+                for key in ACTIVE_UNIT_KEYS
+            },
         }
+
+    @classmethod
+    def from_transfer_payload(
+        cls, payload: Mapping[str, object]
+    ) -> MolStatSettings:
+        settings = cls._from_versioned_payload(
+            payload, allow_local_runtime=False
+        )
+        _raise_validation_error(settings)
+        return settings
+
+    def save(self, path: Path) -> None:
+        _raise_validation_error(self)
+        payload = self.to_transfer_payload()
         payload["lvms_config_path"] = (
-            str(self.lvms_config_path) if self.lvms_config_path is not None else None
+            str(self.lvms_config_path)
+            if self.lvms_config_path is not None
+            else None
         )
-        temporary = path.with_name(f".{path.name}.tmp")
-        temporary.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        os.replace(temporary, path)
+        _write_json_atomic(path, payload)
+
+    def export_to(self, path: Path) -> None:
+        _raise_validation_error(self)
+        _write_json_atomic(path, self.to_transfer_payload())
 
     @classmethod
     def load(cls, path: Path) -> MolStatSettings:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        payload["sensitive_root"] = Path(payload["sensitive_root"])
-        if payload.get("sharepoint_root") is not None:
-            payload["sharepoint_root"] = Path(payload["sharepoint_root"])
-        payload["statistics_lookup_paths"] = {
-            str(unit): Path(value)
-            for unit, value in payload.get("statistics_lookup_paths", {}).items()
-        }
-        if payload.get("lvms_config_path") is not None:
-            payload["lvms_config_path"] = Path(payload["lvms_config_path"])
-        return cls(**payload)
+        payload = _read_json_object(path)
+        payload.pop("power_bi_report_url", None)
+        if "schema_version" not in payload:
+            settings = cls._from_legacy_payload(payload)
+        else:
+            settings = cls._from_versioned_payload(payload, allow_local_runtime=True)
+        _raise_validation_error(settings)
+        return settings
+
+    @classmethod
+    def import_from(cls, path: Path) -> MolStatSettings:
+        payload = _read_json_object(path)
+        return cls.from_transfer_payload(payload)
+
+    @classmethod
+    def _from_legacy_payload(
+        cls, payload: Mapping[str, object]
+    ) -> MolStatSettings:
+        sensitive_root = _required_root(payload)
+        sharepoint_root = _optional_string(payload, "sharepoint_root")
+        lvms_config = _optional_string(payload, "lvms_config_path")
+        settings = cls(
+            sensitive_root=Path(sensitive_root),
+            sharepoint_root=Path(sharepoint_root) if sharepoint_root else None,
+            statistics_hour=_legacy_hour(payload, "statistics_hour", 5),
+            backlog_first_hour=_legacy_hour(payload, "backlog_first_hour", 6),
+            backlog_last_hour=_legacy_hour(payload, "backlog_last_hour", 18),
+            lvms_config_path=Path(lvms_config) if lvms_config else None,
+            lvms_url=_optional_string(payload, "lvms_url") or "",
+            enabled_units=DEFAULT_ENABLED_UNIT_KEYS,
+        )
+        return settings
+
+    @classmethod
+    def _from_versioned_payload(
+        cls,
+        payload: Mapping[str, object],
+        *,
+        allow_local_runtime: bool,
+    ) -> MolStatSettings:
+        version = payload.get("schema_version")
+        if type(version) is not int or version not in (2, SETTINGS_SCHEMA_VERSION):
+            raise ValueError("Ukjent skjemaversjon for MolStat-innstillinger.")
+        allowed = {"schema_version", "sensitive_root", "sharepoint_root", "lvms_url", "schedules", "units"}
+        if allow_local_runtime:
+            allowed.add("lvms_config_path")
+        elif "lvms_config_path" in payload:
+            raise ValueError("Overføringsfilen inneholder lokale runtime-data.")
+        _reject_unknown_fields(payload, allowed, "innstillinger")
+
+        schedules = payload.get("schedules")
+        if not isinstance(schedules, Mapping):
+            raise ValueError("Innstillingsfilen mangler gyldige klokkeslett.")
+        _reject_unknown_fields(schedules, {"statistics_hour", "backlog_first_hour", "backlog_last_hour"}, "schedules")
+        units = payload.get("units")
+        if not isinstance(units, Mapping):
+            raise ValueError("Innstillingsfilen mangler gyldige enheter.")
+        unknown_units = set(map(str, units)) - set(ACTIVE_UNIT_KEYS)
+        if unknown_units:
+            raise ValueError(
+                "Ukjent enhetsnøkkel: " + ", ".join(sorted(unknown_units))
+            )
+
+        enabled: list[str] = []
+        configs: dict[str, Path] = {}
+        backlogs: dict[str, Path] = {}
+        for key in ACTIVE_UNIT_KEYS:
+            raw_unit = units.get(key, {"enabled": False})
+            if not isinstance(raw_unit, Mapping):
+                raise ValueError(f"Innstillingene for {key} må være et objekt.")
+            _reject_unknown_fields(raw_unit, {"enabled", "statistics_lookup_path", "config_path", "backlog_config_path"}, key)
+            is_enabled = raw_unit.get("enabled", False)
+            if type(is_enabled) is not bool:
+                raise ValueError(f"Aktivering for {key} må være sann eller usann.")
+            if is_enabled:
+                enabled.append(key)
+            config = raw_unit.get("config_path", "")
+            if not isinstance(config, str):
+                raise ValueError(f"Enhetsfil for {key} må være tekst.")
+            if config:
+                configs[key] = Path(config)
+            backlog = raw_unit.get("backlog_config_path", "")
+            if not isinstance(backlog, str):
+                raise ValueError(f"Restansefil for {key} må være tekst.")
+            if backlog:
+                backlogs[key] = Path(backlog)
+
+        lvms_config: str | None = None
+        if allow_local_runtime:
+            lvms_config = _optional_string(payload, "lvms_config_path")
+        elif "lvms_config_path" in payload:
+            raise ValueError("Overføringsfilen inneholder lokale runtime-data.")
+
+        settings = cls(
+            sensitive_root=Path(_required_root(payload)),
+            sharepoint_root=(
+                Path(value)
+                if (value := _optional_string(payload, "sharepoint_root"))
+                else None
+            ),
+            statistics_hour=_required_hour(schedules, "statistics_hour"),
+            backlog_first_hour=_required_hour(schedules, "backlog_first_hour"),
+            backlog_last_hour=_required_hour(schedules, "backlog_last_hour"),
+            lvms_config_path=Path(lvms_config) if lvms_config else None,
+            lvms_url=_required_string(payload, "lvms_url"),
+            enabled_units=tuple(enabled),
+            unit_config_paths=configs,
+            backlog_config_paths=backlogs,
+        )
+        return settings
+
+
+def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+            json.dump(payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"), object_pairs_hook=_unique_json_keys)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Ugyldig JSON i {path.name}, linje {error.lineno}, kolonne {error.colno}.") from error
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"Kunne ikke lese MolStat-innstillingene i {path.name}.") from error
+    if not isinstance(payload, dict):
+        raise ValueError("MolStat-innstillingene må være et JSON-objekt.")
+    return payload
+
+
+def _unique_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"MolStat-innstillingene inneholder duplikat JSON-nøkkel: {key}.")
+        result[key] = value
+    return result
+
+
+def _reject_unknown_fields(payload: Mapping[str, object], allowed: set[str], field: str) -> None:
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ValueError(f"Ukjente felt i {field}: " + ", ".join(sorted(unknown)))
+
+
+def _required_root(payload: Mapping[str, object]) -> str:
+    value = _required_string(payload, "sensitive_root").strip()
+    if not value:
+        raise ValueError("K-sensitiv mappe må fylles ut.")
+    return value
+
+
+def _required_string(payload: Mapping[str, object], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise ValueError(f"Feltet {key} må være tekst.")
+    return value
+
+
+def _optional_string(payload: Mapping[str, object], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Feltet {key} må være tekst eller tomt.")
+    return value
+
+
+def _required_hour(payload: Mapping[str, object], key: str) -> int:
+    value = payload.get(key)
+    if type(value) is not int:
+        raise ValueError(f"Feltet {key} må være et heltall.")
+    return value
+
+
+def _legacy_hour(payload: Mapping[str, object], key: str, default: int) -> int:
+    value = payload.get(key, default)
+    if type(value) is not int:
+        raise ValueError(f"Feltet {key} må være et heltall.")
+    return value
+
+
+def _raise_validation_error(settings: MolStatSettings) -> None:
+    errors = settings.validate()
+    if errors:
+        raise ValueError(errors[0])
 
 
 def _same_path(first: Path, second: Path) -> bool:
     return os.path.normcase(str(first.resolve())) == os.path.normcase(
         str(second.resolve())
-    )
-
-
-def _valid_power_bi_url(value: str) -> bool:
-    try:
-        parsed = urlparse(value.strip())
-        port = parsed.port
-    except ValueError:
-        return False
-    return (
-        parsed.scheme == "https"
-        and parsed.hostname == "app.powerbi.com"
-        and parsed.username is None
-        and parsed.password is None
-        and port in (None, 443)
     )

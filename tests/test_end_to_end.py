@@ -1,4 +1,6 @@
+from unit_fixtures import analysis_codes
 import csv
+from typing import Mapping
 from datetime import date, datetime
 from pathlib import Path
 import re
@@ -15,9 +17,71 @@ from molstat.backlog import (
 from molstat.database import MolStatDatabase
 from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from molstat.lvms.report import ReportRequest
-from molstat.publisher import PublicationPolicy, SharePointPublisher
+from molstat.publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from molstat.statistics import StatisticsProcessor, StatisticsResult
 from molstat.system import MolStatSystem
+import molstat.system as system_module
+from molstat.modules import DEFAULT_UNITS
+
+
+def test_statistics_only_system_returns_safe_empty_public_board(tmp_path):
+    database = MolStatDatabase(tmp_path / "data.sqlite3")
+    system = MolStatSystem(
+        database=database, archive=RawArchive(tmp_path), statistics_processors={},
+        backlog_processor=None, publisher={}, sharepoint_root=tmp_path / "public",
+        work_root=tmp_path / "work", statistics_fetch=lambda _keys: {},
+        backlog_fetch=lambda: None,
+    )
+    now = datetime(2026, 10, 7, 12, 0)
+    assert system.public_snapshot(now) == {
+        "schemaVersion": 1, "generatedAt": now.isoformat(),
+        "unitLabel": "Ingen aktiv restanseenhet", "isStale": True,
+        "totals": {"ready": 0, "awaitingApproval": 0, "inTransit": 0, "overdue": 0},
+        "emptyAnalysisCount": 0, "analyses": [],
+    }
+    assert not database.path.exists()
+
+
+def test_pathologist_facts_stay_in_sensitive_powerbi_folder(tmp_path: Path) -> None:
+    sensitive = tmp_path / "sensitive"
+    public = tmp_path / "sharepoint"
+    database = MolStatDatabase(sensitive / "data" / "molstat.sqlite3")
+    database.migrate()
+    download = tmp_path / "download.csv"
+    download.write_text("private source", encoding="utf-8")
+
+    class Processor:
+        def process(self, unit, raw_files, output_dir):
+            assert unit == "lege" and len(raw_files) == 1
+            output_dir.mkdir(parents=True)
+            aggregate = output_dir / "prosess.csv"
+            _write(aggregate, ["Maaned", "Profil", "Lab", "Prosesskode", "Prosessgruppe",
+                               "AntallProver", "AntallBlokker", "AntallGlass", "UttrekkTom"],
+                   [["2026-09-01", "HISTO", "OU", "HEMATO", "Hemato Flow", "1", "2", "3", "2026-09-24"]])
+            fact = output_dir / "FactPatologRolle.csv"
+            _write(fact, ["SampleID", "Brukernavn"], [["PRIVATE-1", "ESP"]])
+            return StatisticsResult(aggregate, aggregate, {"prosess": 1},
+                                    publication_files={"prosess.csv": aggregate},
+                                    private_files={"FactPatologRolle.csv": fact})
+
+    capability = DEFAULT_UNITS.require("lege").capability("statistics")
+    publisher = SharePointPublisher(PublicationPolicy(capability.allowed_columns, default_forbidden_patterns()))
+    request = ReportRequest("statistics", "lege", "PAT-PROSESS-CURRENT-OU",
+                            date(2026, 9, 1), date(2026, 9, 24))
+    system = MolStatSystem(
+        database=database, archive=RawArchive(sensitive),
+        statistics_processors={"lege": Processor()}, backlog_processor=None,
+        publisher={"lege": publisher}, sharepoint_root=public,
+        work_root=sensitive / "processed",
+        statistics_fetch=lambda _keys: {"lege": ((request, download),)},
+        backlog_fetch=lambda: None,
+    )
+
+    system.run_statistics_unit("lege")
+
+    assert (public / "lege" / "prosess.csv").is_file()
+    assert not (public / "lege" / "FactPatologRolle.csv").exists()
+    assert "PRIVATE-1" in (sensitive / "processed" / "lege" / "powerbi" / "FactPatologRolle.csv").read_text(encoding="utf-8-sig")
 
 
 class SyntheticStatisticsProcessor:
@@ -129,7 +193,9 @@ def test_complete_flow_keeps_identifiers_out_of_public_outputs(tmp_path: Path) -
         publisher=publisher,
         sharepoint_root=sharepoint,
         work_root=sensitive / "work",
-        statistics_fetch=lambda: {"hemato": ((statistics_request, stats_download),)},
+        statistics_fetch=lambda _unit_keys=None: {
+            "hemato": ((statistics_request, stats_download),)
+        },
         backlog_fetch=lambda: (backlog_request, backlog_download),
     )
 
@@ -141,10 +207,11 @@ def test_complete_flow_keeps_identifiers_out_of_public_outputs(tmp_path: Path) -
     assert not backlog_download.exists()
     archived_text = " ".join(
         path.read_text(errors="ignore")
-        for path in (sensitive / "raw").rglob("*.csv")
+        for path in (sensitive / "data" / "raw").rglob("*.csv")
     )
     assert "SECRET-STAT-RAW" in archived_text
     assert "SECRET-BACKLOG-42" in archived_text
+    assert len(list((sensitive / "data" / "raw" / "backlog").rglob("*.csv"))) == 1
     public_text = repr(snapshot) + " ".join(
         path.read_text(encoding="utf-8-sig")
         for path in sharepoint.rglob("*.csv")
@@ -178,7 +245,7 @@ def test_second_statistics_run_publishes_complete_deduplicated_history(
         )
         return request, source
 
-    def fetch_statistics():
+    def fetch_statistics(_unit_keys=None):
         nonlocal calls
         calls += 1
         values = ["historical", "overlap"] if calls == 1 else ["overlap", "latest"]
@@ -197,8 +264,9 @@ def test_second_statistics_run_publishes_complete_deduplicated_history(
         output_dir: Path,
         *,
         profile: str,
+        molstat_ids: Mapping[str, str],
     ) -> dict[str, int]:
-        del extraction, lookup_path, profile
+        del extraction, lookup_path, profile, molstat_ids
         output_dir.mkdir(parents=True, exist_ok=True)
         row_counts: dict[str, int] = {}
         for name, source in (("antall", ordered), ("resultater", answered)):
@@ -225,7 +293,7 @@ def test_second_statistics_run_publishes_complete_deduplicated_history(
         database=database,
         archive=RawArchive(sensitive),
         statistics_processors={
-            "hemato": StatisticsProcessor(tmp_path / "unused-lookup.xlsx")
+            "hemato": StatisticsProcessor(analysis_codes=analysis_codes("hemato"))
         },
         backlog_processor=object(),
         publisher=publisher,
@@ -300,7 +368,7 @@ def test_two_backlog_hours_publish_complete_identifier_free_history(
     backlog_publisher = SharePointPublisher(
         PublicationPolicy(
             allowed_columns={
-                "restansehistorikk.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
+                "restansehistorikk_hemato.csv": frozenset(BACKLOG_PUBLIC_COLUMNS)
             },
             forbidden_patterns=(
                 re.compile(r"sample[ ._-]*id", re.I),
@@ -318,26 +386,24 @@ def test_two_backlog_hours_publish_complete_identifier_free_history(
         backlog_publisher=backlog_publisher,
         sharepoint_root=sharepoint,
         work_root=sensitive / "work" / "processing",
-        statistics_fetch=lambda: {},
+        statistics_fetch=lambda _unit_keys=None: {},
         backlog_fetch=fetch_backlog,
     )
 
-    assert system.run_backlog()["published_rows"] == 2
+    assert system.run_backlog()["published_rows"] == 1
     clock[0] = datetime(2026, 9, 7, 11, 15)
-    assert system.run_backlog()["published_rows"] == 4
+    assert system.run_backlog()["published_rows"] == 2
 
-    public_file = sharepoint / "Prøveflyt" / "restansehistorikk.csv"
-    with public_file.open(encoding="utf-8", newline="") as stream:
+    public_file = sharepoint / "Prøveflyt" / "restansehistorikk_hemato.csv"
+    with public_file.open(encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream, delimiter=";"))
-    assert len(rows) == 4
+    assert len(rows) == 2
     assert {
-        (row["Observert_tidspunkt"], row["Analysegruppe_kode"])
+        (row["Observert_tidspunkt"], row["Analyse"])
         for row in rows
     } == {
-        ("2026-09-07T10:00:00", "KLONALITET"),
-        ("2026-09-07T10:00:00", "EMPTY"),
-        ("2026-09-07T11:00:00", "KLONALITET"),
-        ("2026-09-07T11:00:00", "EMPTY"),
+        ("2026-09-07T10:00:00", "IGH-OU"),
+        ("2026-09-07T11:00:00", "IGH-OU"),
     }
     with database._connect() as connection:
         current = connection.execute(
@@ -363,3 +429,50 @@ def _backlog_contract() -> CsvContract:
         },
         completed_values=("Completed",),
     )
+
+
+def test_run_all_continues_after_one_capability_fails() -> None:
+    calls: list[str] = []
+    system = MolStatSystem.__new__(MolStatSystem)
+    system.units = DEFAULT_UNITS
+
+    def run_capability(unit_key: str, job_kind: str) -> dict[str, int]:
+        label = f"{unit_key}:{job_kind}"
+        calls.append(label)
+        if label == "hemato:statistics":
+            raise RuntimeError("private test failure")
+        return {"rows": 2 if job_kind == "backlog" else 3}
+
+    system._run_capability = run_capability
+
+    runs = system.run_all(("hemato", "solide"))
+
+    assert calls == [
+        "hemato:statistics",
+        "hemato:backlog",
+        "solide:statistics",
+        "solide:backlog",
+    ]
+    assert [
+        (run.unit_key, run.job_kind, run.error is None) for run in runs
+    ] == [
+        ("hemato", "statistics", False),
+        ("hemato", "backlog", True),
+        ("solide", "statistics", True),
+        ("solide", "backlog", True),
+    ]
+    assert isinstance(runs[0], system_module.CapabilityRun)
+
+
+def test_unit_target_runs_only_its_registered_capabilities() -> None:
+    calls: list[tuple[str, str]] = []
+    system = MolStatSystem.__new__(MolStatSystem)
+    system.units = DEFAULT_UNITS
+    system._run_capability = lambda unit, job: (
+        calls.append((unit, job)) or {"rows": 1}
+    )
+
+    runs = system.run_unit("solide")
+
+    assert calls == [("solide", "statistics"), ("solide", "backlog")]
+    assert len(runs) == 2

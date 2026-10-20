@@ -14,6 +14,7 @@ import os
 import site
 import sys
 import traceback
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -53,10 +54,19 @@ def _log_file() -> Path:
     return logs / "bootstrap.log"
 
 
-def _record_failure(stage: str, error: BaseException) -> None:
-    with _log_file().open("a", encoding="utf-8") as stream:
-        stream.write(f"\n[{stage}] {type(error).__name__}: {error}\n")
-        traceback.print_exception(type(error), error, error.__traceback__, file=stream)
+def _record_failure(stage: str, error: BaseException) -> Path | None:
+    for fallback in (False, True):
+        try:
+            path = Path(tempfile.gettempdir()) / "MolStat" / "logs" / "bootstrap.log" if fallback else _log_file()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(f"\n[{stage}] {type(error).__name__}: {error}\n")
+                stream.write(f"Startskript: {Path(__file__).resolve()}\nPython: {sys.executable}\n")
+                traceback.print_exception(type(error), error, error.__traceback__, file=stream)
+            return path
+        except OSError:
+            continue
+    return None
 
 
 def start(
@@ -77,9 +87,24 @@ def start(
     importlib.invalidate_caches()
 
     if app_main is None:
+        # Python FELLES may reuse an interactive interpreter after updating
+        # the application. sys.path changes alone do not replace cached modules.
+        for name in tuple(sys.modules):
+            if name == "molstat" or name.startswith("molstat."):
+                del sys.modules[name]
+        import molstat
+        origin = Path(molstat.__file__).resolve()
+        if not origin.is_relative_to(project / "src" / "molstat"):
+            raise RuntimeError(f"MolStat ble lastet fra feil programmappe: {origin}")
         from molstat.cli import main as app_main
 
     active_settings = settings_file or SETTINGS_FILE
+    print(f"MolStat-programmappe: {project}")
+    print(f"Innstillinger: {active_settings}")
+    try:
+        print(f"Oppstartslogg: {_log_file()}")
+    except OSError:
+        print("AppData-loggmappen er ikke tilgjengelig; ved feil brukes midlertidig mappe.")
     result = int(app_main(["gui", "--settings", str(active_settings)]) or 0)
     if result != 0:
         raise RuntimeError(f"MolStat stoppet med kode {result}.")
@@ -92,11 +117,14 @@ def main(*, project_dir: Path = PROJECT_DIR) -> int:
         activate_user_site()
         return start(project_dir=project_dir)
     except Exception as error:  # noqa: BLE001
-        _record_failure("molstat_start_failed", error)
+        log_path = _record_failure("molstat_start_failed", error)
         print()
         print("MolStat kunne ikke startes.")
         print(f"Feil: {error}")
-        print(f"Detaljer er skrevet til: {_log_file()}")
+        if log_path is not None:
+            print(f"Detaljer er skrevet til: {log_path}")
+        else:
+            print("Loggen kunne ikke skrives. Kopier feilmeldingen over.")
         return 1
 
 

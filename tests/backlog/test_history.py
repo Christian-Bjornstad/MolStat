@@ -1,6 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
-from molstat._backlog.history import build_history_rows, hour_slot
+from molstat._backlog.domain import BacklogDetail
+from molstat._backlog.history import (
+    build_detail_history_rows,
+    build_history_rows,
+    hour_slot,
+)
 from molstat.backlog import (
     AnalysisConfig,
     AppConfig,
@@ -78,3 +83,42 @@ def test_history_contains_every_enabled_group_with_shared_dashboard_rules() -> N
     assert empty.median_ready_hours is None
     assert empty.oldest_ready_hours is None
     assert empty.severity is Severity.EMPTY
+
+
+def test_detail_history_keeps_approved_text_and_drops_report_group() -> None:
+    observed = datetime(2026, 9, 7, 11, 42)
+    detail = BacklogDetail(
+        sample_id="SECRET-1",
+        analysis_code="A",
+        analysis_group="A",
+        material="Blod",
+        collected_at=datetime(2026, 9, 7, 8, 0),
+        arrived_at=datetime(2026, 9, 7, 9, 0),
+        ordered_at=datetime(2026, 9, 7, 9, 15),
+        analysis_priority="Høy",
+        request_priority="Vanlig",
+        analysis_status="Initial",
+        preliminary_status="Initial",
+        stage=WorkflowStage.READY,
+        analysis_result="Påvist – æøå",
+        external_analysis_comment="Ordrett kommentar",
+    )
+
+    row = build_detail_history_rows(
+        _config(),
+        (detail,),
+        observed,
+        analysis_lookup={
+            "A": {
+                "Nukleinsyre": "DNA",
+                "Rapportgruppe": "skal-ikke-med",
+                "Svarfrist": "14",
+            }
+        },
+        classifier_version=2,
+    )[0]
+
+    assert row.analysis_result == "Påvist – æøå"
+    assert row.external_analysis_comment == "Ordrett kommentar"
+    assert not hasattr(row, "report_group")
+    assert "SECRET-1" not in repr(row)

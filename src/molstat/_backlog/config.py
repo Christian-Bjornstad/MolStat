@@ -134,6 +134,10 @@ def load_app_config(path: Path) -> AppConfig:
     except json.JSONDecodeError as exc:
         raise ConfigError(f"ugyldig JSON: {exc}") from exc
 
+    return validate_app_config(raw)
+
+
+def validate_app_config(raw: object) -> AppConfig:
     if not isinstance(raw, dict):
         raise ConfigError("rot må være et objekt")
 

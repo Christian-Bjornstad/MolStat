@@ -7,6 +7,8 @@ from pathlib import Path
 
 from molstat.lvms.cdp import CdpTimeout, PageTarget, wait_for_page_target
 from molstat.lvms.edge import EdgeLaunchError, EdgeProcess
+from molstat.lvms.browser_runtime import BrowserCleanupError
+from molstat.recovery import check_cancelled, wait_before_retry
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,7 @@ def open_owned_browser(
         raise EdgeLaunchError("Edge startup attempts are invalid")
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
+        check_cancelled()
         edge: EdgeProcess | None = None
         try:
             edge = edge_start(profile)
@@ -34,8 +37,18 @@ def open_owned_browser(
         except (EdgeLaunchError, CdpTimeout) as exc:
             last_error = exc
             if edge is not None:
-                edge.close()
+                try:
+                    edge.close()
+                except Exception as cleanup:
+                    raise BrowserCleanupError("owned browser cleanup did not complete") from cleanup
             if attempt < attempts:
-                sleeper(attempt * 1.5)
+                wait_before_retry(attempt * 1.5, sleep=sleeper)
+        except BaseException:
+            if edge is not None:
+                try:
+                    edge.close()
+                except Exception as cleanup:
+                    raise BrowserCleanupError("owned browser cleanup did not complete") from cleanup
+            raise
     raise EdgeLaunchError("managed Microsoft Edge CDP could not be started") from last_error
 

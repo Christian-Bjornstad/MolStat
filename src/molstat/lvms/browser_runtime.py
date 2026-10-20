@@ -41,7 +41,7 @@ def open_page(
             stage("lvms_open")
         page.navigate(config.landing_url, config.expected_origin, timeout_seconds=120)
         return opened.edge, connection, page
-    except Exception as exc:
+    except BaseException as exc:
         if close_owned(connection, opened.edge):
             raise BrowserCleanupError(
                 "owned browser cleanup did not complete"

@@ -99,6 +99,7 @@ class SyntheticPage:
 
     def configure_downloads(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
+        self.harness.active_download_directory = directory
 
     def current_origin(self) -> str:
         return EXPECTED_ORIGIN
@@ -220,11 +221,12 @@ class SyntheticPage:
             self.values.clear()
         elif element_id == "export":
             self.harness.export_count += 1
-            destination = self.harness.config.download_directory / (
+            destination = self.harness.active_download_directory / (
                 f"synthetic-{self.harness.export_count}.csv"
             )
             destination.write_bytes(b"metric,count\nsynthetic,1\n")
         elif element_id in {
+            "report-type",
             "report-id",
             "notes",
             "analyses",
@@ -259,7 +261,7 @@ class SyntheticPage:
         self.values[self.focused] = text
 
     def press_key(self, key: str) -> None:
-        if key != "ENTER" or self.focused != "report-id":
+        if key not in {"ENTER", "TAB"} or self.focused not in {"report-type", "report-id"}:
             raise AssertionError(f"unexpected synthetic key {key}")
 
 

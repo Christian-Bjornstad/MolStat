@@ -47,3 +47,23 @@ def test_backlog_is_due_only_once_per_hour() -> None:
             "backlog": datetime(2026, 9, 2, 8, 1),
         },
     ) == ()
+
+
+def test_due_jobs_uses_configured_hours() -> None:
+    assert due_jobs(
+        datetime(2026, 9, 2, 4, 30),
+        {"statistics": None, "backlog": None},
+        statistics_hour=4,
+        backlog_first_hour=7,
+        backlog_last_hour=19,
+    ) == ("statistics",)
+    assert due_jobs(
+        datetime(2026, 9, 2, 19, 30),
+        {
+            "statistics": datetime(2026, 9, 2, 4, 1),
+            "backlog": None,
+        },
+        statistics_hour=4,
+        backlog_first_hour=7,
+        backlog_last_hour=19,
+    ) == ("backlog",)
