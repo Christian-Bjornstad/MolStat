@@ -5,7 +5,8 @@ import pytest
 
 from molstat.config import MolStatSettings
 from molstat.modules import DEFAULT_UNITS
-from molstat.unit_settings import default_unit_file, load_unit_file, load_active_units
+from molstat.unit_settings import load_unit_file, load_active_units
+from unit_fixtures import default_unit_file
 
 
 def test_solide_is_runnable_with_backlog_before_runtime_initialization():
@@ -20,7 +21,7 @@ def test_old_solide_unit_gets_backlog_without_changing_statistics(tmp_path):
     source.write_text(json.dumps(payload), encoding='utf-8')
     loaded = load_unit_file(source, 'solide')
     assert loaded.payload['statistics'] == payload['statistics']
-    assert loaded.payload['backlog']['analyses']['unit']['key'] == 'solide'
+    assert loaded.payload['backlog'] is None
 
 
 @pytest.mark.parametrize('key', ['hemato', 'solide'])
@@ -72,15 +73,20 @@ def test_save_creates_separate_editable_backlogs_and_runtime_uses_edits(tmp_path
     sensitive, public = tmp_path / 'sensitive', tmp_path / 'public'
     sensitive.mkdir()
     public.mkdir()
-    lookup = tmp_path / 'lookup.xlsx'
-    lookup.write_bytes(b'synthetic')
     service = DefaultServices(tmp_path / 'settings.json')
-    service.save_settings_fields({'sensitive_root': str(sensitive), 'sharepoint_root': str(public),
-        'lookup_hemato': str(lookup), 'lookup_solide': str(lookup), 'lvms_url': 'https://lvms.test/app'})
+    paths = {}
     for key in ('hemato', 'solide'):
-        path = service.settings.backlog_config_paths[key]
-        assert path == sensitive / 'config' / 'restanse' / f'{key}.json'
-        assert service.load_settings_fields()[f'backlog_{key}'] == str(path)
+        path = tmp_path / f'{key}-restanse.json'
+        payload = json.loads(default_unit_file(key).read_text('utf-8'))['backlog']
+        path.write_text(json.dumps(payload), encoding='utf-8')
+        paths[key] = path
+    service.save_settings_fields({'sensitive_root': str(sensitive), 'sharepoint_root': str(public),
+        'lvms_url': 'https://lvms.test/app',
+        **{f'config_{key}': str(default_unit_file(key)) for key in paths},
+        **{f'backlog_{key}': str(path) for key, path in paths.items()}})
+    for key, path in paths.items():
+        assert service.settings.backlog_config_paths[key] == path
+        assert not (sensitive / 'config').exists()
         payload = json.loads(path.read_text('utf-8'))
         payload['analyses']['thresholds']['warning_hours'] = 19
         path.write_text(json.dumps(payload), encoding='utf-8')

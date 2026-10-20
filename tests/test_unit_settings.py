@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from molstat.unit_settings import load_unit_file, default_unit_file, activate_unit_file
+from molstat.unit_settings import load_unit_file
+from unit_fixtures import default_unit_file
 
 
 def test_defaults_cover_separate_hemato_reports():
@@ -24,17 +25,6 @@ def test_bad_json_has_specific_diagnostic(tmp_path, contents, code):
         load_unit_file(path)
 
 
-def test_invalid_import_keeps_active_file(tmp_path):
-    root = tmp_path / "config"
-    active = activate_unit_file(default_unit_file("hemato"), root, "hemato")
-    before = active.read_bytes()
-    bad = tmp_path / "bad.json"
-    payload = json.loads(before)
-    payload["statistics"]["antall"]["analysis_codes"] = ["CALR-OU", "CALR-OU"]
-    bad.write_text(json.dumps(payload))
-    with pytest.raises(ValueError):
-        activate_unit_file(bad, root, "hemato")
-    assert active.read_bytes() == before
 
 
 def test_unknown_fields_and_csv_delimiter_are_rejected(tmp_path):
@@ -64,33 +54,8 @@ def test_changed_file_produces_new_snapshot(tmp_path):
     assert "SYNTHETIC-OU" in second.unit.reports[0].analysis_codes
 
 
-def test_active_snapshot_changes_only_between_runs(tmp_path):
-    from molstat.unit_settings import load_active_units, materialize_snapshot
-    active = activate_unit_file(default_unit_file("hemato"), tmp_path / "config", "hemato")
-    first = load_active_units(tmp_path, {}, ("hemato",))
-    snapshot = materialize_snapshot(tmp_path, first)
-    before = (snapshot / "units.json").read_bytes()
-    payload = json.loads(active.read_text(encoding="utf-8"))
-    payload["statistics"]["antall"]["analysis_codes"].append("SYNTHETIC-OU")
-    active.write_text(json.dumps(payload))
-    second = materialize_snapshot(tmp_path, load_active_units(tmp_path, {}, ("hemato",)))
-    assert second != snapshot
-    assert (snapshot / "units.json").read_bytes() == before
 
 
-def test_upgrade_preserves_edited_legacy_codes(tmp_path):
-    from molstat.unit_settings import upgrade_source
-    import shutil
-    legacy = tmp_path / "old"
-    shutil.copytree(Path("config"), legacy)
-    path = legacy / "units.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["units"]["hemato"]["analysis_codes"].append("CUSTOM-OU")
-    path.write_text(json.dumps(payload))
-    before = path.read_bytes()
-    migrated = load_unit_file(upgrade_source(tmp_path / "sensitive", "hemato", legacy))
-    assert "CUSTOM-OU" in migrated.payload["statistics"]["antall"]["analysis_codes"]
-    assert path.read_bytes() == before
 
 
 def test_backlog_report_requires_nonempty_groups(tmp_path):
@@ -115,7 +80,7 @@ def test_settings_persist_validated_unit_file_and_invalid_replacement_is_atomic(
               "enabled_solide": "false", "config_hemato": str(default_unit_file("hemato"))}
     service.save_settings_fields(values)
     active = service.settings.unit_config_paths["hemato"]
-    assert active.is_relative_to(sensitive / "config")
+    assert active == default_unit_file("hemato").resolve()
     before = service.settings_path.read_bytes()
     bad = tmp_path / "bad.json"
     bad.write_text('{"schema_version":')

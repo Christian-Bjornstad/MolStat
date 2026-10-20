@@ -34,10 +34,7 @@ def test_settings_round_trip_json(tmp_path: Path) -> None:
     expected = MolStatSettings(
         sensitive_root=tmp_path / "sensitive",
         sharepoint_root=tmp_path / "sharepoint",
-        statistics_lookup_paths={
-            "hemato": tmp_path / "lookup-hemato.xlsx",
-            "solide": tmp_path / "lookup-solide.xlsx",
-        },
+
         lvms_config_path=tmp_path / "lvms-config.json",
         enabled_units=("hemato",),
     )
@@ -70,13 +67,13 @@ def test_transfer_payload_is_versioned_and_excludes_local_runtime_data(
         lvms_url="https://lvms.example.invalid/clims/",
         lvms_config_path=tmp_path / "private-lvms.json",
         enabled_units=("hemato",),
-        statistics_lookup_paths={"hemato": tmp_path / "oppslag.xlsx"},
+
     )
 
     payload = settings.to_transfer_payload()
     serialized = json.dumps(payload, ensure_ascii=False).casefold()
 
-    assert payload["schema_version"] == config.SETTINGS_SCHEMA_VERSION == 2
+    assert payload["schema_version"] == config.SETTINGS_SCHEMA_VERSION == 3
     assert payload["units"]["hemato"]["enabled"] is True
     assert payload["units"]["solide"]["enabled"] is False
     for forbidden in (
@@ -95,7 +92,7 @@ def test_transfer_file_round_trips_utf8_norwegian_paths(tmp_path: Path) -> None:
     expected = MolStatSettings(
         sensitive_root=tmp_path / "K-sensitiv æøå",
         sharepoint_root=tmp_path / "Prøveflyt",
-        statistics_lookup_paths={"hemato": tmp_path / "Oppslag prøve.xlsx"},
+
         enabled_units=("hemato",),
         statistics_hour=4,
         backlog_first_hour=7,
@@ -169,9 +166,7 @@ def test_unversioned_settings_migrate_in_memory_with_active_defaults(
     assert settings.enabled_units == ("hemato", "solide")
     assert settings.statistics_hour == 4
     assert settings.backlog_first_hour == 7
-    assert settings.statistics_lookup_paths["solide"] == Path(
-        "K:/lookup-solide.xlsx"
-    )
+    assert not hasattr(settings, "statistics_lookup_paths")
 
 
 @pytest.mark.parametrize("reverse", [False, True])

@@ -2,7 +2,7 @@
 
 A unit is one clinical area (hemato, solide, ...) with its own report
 IDs. The unit configuration is data, not code: adding a new unit means
-editing ``units.json`` next to the app config, nothing else.
+editing the selected unit JSON. The app does not generate unit files.
 """
 
 from __future__ import annotations

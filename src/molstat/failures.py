@@ -22,7 +22,6 @@ MESSAGES = {
     "PRIVATE_FILES_RECOVERY": "Gjenoppretting av Power BI-filsettet ble blokkert. Lukk programmer som bruker filene. Behandlede kandidater og gjenopprettingsfiler er bevart; filsettet må kontrolleres før oppdatering.",
     "CSV_INVALID": "Uttrekket stemmer ikke med CSV-oppsettet eller inneholder ugyldige rader. Kontroller skilletegn, kolonner og datoformat i enhetsfilen.",
     "CONFIG_INVALID": "Enhetsfilen må rettes. Kontroller JSON-oppsettet for denne enheten i Innstillinger.",
-    "LOOKUP_INVALID": "Lookup-filen mangler eller er ugyldig. Kontroller lookup for denne enheten i Innstillinger.",
     "LVMS_CONFIG_INVALID": "LVMS-oppsettet må rettes. Kontroller adresse og nettleseroppsett i Innstillinger, eller importer uttrekk manuelt.",
 }
 

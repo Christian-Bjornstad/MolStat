@@ -1,3 +1,4 @@
+from unit_fixtures import analysis_codes
 import csv
 from datetime import date
 from pathlib import Path
@@ -5,7 +6,8 @@ from pathlib import Path
 from molstat._statistics import patolog_flow as flow
 from molstat.fetching import UnifiedLvmsFetcher
 from molstat.lvms.report_job import validate_report_job, load_report_jobs, batch_filename
-from molstat.unit_settings import load_unit_file, default_unit_file
+from molstat.unit_settings import load_unit_file
+from unit_fixtures import default_unit_file
 
 
 def export(path, arrival="01.09.2026 08:00", approved="", sample="T1"):
@@ -89,8 +91,7 @@ def test_empty_glass_and_signers_write_refreshable_headers(tmp_path):
 
 
 def test_complete_fetch_path_includes_current_workflow_month(tmp_path):
-    from molstat.unit_settings import materialize_snapshot
-    config = materialize_snapshot(tmp_path, {"lege": load_unit_file(default_unit_file("lege"))})
+    definition = load_unit_file(default_unit_file("lege"))
     jobs = []
     def runner(config, jobs_path, keys, **kwargs):
         job, = load_report_jobs(jobs_path)
@@ -103,7 +104,7 @@ def test_complete_fetch_path_includes_current_workflow_month(tmp_path):
             path.write_text("Profil;Lab;s_w_labprocess;Distinct_SampleId;Distinct_Ant. blokker;Distinct_Ant. glass\n", encoding="cp1252")
         return 0
     fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
-        work_root=tmp_path / "work", units_path=config / "units.json", backlog_report_path=tmp_path / "backlog.json",
+        work_root=tmp_path / "work", units=(definition.unit,),
         run_batch=runner, today=lambda: date(2026, 10, 18), history_from=date(2026, 10, 1))
     result = fetcher.fetch_statistics(("lege",))["lege"]
     workflow, = [request for request, _ in result if request.report_name == flow.STEM]
@@ -130,7 +131,7 @@ def test_processor_produces_all_seven_private_powerbi_tables(tmp_path):
         sources.append(path)
     source = tmp_path / "PAT-TID-STOP-SNITT-OU__2026-09-01__2026-09-30.csv"
     export(source)
-    result = StatisticsProcessor(Path(""), profile="lege", now=lambda: datetime(2026, 10, 18)).process(
+    result = StatisticsProcessor(analysis_codes=analysis_codes("lege"), profile="lege", now=lambda: datetime(2026, 10, 18)).process(
         "lege", [source], tmp_path / "out")
     assert set(result.private_files) == {name + ".csv" for name in ("Prøver", "Glass", "Signeringer", "Grupper", "Periode", "Leger", "Prioriteter")}
     assert result.row_counts["forlop_prover"] == 1
@@ -143,7 +144,9 @@ def test_existing_config_switches_to_only_workflow(tmp_path):
     raw["statistics"]["current"] = {"job_key": "current", "fetch_report_id": "PAT-ANTALL REGISTRERTE PRØVER PROSESS-OU", "report_id": "PAT-PROSESS-CURRENT-OU", "analysis_codes": []}
     path = tmp_path / "lege.json"
     path.write_text(json.dumps(raw), encoding="utf-8")
-    assert set(load_unit_file(path).payload["statistics"]) == {"workflow"}
+    import pytest
+    with pytest.raises(ValueError, match="statistics"):
+        load_unit_file(path)
 
 
 def test_pathology_file_lock_is_reported_without_secondary_lease_loss(tmp_path, monkeypatch):
@@ -183,7 +186,7 @@ def test_pathology_file_lock_is_reported_without_secondary_lease_loss(tmp_path, 
     monkeypatch.setattr(private, '_replace', lambda src, dest, sleep: original_retry(src, dest, lambda _: None))
     unit = DEFAULT_UNITS.require('lege')
     system = MolStatSystem(database=database, archive=RawArchive(sensitive),
-        statistics_processors={'lege': StatisticsProcessor(Path(''), profile='lege')},
+        statistics_processors={'lege': StatisticsProcessor(analysis_codes=analysis_codes('lege'), profile='lege')},
         backlog_processor=None, publisher=SharePointPublisher(PublicationPolicy(unit.capability('statistics').allowed_columns, ())),
         sharepoint_root=tmp_path / 'public', work_root=sensitive / 'processed',
         statistics_fetch=fetch, backlog_fetch=lambda: None, units=UnitRegistry((unit,)))

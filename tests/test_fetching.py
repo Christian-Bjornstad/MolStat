@@ -187,7 +187,7 @@ def test_fetcher_rejects_unknown_unit_before_running_lvms(tmp_path: Path) -> Non
 
 
 def test_plan_window_uses_three_day_overlap_from_last_archive(tmp_path: Path) -> None:
-    archive = tmp_path / "raw" / "statistics" / "hemato"
+    archive = tmp_path / "data" / "raw" / "statistics" / "hemato"
     archive.mkdir(parents=True)
     (archive / "REPORT__2026-08-01__2026-08-31.csv").write_text("x")
 
@@ -201,7 +201,7 @@ def test_plan_window_uses_three_day_overlap_from_last_archive(tmp_path: Path) ->
 
 
 def test_backlog_window_ignores_existing_raw_archives(tmp_path: Path) -> None:
-    archive = tmp_path / "raw" / "backlog" / "hemato"
+    archive = tmp_path / "data" / "raw" / "backlog" / "hemato"
     archive.mkdir(parents=True)
     (archive / "PAT-DIT-RESTANSE-OU__2026-09-01__2026-09-09.csv").write_text("x")
     runner = FakeBatchRunner()

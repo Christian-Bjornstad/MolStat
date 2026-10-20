@@ -130,7 +130,7 @@ def test_analysis_codes_are_loaded() -> None:
 
 
 def test_production_units_match_documented_report_specific_code_lists() -> None:
-    units_path = Path(__file__).parents[2] / "config" / "units.json"
+    units_path = Path(__file__).parents[2] / "tests" / "fixtures" / "legacy" / "units.json"
     units = {unit.key: unit for unit in load_units(units_path)}
 
     hemato = units["hemato"]

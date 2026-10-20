@@ -36,6 +36,6 @@ def test_restanse_fields_and_patolog_workflow_are_present_in_settings(qtbot):
         assert field.accessibleName()
         assert page.unit_panels[key].backlog_group.isHidden() is False
     assert 'PAT-TID-STØP-SNITT-OU' in page.unit_panels['lege'].workflow_hint.text()
-    assert page.unit_panels['lege'].lookup_group.isHidden()
+    assert not hasattr(page.unit_panels['lege'], 'lookup_group')
     assert not any(label.text() == 'Sensitive rådata forblir på K-sensitiv'
         for label in window.findChildren(QLabel))

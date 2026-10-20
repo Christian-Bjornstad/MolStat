@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import csv
 import json
+from .selection import AnalysisSelection, codes_for_report
+
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -26,15 +28,6 @@ RESULTATER_FIELDS = (
     "Svartid prøvetaking-godkjenning dager", "Svartid opprettet-godkjenning dager",
     "Svartid prøvetaking status", "Svartid opprettet status",
 )
-
-
-def read_lookup(path: Path) -> dict[str, dict[str, str]]:
-    with path.open(encoding="utf-8-sig", newline="") as handle:
-        rows = list(csv.DictReader(handle, delimiter=";"))
-    result = {row["Analyse"]: row for row in rows}
-    if len(rows) != len(result):
-        raise ValueError("FLOW lookup has duplicate analysis codes")
-    return result
 
 
 def parse_time(value: str | None) -> datetime | None:
@@ -72,8 +65,9 @@ def write_rows(path: Path, fields: tuple[str, ...], rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def process(ordered_file: Path, answered_file: Path, output_dir: Path, lookup_path: Path) -> dict:
-    lookup = read_lookup(lookup_path)
+def process(ordered_file: Path, answered_file: Path, output_dir: Path, analysis_codes: AnalysisSelection) -> dict:
+    ordered_codes = codes_for_report(analysis_codes, "antall")
+    result_codes = codes_for_report(analysis_codes, "resultater")
     raw_ordered = read_lvms_csv(ordered_file)
     raw_answered = read_lvms_csv(answered_file)
     antall = []
@@ -81,36 +75,35 @@ def process(ordered_file: Path, answered_file: Path, output_dir: Path, lookup_pa
     excluded = Counter()
     for row in raw_ordered:
         code = row.get("Analyse", "")
-        if code not in lookup:
+        if code not in ordered_codes:
             excluded[("antall", code)] += 1
             continue
         ordered = parse_time(row.get("Tidspunkt.analysebestilling"))
         antall.append({
             "Analyse": code,
             "Tidspunkt.analysebestilling": formatted(ordered),
-            "Rapportgruppe": lookup[code]["Rapportgruppe"],
+            "Rapportgruppe": "",
             "Svarfrist": "",
             "Maaned": ordered.month if ordered else "",
         })
     for row in raw_answered:
         code = row.get("Analyse", "")
-        if code not in lookup:
+        if code not in result_codes:
             excluded[("resultater", code)] += 1
             continue
         times = {field: parse_time(row.get(field)) for field in DATE_FIELDS}
         approval = times["Tidspunkt.godkjenning"]
         patient_days, patient_status = turnaround(times["Tidspunkt.prøvetaking"], approval)
         created_days, created_status = turnaround(times["Tidspunkt.opprettet"], approval)
-        info = lookup[code]
         resultater.append({
-            "Materiale": "",
+            "Materiale": row.get("Materiale", ""),
             "Analyse": code,
-            "Rapportgruppe": info["Rapportgruppe"],
+            "Rapportgruppe": "",
             **{field: formatted(value) for field, value in times.items()},
             "Svarfrist": "",
             "MolStat-ID": "",  # Only the secure MolStat registry may assign this.
-            "Pris2026NOK": info["Pris2026NOK"],
-            "Priskobling": info["Priskobling"],
+            "Pris2026NOK": "",
+            "Priskobling": "",
             "Svartid prøvetaking-godkjenning dager": patient_days,
             "Svartid opprettet-godkjenning dager": created_days,
             "Svartid prøvetaking status": patient_status,

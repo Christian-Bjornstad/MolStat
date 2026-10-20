@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .archive import RawArchive
+from .archive import RawArchive, remove_archived_download
 from ._backlog.export import export_backlog_history
 from .backlog import BacklogProcessor
 from .database import MolStatDatabase
@@ -149,15 +149,13 @@ class MolStatSystem:
         request, source = fetch()
         if request.kind != "backlog" or request.unit != unit_key:
             raise ValueError("Restanserapporten har feil type eller enhet.")
-        try:
-            imported = processor.import_snapshot(
-                source,
-                self.database,
-                date_from=request.date_from,
-                date_to=request.date_to,
-            )
-        finally:
-            source.unlink(missing_ok=True)
+        archived = self._archive_and_remove((request, source))
+        imported = processor.import_snapshot(
+            archived,
+            self.database,
+            date_from=request.date_from,
+            date_to=request.date_to,
+        )
         published_rows = 0
         if publisher is not None:
             filename = capability.publication_files[0][0]
@@ -290,5 +288,5 @@ class MolStatSystem:
     def _archive_and_remove(self, fetched: FetchedReport) -> Path:
         request, source = fetched
         archived = self.archive.store(source, request)
-        source.unlink()
+        remove_archived_download(source, self.archive.sensitive_root)
         return archived.path

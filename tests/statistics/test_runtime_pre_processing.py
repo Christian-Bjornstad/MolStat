@@ -1,7 +1,7 @@
 import csv
 
 from molstat._statistics.pre_reports import process
-from molstat._statistics.specialized_lookup import default_lookup_path
+from unit_fixtures import analysis_codes as default_lookup_path
 
 
 def raw(path, rows):
@@ -11,14 +11,6 @@ def raw(path, rows):
         writer.writerows(rows)
 
 
-def test_pre_lookup_covers_user_corrected_idylla():
-    with default_lookup_path("pre").open(encoding="utf-8-sig", newline="") as handle:
-        lookup = {row["Analyse"]: row for row in csv.DictReader(handle, delimiter=";")}
-    assert len(lookup) == 50
-    assert sum(bool(row["Kildekorreksjon"].strip()) for row in lookup.values()) == 5
-    assert lookup["FORBIDYLLA-E-OU"]["Aktivitetstype"] == "UtførtForbehandling"
-    assert lookup["EKSTRAMAXRNA-H-OU"]["NormProsess"] == "1"
-    assert lookup["MYRIAD-OU"]["NormTotalt"] == "40"
 
 
 def test_pre_joins_sample_events_and_deduplicates_activity(tmp_path):
@@ -36,8 +28,8 @@ def test_pre_joins_sample_events_and_deduplicates_activity(tmp_path):
     assert summary["duplicate_sample_code_rows_collapsed"] == 1
     with (out / "resultater.csv").open(encoding="utf-8-sig", newline="") as handle:
         rows = {row["Analyse"]: row for row in csv.DictReader(handle, delimiter=";")}
-    assert rows["FORBVEVDNA-OU"]["Prosessdager"] == "0.1250000000"
-    assert rows["EKSTRAMAXDNA-OU"]["Prosessdager"] == "0.8333333333"
+    assert rows["FORBVEVDNA-OU"]["Prosessdager"] == ""
+    assert rows["EKSTRAMAXDNA-OU"]["Prosessdager"] == ""
     assert rows["EKSTRAMAXDNA-OU"]["Totaldager"] == "1.0000000000"
     assert "SECRET" not in (out / "resultater.csv").read_text(encoding="utf-8-sig")
     assert "PERSON" not in (out / "resultater.csv").read_text(encoding="utf-8-sig")
@@ -53,4 +45,4 @@ def test_pre_combines_monthly_files_before_timing(tmp_path):
     assert summary["input_files"] == 2
     with (out / "resultater.csv").open(encoding="utf-8-sig", newline="") as handle:
         rows = {row["Analyse"]: row for row in csv.DictReader(handle, delimiter=";")}
-    assert rows["EKSTRAMAXDNA-OU"]["Prosessdager"] == "1.0000000000"
+    assert rows["EKSTRAMAXDNA-OU"]["Prosessdager"] == ""

@@ -41,7 +41,6 @@ from ._statistics.processing import (
     build_resultater_solide,
     clean_text,
     klassifiser_ekstraksjon,
-    load_lookup,
     parse_tidspunkt,
     process_reports,
     read_lvms_csv,
@@ -79,14 +78,16 @@ class StatisticsResult:
 class StatisticsProcessor:
     def __init__(
         self,
-        lookup_path: Path,
         *,
+        analysis_codes: set[str],
         profile: str = "hemato",
         database: MolStatDatabase | None = None,
         now: Callable[[], datetime] = datetime.now,
         report_ids: Mapping[str, str] | None = None,
+        report_codes: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
-        self.lookup_path = lookup_path
+        self.analysis_codes = set(analysis_codes)
+        self.selection = {role: frozenset(codes) for role, codes in report_codes.items()} if report_codes is not None else frozenset(analysis_codes)
         self.profile = profile
         self.database = database
         self._now = now
@@ -114,43 +115,7 @@ class StatisticsProcessor:
                     row_counts={"prosess": count, "forlop_prover": facts["audit"]["samples"], "forlop_glass": facts["audit"]["unique_glass"]},
                     publication_files={"prosess.csv": destination},
                     private_files={path.name: path for path in (output_dir / "forlop").glob("*.csv")})
-            from ._statistics.patolog_process import process
-            from .failures import RunFailure
-
-            if len(raw_files) not in {2, 3, 6, 7}:
-                raise ValueError("Patolograpporten krever inneværende og forrige måned.")
-            destination = output_dir / "prosess.csv"
-            try:
-                count = process(raw_files[0].parent, destination)
-            except ValueError as exc:
-                raise RunFailure("CSV_INVALID", "patolog/process/process_data") from exc
-            private_files = {}
-            row_counts = {"prosess": count}
-            if self.lookup_path != Path(""):
-                from ._statistics.patolog_reports import process as process_doctors
-
-                try:
-                    private_files.update(process_doctors(raw_files[0].parent, self.lookup_path, output_dir))
-                except ValueError as exc:
-                    raise RunFailure("CSV_INVALID", "patolog/process/doctor_data") from exc
-                for name, path in private_files.items():
-                    with path.open(encoding="utf-8-sig") as stream:
-                        row_counts[name] = max(sum(1 for _ in stream) - 1, 0)
-            from ._statistics import patolog_flow as flow
-            if any(path.name.startswith(flow.STEM + "__") for path in raw_files):
-                try:
-                    facts = flow.add_dimensions(flow.read_archive(raw_files[0].parent, as_of=self._now()))
-                    flow.write_data(output_dir / "forlop", facts)
-                except ValueError as exc:
-                    raise RunFailure("CSV_INVALID", "patolog/workflow/process_data") from exc
-                private_files.update({path.name: path for path in (output_dir / "forlop").glob("*.csv")})
-                row_counts.update({"forlop_prover": facts["audit"]["samples"], "forlop_glass": facts["audit"]["unique_glass"]})
-            return StatisticsResult(
-                antall=destination, resultater=destination,
-                row_counts=row_counts,
-                publication_files={"prosess.csv": destination},
-                private_files=private_files,
-            )
+            raise ValueError("Patolog krever PAT-TID-STØP-SNITT-OU. Velg et oppdatert JSON-oppsett.")
         if self.profile in {"flow", "fish", "pre"}:
             if self.report_ids is None:
                 raise ValueError("Rapport-ID-er mangler for spesialisert statistikkprofil.")
@@ -164,16 +129,16 @@ class StatisticsProcessor:
                 inputs[role] = _merge_archives(matches[0], merged_dir)
             if self.profile == "flow":
                 counts = flow_reports.process(
-                    inputs["antall"], inputs["resultater"], output_dir, self.lookup_path
+                    inputs["antall"], inputs["resultater"], output_dir, self.selection
                 )
                 antall_count, result_count = counts["antall"], counts["resultater"]
             elif self.profile == "fish":
                 counts = fish_reports.process(
-                    inputs["antall"], inputs["resultater"], output_dir, self.lookup_path
+                    inputs["antall"], inputs["resultater"], output_dir, self.selection
                 )
                 antall_count, result_count = counts["antall"], counts["resultater"]
             else:
-                counts = pre_reports.process(inputs["resultater"], output_dir, self.lookup_path)
+                counts = pre_reports.process(inputs["resultater"], output_dir, self.selection)
                 antall_count, result_count = 0, counts["activity_rows"]
             if self.database is not None:
                 interval_from, interval_to = _archive_interval(raw_files)
@@ -226,7 +191,7 @@ class StatisticsProcessor:
             ordered,
             answered,
             extraction,
-            self.lookup_path,
+            self.selection,
             output_dir,
             profile=self.profile,
             molstat_ids=molstat_ids,

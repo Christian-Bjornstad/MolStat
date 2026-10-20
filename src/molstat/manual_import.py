@@ -4,13 +4,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import copy
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 import csv
 from pathlib import Path
 import re
 import shutil
 from tempfile import TemporaryDirectory
 
+from .storage_layout import StorageLayout
 from ._statistics.processing import clean_text, parse_tidspunkt
 from .system import CapabilityRun, MolStatSystem
 from .unit_settings import UnitFile
@@ -37,11 +38,6 @@ def manual_import_roles(definition: UnitFile, job_kind: str) -> tuple[str, ...]:
         return ("backlog",)
     if job_kind != "statistics":
         raise ManualImportError("Velg statistikk eller restanse.")
-    if definition.unit.profile == "lege":
-        if set(definition.payload["statistics"]) == {"workflow"}:
-            return ("workflow",)
-        return ("current", "previous", "production_current", "production_previous",
-                "macro_current", "macro_previous")
     return tuple(definition.payload["statistics"])
 
 
@@ -107,53 +103,8 @@ def _validate_statistics_csv(path: Path, profile: str, role: str, request: Repor
         validate_month(path, request.date_from, request.date_to)
         return
     if profile == "lege":
-        from ._statistics.patolog_process import _count, _text
-        from ._statistics.patolog_reports import SOURCE_FIELDS, _moment
-        if role in {"current", "previous"}:
-            with path.open(encoding="cp1252", newline="") as stream:
-                first_line = next(stream, "")
-                if not first_line.strip().startswith("Totalt antall registrerte rekvisisjoner"):
-                    stream.seek(0)
-                reader = csv.reader(stream, delimiter=";", strict=True)
-                header = next(reader, [])
-                required = {"Profil", "Lab", "Distinct_SampleId", "Distinct_Ant. blokker", "Distinct_Ant. glass"}
-                if (not required <= set(header) or len(header) != len(set(header))
-                        or not ({"s_w_labprocess", "s_w_labprosess"} & set(header))):
-                    raise ManualImportError(f"{role}: prosessrapporten mangler forventede kolonner eller har duplikate kolonnenavn.")
-                for raw in reader:
-                    if not any(value.strip() for value in raw):
-                        continue
-                    if len(raw) != len(header):
-                        raise ManualImportError(f"{role}: en rad har feil antall kolonner.")
-                    row = dict(zip(header, raw))
-                    for name in ("Distinct_SampleId", "Distinct_Ant. blokker", "Distinct_Ant. glass"):
-                        _count(row[name])
-                    process_code = _text(row.get("s_w_labprocess") or row.get("s_w_labprosess"))
-                    if not _text(row["Profil"]) or not _text(row["Lab"]) or not process_code:
-                        raise ManualImportError(f"{role}: en rad mangler profil, lab eller prosesskode.")
-        else:
-            report_role = role.split("_")[0]
-            with path.open(encoding="cp1252", newline="") as stream:
-                next(stream, "")  # LVMS doctor exports begin with a report title.
-                reader = csv.reader(stream, delimiter=";", strict=True)
-                header = next(reader, [])
-                if not SOURCE_FIELDS[report_role] <= set(header) or len(header) != len(set(header)):
-                    raise ManualImportError(f"{role}: legerapporten mangler forventede kolonner eller har duplikate kolonnenavn.")
-                sample_column = "Antall prøver" if report_role == "production" else "SampleID"
-                user_column = "Godkjent av" if report_role == "production" else "Makro av"
-                for raw in reader:
-                    if not any(value.strip() for value in raw):
-                        continue
-                    if len(raw) != len(header):
-                        raise ManualImportError(f"{role}: en rad har feil antall kolonner.")
-                    row = {name: _text(value) for name, value in zip(header, raw)}
-                    if not row[sample_column] or not row[user_column]:
-                        raise ManualImportError(f"{role}: en rad mangler prøvenummer eller brukernavn.")
-                    for name in (("Godkj. når", "Ferdig farget") if report_role == "production" else ("Makro når",)):
-                        _moment(row[name])
-                    period_column = "Godkj. når" if report_role == "production" else "Makro når"
-                    _require_date_in_period(_moment(row[period_column]), request, role)
-        return
+        raise ManualImportError("Patolog krever kun workflow-rapporten PAT-TID-STØP-SNITT-OU.")
+
     with path.open(encoding="cp1252", newline="") as stream:
         reader = csv.reader(stream, delimiter=";", strict=True)
         header = [name.strip().replace(" ", ".") for name in next(reader, [])]
@@ -186,7 +137,7 @@ def _validate_statistics_csv(path: Path, profile: str, role: str, request: Repor
 def _copy_statistics_history(system: MolStatSystem, staging: Path,
                              requests: tuple[ReportRequest, ...], definition: UnitFile) -> None:
     """Probe the same history the real processor will read, without writes."""
-    existing = system.archive.sensitive_root / "raw" / "statistics" / requests[0].unit
+    existing = StorageLayout(system.archive.sensitive_root).raw_root / "statistics" / requests[0].unit
     replacing = {
         (request.report_name, request.date_from.isoformat(), request.date_to.isoformat())
         for request in requests
@@ -223,11 +174,6 @@ def _request(plan: ManualImportPlan, definition: UnitFile, role: str) -> ReportR
     if plan.job_kind == "backlog":
         report_id = definition.payload["backlog"]["report"]["output_stem"]
     else:
-        if definition.unit.profile == "lege":
-            report_role = role.split("_")[0]
-            if role == "previous" or role.endswith("_previous"):
-                end = start - timedelta(days=1)
-                start = end.replace(day=1)
         report_id = definition.payload["statistics"][report_role]["report_id"]
     return ReportRequest(plan.job_kind, plan.unit_key, report_id, start, end)
 
@@ -240,7 +186,7 @@ def process_manual_import(
     error = getattr(system, "capability_errors", {}).get((plan.unit_key, plan.job_kind))
     if error is not None:
         raise error
-    private_root = system.archive.sensitive_root / "work" / "manual-import"
+    private_root = StorageLayout(system.archive.sensitive_root).raw_root / ".imports"
     private_root.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix="import-", dir=private_root) as temporary:
         staging = Path(temporary)
@@ -283,7 +229,7 @@ def process_manual_import(
             try:
                 probe.process(plan.unit_key, tuple(path for _, path in reports), staging / "validation")
             except Exception as exc:
-                raise ManualImportError("Filsettet kunne ikke behandles. Kontroller rapportroller og lookup-fil.") from exc
+                raise ManualImportError("Filsettet kunne ikke behandles. Kontroller rapportroller og enhetsfil.") from exc
             selected.statistics_fetch = lambda _keys: {plan.unit_key: tuple(reports)}
             summary = selected.run_statistics_unit(plan.unit_key)
         else:

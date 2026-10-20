@@ -5,25 +5,23 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from dataclasses import replace
 import json
-import hashlib
 import os
 from pathlib import Path
 import socket
 import sqlite3
-import shutil
-from uuid import uuid4
 from threading import Event
 import traceback
 from urllib.parse import urlparse
 
 from .archive import RawArchive
+from .storage_layout import StorageLayout, prepare_storage_layout
 from .backlog import BacklogProcessor, CsvContract, CsvImportError
 from .backup import backup_before_migration
 from .config import MolStatSettings
 from .database import SCHEMA_VERSION, MolStatDatabase
 from .fetching import UnifiedLvmsFetcher
 from .failures import RunFailure, database_failure
-from .unit_settings import load_active_units, materialize_snapshot, load_unit_file, load_backlog_file, write_json, upgrade_source, UnitConfigError
+from .unit_settings import load_active_units, load_unit_file, load_backlog_file, write_json, UnitConfigError
 from ._backlog.config import validate_app_config
 from .delivery import retry_pending
 from .excel_search import read_excel_snapshot, publish_search_workbook
@@ -31,9 +29,7 @@ from .modules import DEFAULT_UNITS, UnitRegistry, configured_registry
 from .orchestrator import JobResult, MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
 from .schedule import due_jobs
-from .statistics import StatisticsProcessor, load_lookup
-from ._statistics.specialized_lookup import default_lookup_path
-from ._statistics.lege_lookup import default_lege_lookup_path, validate_lege_lookup
+from .statistics import StatisticsProcessor
 from .lvms.config import validate_app_config as validate_lvms_config
 from .system import CapabilityRun, MolStatSystem, ExcelRefreshStatus
 from .manual_import import ManualImportPlan, ManualImportError
@@ -155,16 +151,13 @@ class DefaultServices:
     def _database(self) -> MolStatDatabase:
         if self._settings_load_error:
             raise ValueError(self._settings_load_error)
-        if (self.settings.sensitive_root / "molstat.sqlite3").is_file():
-            raise ValueError("DB_LOCATION: Du har valgt selve databasemappen. Velg MolStat-roten som inneholder data-mappen; eksisterende database er bevart.")
-        database = MolStatDatabase(
-            self.settings.sensitive_root / "data" / "molstat.sqlite3"
-        )
+        layout = prepare_storage_layout(self.settings.sensitive_root)
+        database = MolStatDatabase(layout.database_path)
         if database.schema_version_if_present() == SCHEMA_VERSION:
             return database
         backup_before_migration(
             database,
-            self.settings.sensitive_root / "data" / "backups",
+            layout.backups_root,
         )
         database.migrate()
         return database
@@ -199,7 +192,6 @@ class DefaultServices:
             except Exception as exc:
                 definition_errors[key] = RunFailure("CONFIG_INVALID", "unit_configuration")
                 self._record_job_failure(f"{key}_configuration_failed", exc)
-        config_root = materialize_snapshot(self.settings.sensitive_root, definitions)
         valid_registry = configured_registry(definitions)
         valid_by_key = {unit.key: unit for unit in valid_registry}
         registry = UnitRegistry(tuple(
@@ -218,10 +210,9 @@ class DefaultServices:
                 lvms_config = self._ensure_lvms_config(local_root)
                 fetcher = UnifiedLvmsFetcher(
                     lvms_config_path=lvms_config, sensitive_root=self.settings.sensitive_root,
-                    work_root=self.settings.sensitive_root / "work" / "fetch",
-                    units_path=config_root / "units.json",
-                    backlog_report_path=config_root / "hemato" / "backlog-report.json",
-                    lege_lookup_path=self.settings.statistics_lookup_paths.get("lege") or default_lege_lookup_path(),
+                    work_root=StorageLayout(self.settings.sensitive_root).raw_root / ".jobs",
+                    units=tuple(item.unit for item in definitions.values()),
+                    backlog_reports={key: item.payload["backlog"]["report"] for key, item in definitions.items() if item.payload.get("backlog")},
                 )
             except Exception as exc:
                 fetch_error = RunFailure("LVMS_CONFIG_INVALID", "lvms_configuration")
@@ -238,34 +229,12 @@ class DefaultServices:
             publishers[definition.key] = SharePointPublisher(PublicationPolicy(
                 allowed_columns=capability.allowed_columns, forbidden_patterns=default_forbidden_patterns(),
             ))
-            lookup = self.settings.statistics_lookup_paths.get(definition.key)
-            if lookup is None and capability.processor_profile in {"flow", "fish", "pre"}:
-                lookup = default_lookup_path(capability.processor_profile)
-            if lookup is None and capability.processor_profile == "lege":
-                lookup = default_lege_lookup_path()
-            if capability.processor_profile == "lege" and set(definitions[definition.key].payload["statistics"]) == {"workflow"}:
-                lookup = Path("")
-            try:
-                if lookup is None:
-                    raise ValueError(f"Lookup-fil mangler for {definition.display_name}.")
-                if capability.processor_profile in {"flow", "fish", "pre"}:
-                    from ._statistics.specialized_lookup import validate_lookup
-                    validate_lookup(
-                        lookup, capability.processor_profile,
-                        set(definitions[definition.key].unit.analysis_codes),
-                    )
-                elif capability.processor_profile == "lege":
-                    if lookup != Path(""):
-                        validate_lege_lookup(lookup)
-                else:
-                    load_lookup(lookup)
-                statistics_processors[definition.key] = StatisticsProcessor(
-                    lookup, profile=capability.processor_profile, database=database,
-                    report_ids={role: report["report_id"] for role, report in definitions[definition.key].payload["statistics"].items()},
-                )
-            except Exception as exc:
-                capability_errors[(definition.key, "statistics")] = RunFailure("LOOKUP_INVALID", "statistics_configuration")
-                self._record_job_failure(f"{definition.key}_statistics_configuration_failed", exc)
+            statistics_processors[definition.key] = StatisticsProcessor(
+                profile=capability.processor_profile, database=database,
+                analysis_codes=set(definitions[definition.key].unit.analysis_codes),
+                report_codes={role: report["analysis_codes"] for role, report in definitions[definition.key].payload["statistics"].items()},
+                report_ids={role: report["report_id"] for role, report in definitions[definition.key].payload["statistics"].items()},
+            )
         backlog_processors, backlog_publishers, backlog_fetchers = {}, {}, {}
         for definition in valid_registry.for_job("backlog"):
             key = definition.key
@@ -274,20 +243,19 @@ class DefaultServices:
             contract = CsvContract(delimiter=raw["delimiter"], encoding=raw["encoding"],
                                    columns=raw["columns"], completed_values=tuple(raw["completed_values"]),
                                    classifier_version=raw["classifier_version"])
-            lookup = self.settings.statistics_lookup_paths.get(key)
             backlog_publishers[key] = SharePointPublisher(PublicationPolicy(
                 allowed_columns=definition.capability("backlog").allowed_columns,
                 forbidden_patterns=default_forbidden_patterns(),
             ))
             try:
                 backlog_processors[key] = BacklogProcessor(validate_app_config(payload["analyses"]), contract,
-                                                           analysis_lookup=load_lookup(lookup) if lookup else {})
+                                                           analysis_lookup={})
             except Exception as exc:
-                capability_errors[(key, "backlog")] = RunFailure("LOOKUP_INVALID", "backlog_configuration")
+                capability_errors[(key, "backlog")] = RunFailure("CONFIG_INVALID", "backlog_configuration")
                 self._record_job_failure(f"{key}_backlog_configuration_failed", exc)
             # Preserve the default no-argument hook for existing integrations.
             backlog_fetchers[key] = (backlog_fetch if key == "hemato" or fetcher is None else
-                                    lambda unit=key: fetcher.fetch_backlog(unit, config_root / unit / "backlog-report.json"))
+                                    lambda unit=key: fetcher.fetch_backlog(unit))
         system = MolStatSystem(
             database=database, archive=RawArchive(self.settings.sensitive_root),
             statistics_processors=statistics_processors,
@@ -296,7 +264,7 @@ class DefaultServices:
             excel_search_path=self.settings.sensitive_root / "Prøvesøk.xlsx",
             excel_failure_reporter=self._record_job_failure,
             sharepoint_root=self.settings.sharepoint_root,
-            work_root=self.settings.sensitive_root / "processed",
+            work_root=StorageLayout(self.settings.sensitive_root).processed_root,
             statistics_fetch=statistics_fetch, backlog_fetch=backlog_fetch,
             units=registry,
             capability_errors=capability_errors,
@@ -320,7 +288,7 @@ class DefaultServices:
                 label = "Oppsett må rettes" if len(errors) == len(unit.capabilities) else "Delvis klar"
                 detail = "; ".join(dict.fromkeys(
                     "Kontroller enhetsfilen i Innstillinger" if code == "CONFIG_INVALID"
-                    else "Kontroller lookup-filen i Innstillinger" for code in errors
+                    else "Kontroller enhetsoppsettet i Innstillinger" for code in errors
                 ))
                 self._unit_readiness[unit.key] = (label, detail)
             elif fetch_error is not None:
@@ -410,6 +378,8 @@ class DefaultServices:
                     raise error
                 return process_manual_import(system, plan, definition)
             except Exception as exc:
+                if isinstance(exc, UnitConfigError):
+                    self._unit_readiness[plan.unit_key] = ("Oppsett må rettes", "Kontroller enhetsfilen i Innstillinger")
                 return (CapabilityRun(plan.unit_key, plan.job_kind, {}, exc),)
 
         orchestrator = MolStatOrchestrator(
@@ -428,16 +398,6 @@ class DefaultServices:
             }
             fields.update(
                 {
-                    f"lookup_{unit.key}": (
-                        str(default_lookup_path(unit.key))
-                        if unit.key in {"flow", "fish", "pre"}
-                        else str(default_lege_lookup_path()) if unit.key == "lege" else ""
-                    )
-                    for unit in DEFAULT_UNITS.for_job("statistics")
-                }
-            )
-            fields.update(
-                {
                     f"enabled_{unit.key}": (
                         "true" if unit.key in self.settings.enabled_units else "false"
                     )
@@ -445,7 +405,6 @@ class DefaultServices:
                 }
             )
             return fields
-        lookups = self.settings.statistics_lookup_paths
         fields = {
             "sensitive_root": str(self.settings.sensitive_root),
             "sharepoint_root": (
@@ -457,16 +416,6 @@ class DefaultServices:
         }
         fields.update(
             {
-                f"lookup_{unit.key}": str(
-                    lookups.get(unit.key)
-                    or (default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"}
-                        else default_lege_lookup_path() if unit.key == "lege" else "")
-                )
-                for unit in DEFAULT_UNITS.for_job("statistics")
-            }
-        )
-        fields.update(
-            {
                 f"enabled_{unit.key}": (
                     "true" if unit.key in self.settings.enabled_units else "false"
                 )
@@ -476,8 +425,7 @@ class DefaultServices:
 
         for unit in DEFAULT_UNITS.active():
             configured = self.settings.unit_config_paths.get(unit.key)
-            conventional = self.settings.sensitive_root / "config" / "units" / f"{unit.key}.json"
-            fields[f"config_{unit.key}"] = str(configured or (conventional if conventional.is_file() else ""))
+            fields[f"config_{unit.key}"] = str(configured or "")
         fields.update({f"backlog_{key}": str(self.settings.backlog_config_paths.get(key, ""))
                        for key in ("hemato", "solide")})
         fields.update({key: str(getattr(self.settings, key)) for key in ("statistics_hour", "backlog_first_hour", "backlog_last_hour")})
@@ -560,16 +508,10 @@ class DefaultServices:
         if not sensitive_text:
             raise ValueError("K-sensitiv mappe må fylles ut.")
         sharepoint_text = values.get("sharepoint_root", "").strip()
-        lookups = {
-            unit.key: Path(text)
-            for unit in DEFAULT_UNITS.for_job("statistics")
-            if (text := values.get(f"lookup_{unit.key}", "").strip())
-        }
         updated = replace(
             self.settings,
             sensitive_root=Path(sensitive_text),
             sharepoint_root=Path(sharepoint_text) if sharepoint_text else None,
-            statistics_lookup_paths=lookups,
             statistics_hour=int(values.get("statistics_hour", self.settings.statistics_hour)),
             backlog_first_hour=int(values.get("backlog_first_hour", self.settings.backlog_first_hour)),
             backlog_last_hour=int(values.get("backlog_last_hour", self.settings.backlog_last_hour)),
@@ -584,75 +526,33 @@ class DefaultServices:
                 == "true"
             ),
         )
-        updated = replace(updated, statistics_lookup_paths={
-            **updated.statistics_lookup_paths,
-            **{
-                key: default_lookup_path(key)
-                for key in updated.enabled_units
-                if key in {"flow", "fish", "pre"}
-                and key not in updated.statistics_lookup_paths
-            },
-            **({"lege": default_lege_lookup_path()}
-               if "lege" in updated.enabled_units and "lege" not in updated.statistics_lookup_paths
-               else {}),
-        })
         errors = updated.validate()
         if errors:
             raise ValueError(errors[0])
         _validate_production_paths(updated)
-        candidates = {}
-        backlog_paths = dict(updated.backlog_config_paths)
-        new_backlogs = {}
-        for key in updated.enabled_units:
-            text = values.get(f"config_{key}", "").strip()
-            source = Path(text) if text else updated.unit_config_paths.get(key)
-            if source is None:
-                source = updated.sensitive_root / "config" / "units" / f"{key}.json"
-                if not source.exists():
-                    source = upgrade_source(updated.sensitive_root, key)
-            backlog_source = None
-            if key in {"hemato", "solide"}:
-                text = values.get(f"backlog_{key}", "").strip()
-                backlog_source = Path(text) if text else backlog_paths.get(key)
-                if backlog_source is None:
-                    backlog_source = updated.sensitive_root / "config" / "restanse" / f"{key}.json"
-                    if not backlog_source.exists():
-                        new_backlogs[key] = backlog_source
-                        backlog_source = None
-            candidates[key] = load_unit_file(source, key, backlog_path=backlog_source)
-            if backlog_source is not None:
-                backlog_paths[key] = backlog_source
-        # Prepare complete versions first; only the settings pointer activates them.
-        # Failure while preparing another file cannot replace the active settings.
         config_paths = dict(updated.unit_config_paths)
-        for key, candidate in candidates.items():
-            if key in new_backlogs:
-                write_json(new_backlogs[key], candidate.payload["backlog"])
-                backlog_paths[key] = new_backlogs[key]
-            destination = updated.sensitive_root / "config" / "units" / key / f"{candidate.digest}.json"
-            write_json(destination, candidate.payload)
-            config_paths[key] = destination
-        lookup_paths = dict(updated.statistics_lookup_paths)
-        for key, source in lookup_paths.items():
-            if key not in updated.enabled_units and not source.is_file():
-                continue
-            with source.open("rb") as stream:
-                digest = hashlib.file_digest(stream, "sha256").hexdigest()
-            destination = updated.sensitive_root / "config" / "lookups" / key / f"{digest}{source.suffix.lower()}"
-            if source.resolve() != destination.resolve():
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
-                try:
-                    shutil.copyfile(source, temporary)
-                    with temporary.open("rb") as stream:
-                        if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
-                            raise ValueError("Lookup-filen endret seg under kopiering. Prøv igjen.")
-                    os.replace(temporary, destination)
-                finally:
-                    temporary.unlink(missing_ok=True)
-            lookup_paths[key] = destination
-        updated = replace(updated, unit_config_paths=config_paths, statistics_lookup_paths=lookup_paths,
-                          backlog_config_paths=backlog_paths)
+        backlog_paths = dict(updated.backlog_config_paths)
+        for key in DEFAULT_UNITS.active():
+            name = key.key
+            config_text = values.get(f"config_{name}")
+            if config_text is not None:
+                if config_text.strip():
+                    config_paths[name] = Path(config_text.strip()).resolve()
+                else:
+                    config_paths.pop(name, None)
+            if name in {"hemato", "solide"}:
+                backlog_text = values.get(f"backlog_{name}")
+                if backlog_text is not None:
+                    if backlog_text.strip():
+                        backlog_paths[name] = Path(backlog_text.strip()).resolve()
+                    else:
+                        backlog_paths.pop(name, None)
+        for key in updated.enabled_units:
+            source = config_paths.get(key)
+            if source is None:
+                raise UnitConfigError(f"Enhetsfil (JSON) mangler for {key}.")
+            load_unit_file(source, key, backlog_path=backlog_paths.get(key))
+        updated = replace(updated, unit_config_paths=config_paths, backlog_config_paths=backlog_paths)
         updated.save(self.settings_path)
         self.settings = updated
         self._settings_exist = True
@@ -758,18 +658,6 @@ def _validate_production_paths(settings: MolStatSettings) -> None:
         raise ValueError("K-sensitiv mappe finnes ikke eller er ikke tilgjengelig.")
     if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
         raise ValueError("SharePoint-mappe finnes ikke eller er ikke tilgjengelig.")
-    for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
-        if unit.key == "lege":
-            # Workflow carries signer names directly; no user roster is queried.
-            lookup = settings.statistics_lookup_paths.get("lege")
-            if lookup is not None:
-                validate_lege_lookup(lookup)
-            continue
-        lookup = settings.statistics_lookup_paths.get(unit.key) or (
-            default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else None
-        )
-        if lookup is None or not lookup.is_file():
-            raise ValueError(f"Lookup-fil for {unit.display_name} finnes ikke.")
     parsed = urlparse(settings.lvms_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("LVMS-adressen må være en fullstendig http- eller https-adresse.")
@@ -781,14 +669,6 @@ def _unavailable_path_messages(settings: MolStatSettings) -> tuple[str, ...]:
         unavailable.append("K-sensitiv mappe")
     if settings.sharepoint_root is None or not settings.sharepoint_root.is_dir():
         unavailable.append("SharePoint-mappe")
-    for unit in DEFAULT_UNITS.for_job("statistics", settings.enabled_units):
-        if unit.key == "lege":
-            continue
-        lookup = settings.statistics_lookup_paths.get(unit.key) or (
-            default_lookup_path(unit.key) if unit.key in {"flow", "fish", "pre"} else None
-        )
-        if lookup is None or not lookup.is_file():
-            unavailable.append(f"Lookup-fil for {unit.display_name}")
     for key, source in settings.unit_config_paths.items():
         if key in settings.enabled_units and not source.is_file():
             unavailable.append(f"Enhetsfil for {key}")

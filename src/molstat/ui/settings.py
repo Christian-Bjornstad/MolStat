@@ -46,7 +46,7 @@ class UnitSettingsPanel(QWidget):
         config_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         config_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.config_field = _field(f"config-{unit.key}", f"Enhetsfil for {unit.display_name}")
-        self.config_field.setPlaceholderText("Standardoppsett opprettes ved første lagring")
+        self.config_field.setPlaceholderText("Velg din egen enhetsfil (JSON)")
         browse = action_button("Velg fil …", f"browse-config-{unit.key}",
                                accessible_name=f"Velg enhetsfil for {unit.display_name}")
         browse.clicked.connect(self._choose_config)
@@ -63,7 +63,7 @@ class UnitSettingsPanel(QWidget):
         config_actions.addWidget(open_folder)
         config_actions.addStretch(1)
         config_form.addRow(config_actions)
-        self.preview = help_text("Velg enhetsfil, eller lagre for å opprette standardoppsettet.",
+        self.preview = help_text("Velg din egen enhetsfil (JSON).",
                                  name=f"config-feedback-{unit.key}")
         self.preview.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         config_form.addRow(self.preview)
@@ -75,7 +75,7 @@ class UnitSettingsPanel(QWidget):
         backlog_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         backlog_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.backlog_field = _field(f"backlog-config-{unit.key}", f"Restansefil for {unit.display_name}")
-        self.backlog_field.setPlaceholderText("Egen restansefil opprettes ved lagring")
+        self.backlog_field.setPlaceholderText("Valgfri: bruker ellers restanse i enhetsfilen")
         backlog_browse = action_button("Velg fil …", f"browse-backlog-{unit.key}",
             accessible_name=f"Velg restansefil for {unit.display_name}")
         backlog_browse.clicked.connect(self._choose_backlog)
@@ -92,37 +92,14 @@ class UnitSettingsPanel(QWidget):
         backlog_actions.addWidget(backlog_open)
         backlog_actions.addStretch(1)
         backlog_form.addRow(backlog_actions)
-        self.backlog_preview = help_text("Standardoppsettet brukes til du velger eller lagrer en egen fil.")
+        self.backlog_preview = help_text("Bruker restanse i enhetsfilen hvis egen fil ikke er valgt.")
         backlog_form.addRow(self.backlog_preview)
         self.backlog_field.textChanged.connect(self._backlog_changed)
         self.backlog_group.setVisible(unit.key in {"hemato", "solide"})
         layout.addWidget(self.backlog_group)
 
         capability = unit.capability("statistics")
-        is_lege = self.is_lege = capability.processor_profile == "lege"
-        lookup = self.lookup_group = QGroupBox("Legeregister" if is_lege else "Excel-oppslag")
-        lookup_form = QFormLayout(lookup)
-        lookup_form.setSpacing(12)
-        lookup_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        lookup_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        accessible_name = "Legeregister for Patologer" if is_lege else f"Lookup-fil for {unit.display_name}"
-        self.lookup_field = _field(f"lookup-{unit.key}", accessible_name)
-        lookup_browse = self.lookup_browse = action_button("Velg fil …", f"browse-lookup-{unit.key}",
-                                     accessible_name=f"Velg legeregister for {unit.display_name}" if is_lege
-                                     else f"Velg lookup-fil for {unit.display_name}")
-        lookup_browse.clicked.connect(lambda: self._choose_lookup(self.is_lege))
-        self.lookup_label = QLabel("Legeregister (CSV)" if is_lege else "Lookup-fil")
-        self.lookup_label.setBuddy(self.lookup_field)
-        lookup_form.addRow(self.lookup_label,
-                           _path_row(self.lookup_field, lookup_browse))
-        self.lookup_hint = help_text(
-            "Legeregisteret kobler LVMS-brukere til rapportnavn. Velg et CSV-register."
-            if is_lege else
-            "Oppslaget kobler analysekoder til navn og grupper. Velg Excel- eller CSV-filen som hører til enheten."
-        )
-        lookup_form.addRow(self.lookup_hint)
-        layout.addWidget(lookup)
-        lookup.setVisible(not is_lege)
+        is_lege = unit.key == "lege"
         self.workflow_hint = help_text("Uttrekk: PAT-TID-STØP-SNITT-OU. Henter én kalendermåned om gangen fra januar 2024 til dagens dato. Ingen andre patolograpporter hentes.")
         self.workflow_hint.setVisible(is_lege)
         layout.addWidget(self.workflow_hint)
@@ -139,20 +116,7 @@ class UnitSettingsPanel(QWidget):
         self.enabled.setText(f"Aktiver {unit.display_name}")
         self.enabled.setAccessibleName(f"Aktiver enheten {unit.display_name}")
         self.config_field.setAccessibleName(f"Enhetsfil for {unit.display_name}")
-        self.is_lege = unit.capability("statistics").processor_profile == "lege"
-        self.lookup_field.setAccessibleName(f"Legeregister for {unit.display_name}" if self.is_lege
-                                           else f"Lookup-fil for {unit.display_name}")
-        self.lookup_group.setTitle("Legeregister" if self.is_lege else "Excel-oppslag")
-        self.lookup_group.setVisible(not self.is_lege)
-        self.workflow_hint.setVisible(self.is_lege)
-        self.lookup_label.setText("Legeregister (CSV)" if self.is_lege else "Lookup-fil")
-        self.lookup_browse.setAccessibleName(f"Velg legeregister for {unit.display_name}" if self.is_lege
-                                            else f"Velg lookup-fil for {unit.display_name}")
-        self.lookup_hint.setText(
-            "Legeregisteret kobler LVMS-brukere til rapportnavn. Velg et CSV-register."
-            if self.is_lege else
-            "Oppslaget kobler analysekoder til navn og grupper. Velg Excel- eller CSV-filen som hører til enheten."
-        )
+        self.workflow_hint.setVisible(unit.key == "lege")
         self.validate_button.setAccessibleName(f"Valider enhetsfil for {unit.display_name}")
 
     def _config_changed(self) -> None:
@@ -178,7 +142,7 @@ class UnitSettingsPanel(QWidget):
 
     def validate_config(self) -> None:
         if not self.config_field.text().strip():
-            self.preview.setText("Velg en JSON-fil først. Standardoppsettet opprettes når du lagrer.")
+            self.preview.setText("Velg din egen JSON-fil først.")
             set_tone(self.preview, "warning")
             return
         try:
@@ -192,7 +156,7 @@ class UnitSettingsPanel(QWidget):
             return
         statistics = definition.payload["statistics"]
         if definition.unit.profile == "lege":
-            detail = f"{len(statistics)} rapporter. Legeregister velges separat."
+            detail = f"{len(statistics)} rapporter. Ingen legeregisterfil er nødvendig."
         else:
             counts = ", ".join(f"{name}: {len(report['analysis_codes'])} koder" for name, report in statistics.items())
             backlog = definition.payload.get("backlog")
@@ -214,7 +178,7 @@ class UnitSettingsPanel(QWidget):
 
     def validate_backlog(self) -> None:
         if not self.backlog_field.text().strip():
-            self.backlog_preview.setText("En egen restansefil opprettes når du validerer og lagrer innstillingene.")
+            self.backlog_preview.setText("Bruker restanse i enhetsfilen hvis egen fil ikke er valgt.")
             return
         try:
             payload = load_backlog_file(Path(self.backlog_field.text().strip()), self.unit.key)
@@ -232,14 +196,6 @@ class UnitSettingsPanel(QWidget):
         else:
             self.backlog_preview.setText("Lagre innstillingene eller velg en eksisterende restansefil først.")
 
-    def _choose_lookup(self, csv_only: bool) -> None:
-        selected, _ = QFileDialog.getOpenFileName(
-            self, f"Velg oppslagsfil for {self.unit.display_name}", self.lookup_field.text(),
-            "CSV-filer (*.csv);;Alle filer (*)" if csv_only
-            else "Oppslag (*.xlsx *.xlsm *.xls *.csv);;Alle filer (*)",
-        )
-        if selected:
-            self.lookup_field.setText(selected)
 
 
 class SettingsPage(QWidget):
@@ -295,7 +251,6 @@ class SettingsPage(QWidget):
         self.unit_stack = QStackedWidget()
         self.unit_stack.setObjectName("unit-settings-stack")
         self.unit_panels: dict[str, UnitSettingsPanel] = {}
-        self.lookup_fields: dict[str, QLineEdit] = {}
         self.config_fields: dict[str, QLineEdit] = {}
         self.backlog_fields: dict[str, QLineEdit] = {}
         self.enabled_fields: dict[str, QCheckBox] = {}
@@ -303,12 +258,10 @@ class SettingsPage(QWidget):
             panel = UnitSettingsPanel(unit)
             self.unit_panels[unit.key] = panel
             self.unit_stack.addWidget(panel)
-            self.lookup_fields[unit.key] = panel.lookup_field
             self.config_fields[unit.key] = panel.config_field
             if unit.key in {"hemato", "solide"}:
                 self.backlog_fields[unit.key] = panel.backlog_field
             self.enabled_fields[unit.key] = panel.enabled
-            setattr(self, f"lookup_{unit.key}", panel.lookup_field)
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, unit.key)
             item.setSizeHint(QSize(0, 64))

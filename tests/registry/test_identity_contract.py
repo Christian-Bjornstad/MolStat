@@ -11,7 +11,7 @@ from molstat.registry import (
 def test_repository_identity_contract_covers_every_lvms_source() -> None:
     root = Path(__file__).resolve().parents[2]
 
-    contract = load_identity_contract(root / "config" / "identity-contract.json")
+    contract = load_identity_contract(root / "tests" / "fixtures" / "legacy" / "identity-contract.json")
 
     assert contract.source_system == "LVMS"
     assert set(contract.reports) == {

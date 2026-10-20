@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+from .selection import AnalysisSelection, codes_for_report
+
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -48,12 +50,12 @@ def turnaround(start: datetime | None, end: datetime | None) -> tuple[str, str, 
         return "", "Negativ tid", "Ikke beregnet"
     if days > 365:
         return "", "Over 365 dager", "Ikke beregnet"
-    return f"{days:.10f}", "Gyldig", "Innen norm" if days <= 5 else "Over norm"
+    return f"{days:.10f}", "Gyldig", "Ikke beregnet"
 
 
-def process(ordered: Path, answered: Path, output: Path, lookup_path: Path) -> dict:
-    with lookup_path.open(encoding="utf-8-sig", newline="") as handle:
-        lookup = {row["Analyse"]: row for row in csv.DictReader(handle, delimiter=";")}
+def process(ordered: Path, answered: Path, output: Path, analysis_codes: AnalysisSelection) -> dict:
+    ordered_codes = codes_for_report(analysis_codes, "antall")
+    result_codes = codes_for_report(analysis_codes, "resultater")
     counts = Counter()
     antall = []
     resultater = []
@@ -61,19 +63,19 @@ def process(ordered: Path, answered: Path, output: Path, lookup_path: Path) -> d
     raw_resultater = read_lvms_csv(answered)
     for row in raw_antall:
         code = row.get("Analyse", "").strip()
-        if code not in lookup:
+        if code not in ordered_codes:
             counts[("antall", code)] += 1
             continue
         order = parse_time(row.get("Tidspunkt.analysebestilling"))
-        antall.append({"Analyse": code, "Tidspunkt.analysebestilling": display(order), "Rapportgruppe": "FISH", "Svarfrist": 5, "Maaned": order.month if order else ""})
+        antall.append({"Analyse": code, "Tidspunkt.analysebestilling": display(order), "Rapportgruppe": "", "Svarfrist": "", "Maaned": order.month if order else ""})
     for row in raw_resultater:
         code = row.get("Analyse", "").strip()
-        if code not in lookup:
+        if code not in result_codes:
             counts[("resultater", code)] += 1
             continue
         times = {field: parse_time(row.get(field)) for field in DATE_FIELDS}
         days, status, norm = turnaround(times["Tidspunkt.analysebestilling"], times["Tidspunkt.analyseresultat"])
-        resultater.append({"Materiale": "", "Analyse": code, "Rapportgruppe": "FISH", **{field: display(value) for field, value in times.items()}, "Svarfrist": 5, "MolStat-ID": "", "Pris2026NOK": "", "Priskobling": "", "Svartid dager": days, "Svartid status": status, "Normstatus": norm})
+        resultater.append({"Materiale": row.get("Materiale", ""), "Analyse": code, "Rapportgruppe": "", **{field: display(value) for field, value in times.items()}, "Svarfrist": "", "MolStat-ID": "", "Pris2026NOK": "", "Priskobling": "", "Svartid dager": days, "Svartid status": status, "Normstatus": norm})
     write_csv(output / "antall.csv", ANTALL_FIELDS, antall)
     write_csv(output / "resultater.csv", RESULT_FIELDS, resultater)
     summary = {"input_antall": len(raw_antall), "input_resultater": len(raw_resultater), "antall": len(antall), "resultater": len(resultater), "gyldige_svartider": sum(row["Svartid status"] == "Gyldig" for row in resultater), "innen_norm": sum(row["Normstatus"] == "Innen norm" for row in resultater), "ekskluderte_koder": [{"rapport": kind, "kode": code, "rader": number} for (kind, code), number in sorted(counts.items())]}

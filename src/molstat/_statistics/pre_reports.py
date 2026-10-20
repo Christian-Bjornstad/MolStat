@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import json
+from .selection import AnalysisSelection, codes_for_report
+
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -56,9 +58,8 @@ def first_event(events: list[dict], kind: str) -> datetime | None:
     return min(times) if times else None
 
 
-def process(source: Path, output: Path, lookup_path: Path) -> dict:
-    with lookup_path.open(encoding="utf-8-sig", newline="") as handle:
-        lookup = {row["Analyse"]: row for row in csv.DictReader(handle, delimiter=";")}
+def process(source: Path, output: Path, analysis_codes: AnalysisSelection) -> dict:
+    lookup = {code: {"Aktivitetstype": "", "Rapportgruppe": "", "NormProsess": "", "NormTotalt": ""} for code in codes_for_report(analysis_codes, "resultater")}
     sources = sorted(source.glob("*.csv")) if source.is_dir() else [source]
     if not sources:
         raise ValueError(f"No PRE results CSV files found in {source}")

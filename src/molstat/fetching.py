@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
-import hashlib
 import json
 from pathlib import Path
 import re
 import time
 from uuid import uuid4
 
-from .archive import RawArchive
+from .storage_layout import StorageLayout
+from .archive import RawArchive, remove_archived_download
 from .lvms.batch_runner import run_report_batch
 from .lvms.report import ReportRequest
 from .lvms.report_job import ReportInterval, ReportJob, batch_filename
@@ -42,13 +42,14 @@ class UnifiedLvmsFetcher:
         lvms_config_path: Path,
         sensitive_root: Path,
         work_root: Path,
-        units_path: Path,
-        backlog_report_path: Path,
+        units_path: Path | None = None,
+        backlog_report_path: Path | None = None,
+        units: Sequence[Unit] | None = None,
+        backlog_reports: Mapping[str, dict] | None = None,
         run_batch: Callable[..., int] = run_report_batch,
         today: Callable[[], date] = date.today,
         sleep: Callable[[float], None] = time.sleep,
         history_from: date = date(2024, 1, 1),
-        lege_lookup_path: Path | None = None,
     ) -> None:
         self.lvms_config_path = lvms_config_path
         self.sensitive_root = sensitive_root
@@ -59,7 +60,8 @@ class UnifiedLvmsFetcher:
         self._today = today
         self._sleep = sleep
         self.history_from = history_from
-        self.lege_lookup_path = lege_lookup_path
+        self.units = tuple(units) if units is not None else None
+        self.backlog_reports = dict(backlog_reports or {})
 
     def fetch_statistics(
         self,
@@ -67,7 +69,7 @@ class UnifiedLvmsFetcher:
     ) -> Mapping[str, Sequence[tuple[ReportRequest, Path]]]:
         today = self._today()
         result: dict[str, tuple[tuple[ReportRequest, Path], ...]] = {}
-        configured = load_units(self.units_path)
+        configured = self.units if self.units is not None else load_units(self.units_path)
         by_key = {unit.key: unit for unit in configured}
         if unit_keys is None:
             selected = configured
@@ -84,22 +86,7 @@ class UnifiedLvmsFetcher:
                 self._backfill_flow_months(unit, today)
                 planned = [(unit.report_by_key("workflow"), today.replace(day=1), today)]
             elif unit.profile == "lege":
-                from ._statistics.lege_lookup import load_lege_lookup
-
-                usernames = (
-                    tuple(row["Brukernavn"] for row in load_lege_lookup(self.lege_lookup_path))
-                    if self.lege_lookup_path else ()
-                )
-                self._backfill_patolog_months(unit, today, usernames)
-                if any(report.job_key == "workflow" for report in unit.reports):
-                    self._backfill_flow_months(unit, today)
-                windows = monthly_process_windows(today)
-                planned = [(unit.report_by_key(role), *windows[role]) for role in ("current", "previous")]
-                if usernames:
-                    planned.extend((unit.report_by_key(role), *windows[month])
-                                   for role in ("production", "macro") for month in ("current", "previous"))
-                if any(report.job_key == "workflow" for report in unit.reports):
-                    planned.append((unit.report_by_key("workflow"), *windows["current"]))
+                raise ValueError("Patolog krever et oppdatert workflow-oppsett i JSON.")
             else:
                 usernames = ()
                 created_from, created_to = plan_window(
@@ -136,7 +123,7 @@ class UnifiedLvmsFetcher:
     def _backfill_flow_months(self, unit: Unit, today: date) -> None:
         from ._statistics import patolog_flow as flow
 
-        folder = self.sensitive_root / "raw" / "statistics" / unit.key
+        folder = StorageLayout(self.sensitive_root).raw_root / "statistics" / unit.key
         existing = flow.latest_months(folder)
         report = unit.report_by_key("workflow")
         month = self.history_from.replace(day=1)
@@ -153,71 +140,19 @@ class UnifiedLvmsFetcher:
                     raise RunFailure("CSV_INVALID", f"patolog/workflow/{month.isoformat()}") from exc
                 archive.store(source, ReportRequest(kind="statistics", unit=unit.key,
                     report_name=report.report_id, date_from=month, date_to=end))
-                source.unlink()
+                remove_archived_download(source, self.sensitive_root)
             month = end + timedelta(days=1)
-
-    def _backfill_patolog_months(self, unit: Unit, today: date, usernames: tuple[str, ...] = ()) -> None:
-        from ._statistics.patolog_process import _latest_by_month, _read
-
-        previous_start, _ = monthly_process_windows(today)["previous"]
-        archive_dir = self.sensitive_root / "raw" / "statistics" / unit.key
-        completed = (
-            {month for month, (_, end) in _latest_by_month(archive_dir).items()
-             if end == _month_end(month)}
-            if archive_dir.is_dir() else set()
-        )
-        reports = (unit.report_by_key("previous"),)
-        if usernames:
-            reports += (unit.report_by_key("production"), unit.report_by_key("macro"))
-        month = self.history_from.replace(day=1)
-        archive = RawArchive(self.sensitive_root)
-        while month < previous_start:
-            next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
-            for report in reports:
-                if report.job_key == "previous" and month in completed:
-                    continue
-                requested_users = usernames
-                if report.job_key != "previous":
-                    known_users, covered_users = _doctor_month_coverage(
-                        archive_dir, report.report_id, report.job_key, month,
-                    )
-                    requested_users = tuple(sorted(known_users | set(usernames)))
-                    if set(requested_users) <= covered_users:
-                        continue
-                end = next_month - timedelta(days=1)
-                job = _statistics_job(unit, report, month, end, usernames=requested_users)
-                source = self._run_jobs((job,), unit.key)[0]
-                try:
-                    if report.job_key == "previous":
-                        _read(source)
-                    else:
-                        # Validate every row before recording historical completion.
-                        from ._statistics.patolog_reports import _read as read_doctors
-
-                        for _ in read_doctors(source, report.job_key):
-                            pass
-                except ValueError as exc:
-                    raise RunFailure(
-                        "CSV_INVALID",
-                        f"patolog/backfill/{report.job_key}/{month.isoformat()}",
-                    ) from exc
-                archived = archive.store(source, ReportRequest(
-                    kind="statistics", unit=unit.key, report_name=report.report_id,
-                    date_from=month, date_to=end,
-                ))
-                if report.job_key != "previous":
-                    from .unit_settings import write_json
-
-                    write_json(archived.path.with_suffix(".coverage.json"), {
-                        "sha256": archived.sha256,
-                        "usernames": list(requested_users),
-                    })
-                source.unlink()
-            month = next_month
 
     def fetch_backlog(self, unit_key: str = "hemato", report_path: Path | None = None) -> tuple[ReportRequest, Path]:
         today = self._today()
-        definition = load_report_definition(report_path or self.backlog_report_path)
+        payload = self.backlog_reports.get(unit_key)
+        if payload is not None:
+            definition = report_definition(payload)
+        else:
+            path = report_path or self.backlog_report_path
+            if path is None:
+                raise ValueError("Velg et JSON-oppsett for restanse.")
+            definition = load_report_definition(path)
         created_from, created_to = BACKLOG_FROM, today
         job = ReportJob(
             job_key="backlog",
@@ -293,75 +228,6 @@ def _statistics_job(unit: Unit, report, created_from: date, created_to: date, *,
     )
 
 
-def monthly_process_windows(today: date) -> dict[str, tuple[date, date]]:
-    current_start = today.replace(day=1)
-    previous_end = current_start - timedelta(days=1)
-    return {
-        "current": (current_start, today),
-        "previous": (previous_end.replace(day=1), previous_end),
-    }
-
-
-def _archive_has_month(archive_dir: Path, stem: str, month: date) -> bool:
-    for path in archive_dir.glob(f"{stem}__*.csv"):
-        match = _WINDOW.search(path.name)
-        if (match and date.fromisoformat(match.group(1)) == month
-                and date.fromisoformat(match.group(2)) == _month_end(month)):
-            return True
-    return False
-
-
-def _doctor_month_coverage(
-    archive_dir: Path, stem: str, role: str, month: date,
-) -> tuple[set[str], set[str]]:
-    """Return cumulative known users and proven coverage of the newest snapshot.
-
-    Legacy exports prove which users had rows, but not which users were queried.
-    Their observed users are retained when a refreshed snapshot is requested.
-    Only hash-bound metadata can prove that a doctor with zero rows was fetched.
-    """
-    from ._statistics.patolog_reports import _read
-    from ._statistics.patolog_process import _text
-
-    known: set[str] = set()
-    newest: tuple[int, int] | None = None
-    covered: set[str] = set()
-    for path in archive_dir.glob(f"{stem}__{month.isoformat()}__*.csv"):
-        match = _WINDOW.search(path.name)
-        if match is None or date.fromisoformat(match.group(2)).replace(day=1) != month:
-            continue
-        metadata = path.with_suffix(".coverage.json")
-        users: set[str] = set()
-        try:
-            payload = json.loads(metadata.read_text(encoding="utf-8"))
-            values = payload.get("usernames")
-            if isinstance(values, list) and all(
-                isinstance(user, str) and re.fullmatch(r"[A-Z0-9._-]{1,80}", user)
-                for user in values
-            ):
-                with path.open("rb") as stream:
-                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
-                if digest == payload.get("sha256"):
-                    users = set(values)
-        except (OSError, ValueError, AttributeError):
-            pass  # Missing, damaged or outdated coverage requires a new export.
-        known.update(users)
-        if not users:
-            column = "Godkjent av" if role == "production" else "Makro av"
-            try:
-                for row in _read(path, role):
-                    user = _text(row.get(column)).upper()
-                    if re.fullmatch(r"[A-Z0-9._-]{1,80}", user):
-                        known.add(user)
-            except ValueError:
-                pass  # Invalid old exports must not prevent a corrective fetch.
-        revision = re.search(r"__r(\d+)\.csv$", path.name)
-        key = (path.stat().st_mtime_ns, int(revision.group(1)) if revision else 1)
-        if date.fromisoformat(match.group(2)) == _month_end(month) and (newest is None or key > newest):
-            newest, covered = key, users
-    return known, covered
-
-
 def _month_end(month: date) -> date:
     next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
     return next_month - timedelta(days=1)
@@ -398,6 +264,10 @@ def load_report_definition(path: Path) -> ReportDefinition:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError("Kunne ikke lese RESTANSE-rapportdefinisjonen.") from exc
+    return report_definition(raw)
+
+
+def report_definition(raw: Mapping[str, object]) -> ReportDefinition:
     try:
         definition = ReportDefinition(
             report_type=str(raw["report_type"]),
@@ -422,7 +292,7 @@ def plan_window(
     baseline: date,
     today: date,
 ) -> tuple[date, date]:
-    archive = sensitive_root / "raw" / kind / unit
+    archive = StorageLayout(sensitive_root).raw_root / kind / unit
     completed: list[date] = []
     if archive.is_dir():
         for path in archive.glob("*.csv"):

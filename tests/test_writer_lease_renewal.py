@@ -74,7 +74,7 @@ def test_stale_writer_cannot_publish_or_archive_shared_outputs(tmp_path):
         with pytest.raises(WriterLeaseLost):
             RawArchive(tmp_path).store(source, ReportRequest("statistics", "flow", "REPORT", date.today(), date.today()))
     assert not (tmp_path / "public").exists()
-    assert not (tmp_path / "raw").exists()
+    assert not (tmp_path / "data" / "raw").exists()
 
 
 def test_orchestrator_renews_and_releases_lease_when_runner_fails(tmp_path):
@@ -265,7 +265,8 @@ def test_lost_writer_does_not_start_another_pathology_download(tmp_path):
     from datetime import date
     from molstat._writer_lease import WriterLeaseLost
     from molstat.fetching import UnifiedLvmsFetcher, _statistics_job
-    from molstat.unit_settings import default_unit_file, load_unit_file
+    from molstat.unit_settings import load_unit_file
+    from unit_fixtures import default_unit_file
 
     database = MolStatDatabase(tmp_path / 'database.sqlite3')
     database.migrate()

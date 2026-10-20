@@ -134,7 +134,7 @@ def test_control_center_has_accessible_navigation_and_status(qtbot) -> None:
 
 
 def test_unit_config_is_validated_and_saved_from_settings(qtbot):
-    from molstat.unit_settings import default_unit_file
+    from unit_fixtures import default_unit_file
     store = FakeSettingsStore()
     window = MainWindow(FakeOrchestrator(), store)
     qtbot.addWidget(window)
@@ -326,10 +326,9 @@ def test_settings_fields_have_labels_and_accessible_names(qtbot) -> None:
         assert enabled.accessibleName()
         assert enabled.isChecked()
 
-    lege_lookup = window.findChild(object, "lookup-lege")
-    assert lege_lookup is not None
-    assert lege_lookup.accessibleName() == "Legeregister for Patologer"
-    assert window.findChild(QPushButton, "browse-lookup-lege") is not None
+    assert window.findChild(object, "lookup-lege") is None
+    assert window.findChild(QPushButton, "browse-lookup-lege") is None
+    assert window.findChild(object, "config-lege").accessibleName() == "Enhetsfil for Patologer"
 
 
 def test_settings_browse_buttons_fill_directory_and_lookup_paths(
@@ -351,14 +350,14 @@ def test_settings_browse_buttons_fill_directory_and_lookup_paths(
     monkeypatch.setattr(
         QFileDialog,
         "getOpenFileName",
-        lambda *args, **kwargs: ("K:/sensitiv/Analyse_lookup.xlsx", "Excel (*.xlsx)"),
+        lambda *args, **kwargs: ("K:/sensitiv/hemato.json", "JSON (*.json)"),
     )
-    hemato_browse = window.findChild(QPushButton, "browse-lookup-hemato")
+    hemato_browse = window.findChild(QPushButton, "browse-config-hemato")
     assert hemato_browse is not None
     qtbot.mouseClick(hemato_browse, Qt.MouseButton.LeftButton)
     assert (
-        window.settings_page.lookup_hemato.text()
-        == "K:/sensitiv/Analyse_lookup.xlsx"
+        window.settings_page.config_fields["hemato"].text()
+        == "K:/sensitiv/hemato.json"
     )
 
 
@@ -369,8 +368,8 @@ def test_settings_browse_buttons_are_accessible(qtbot) -> None:
     for name in (
         "browse-sensitive-root",
         "browse-sharepoint-root",
-        "browse-lookup-hemato",
-        "browse-lookup-solide",
+        "browse-config-hemato",
+        "browse-config-solide",
     ):
         button = window.findChild(QPushButton, name)
         assert button is not None

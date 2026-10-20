@@ -3,10 +3,7 @@ import importlib.util
 from pathlib import Path
 from datetime import datetime
 
-ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("flow_source", ROOT / "tools/patolog_flow_data.py")
-flow = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(flow)
+from molstat._statistics import patolog_flow as flow
 
 
 def source(**updates):

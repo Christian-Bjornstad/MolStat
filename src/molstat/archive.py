@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 
+from .storage_layout import StorageLayout
 from .lvms.report import ReportRequest
 from ._writer_lease import guarded_output
 
@@ -29,7 +30,7 @@ class RawArchive:
         if not source.is_file():
             raise FileNotFoundError(source)
         destination_dir = (
-            self.sensitive_root / "raw" / request.kind / request.unit
+            StorageLayout(self.sensitive_root).raw_root / request.kind / request.unit
         )
         destination_dir.mkdir(parents=True, exist_ok=True)
         stem = (
@@ -71,3 +72,20 @@ def _next_destination(directory: Path, stem: str) -> Path:
         candidate = directory / f"{stem}__r{revision}.csv"
         revision += 1
     return candidate
+
+
+def remove_archived_download(source: Path, sensitive_root: Path) -> None:
+    """Remove only a consumed download, then its completed private job folder."""
+    source.unlink(missing_ok=True)
+    jobs = (StorageLayout(sensitive_root).raw_root / '.jobs').resolve()
+    run = source.parent.parent
+    if source.parent.name != 'rådata' or run.is_symlink():
+        return
+    resolved = run.resolve()
+    if resolved.parent != jobs or not resolved.is_relative_to(jobs):
+        return
+    if any((run / 'rådata').glob('*.csv')):
+        return
+    # Every downloaded CSV has been archived before this point. Errors retain
+    # their folders because this function is only called after archiving.
+    shutil.rmtree(resolved)

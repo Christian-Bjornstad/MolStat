@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import csv
 import re
+from .selection import AnalysisSelection, codes_for_report
+
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 
-from .xlsx_lookup import read_lookup as read_xlsx_lookup
 
 RAW_ENCODING = "cp1252"
 DELIMITER = ";"
@@ -138,11 +139,6 @@ def read_lvms_csv(path: Path) -> list[dict[str, str]]:
                 }
             )
     return rows
-
-
-def load_lookup(path: Path) -> dict[str, dict[str, str]]:
-    """Read Analyse_lookup.xlsx (stdlib only) keyed by cleaned Analyse."""
-    return read_xlsx_lookup(path, clean_text)
 
 
 def _fmt(dt: datetime | None) -> str:
@@ -487,7 +483,7 @@ def process_reports(
     antall_path: Path,
     resultater_path: Path,
     ekstraksjon_path: Path,
-    lookup_path: Path,
+    analysis_codes: AnalysisSelection,
     output_dir: Path,
     *,
     profile: str = "hemato",
@@ -500,11 +496,13 @@ def process_reports(
     (the 13/5-column Solide_Statistikk.R layout with its own simpler
     extraction rule).
     """
-    lookup = load_lookup(lookup_path)
-    antall = build_antall(read_lvms_csv(antall_path), lookup)
+    lookup = {}
+    ordered_codes = codes_for_report(analysis_codes, "antall")
+    result_codes = codes_for_report(analysis_codes, "resultater")
+    antall = build_antall((row for row in read_lvms_csv(antall_path) if row.get("Analyse") in ordered_codes), lookup)
     if profile == "solide":
         resultater = build_resultater_solide(
-            read_lvms_csv(resultater_path),
+            (row for row in read_lvms_csv(resultater_path) if row.get("Analyse") in result_codes),
             read_lvms_csv(ekstraksjon_path),
             lookup,
             molstat_ids=molstat_ids,
@@ -513,7 +511,7 @@ def process_reports(
         resultater_columns = SOLIDE_RESULTATER_COLUMNS
     else:
         resultater = build_resultater(
-            read_lvms_csv(resultater_path),
+            (row for row in read_lvms_csv(resultater_path) if row.get("Analyse") in result_codes),
             read_lvms_csv(ekstraksjon_path),
             lookup,
             molstat_ids=molstat_ids,

@@ -9,7 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 
-SETTINGS_SCHEMA_VERSION = 2
+SETTINGS_SCHEMA_VERSION = 3
 ACTIVE_UNIT_KEYS = ("hemato", "solide", "flow", "fish", "pre", "lege")
 DEFAULT_ENABLED_UNIT_KEYS = ("hemato", "solide")
 
@@ -21,7 +21,6 @@ class MolStatSettings:
     statistics_hour: int = 5
     backlog_first_hour: int = 6
     backlog_last_hour: int = 18
-    statistics_lookup_paths: dict[str, Path] = field(default_factory=dict)
     lvms_config_path: Path | None = None
     lvms_url: str = ""
     enabled_units: tuple[str, ...] = DEFAULT_ENABLED_UNIT_KEYS
@@ -52,7 +51,7 @@ class MolStatSettings:
             errors.append("Ukjent aktiv enhet: " + ", ".join(sorted(unknown)))
         if len(self.enabled_units) != len(set(self.enabled_units)):
             errors.append("Enhetslisten inneholder duplikater.")
-        unknown_paths = (set(self.statistics_lookup_paths) | set(self.unit_config_paths)) - set(ACTIVE_UNIT_KEYS)
+        unknown_paths = set(self.unit_config_paths) - set(ACTIVE_UNIT_KEYS)
         if unknown_paths:
             errors.append("Ukjent enhet for filsti: " + ", ".join(sorted(unknown_paths)))
         if set(self.backlog_config_paths) - {"hemato", "solide"}:
@@ -77,9 +76,6 @@ class MolStatSettings:
             "units": {
                 key: {
                     "enabled": key in self.enabled_units,
-                    "statistics_lookup_path": str(
-                        self.statistics_lookup_paths.get(key, "")
-                    ),
                     "config_path": str(self.unit_config_paths.get(key, "")),
                     "backlog_config_path": str(self.backlog_config_paths.get(key, "")),
                 }
@@ -133,14 +129,6 @@ class MolStatSettings:
     ) -> MolStatSettings:
         sensitive_root = _required_root(payload)
         sharepoint_root = _optional_string(payload, "sharepoint_root")
-        lookup_raw = payload.get("statistics_lookup_paths", {})
-        if not isinstance(lookup_raw, Mapping):
-            raise ValueError("Lookup-stier må være et objekt.")
-        lookups = {
-            str(unit): Path(value)
-            for unit, value in lookup_raw.items()
-            if isinstance(value, str) and value
-        }
         lvms_config = _optional_string(payload, "lvms_config_path")
         settings = cls(
             sensitive_root=Path(sensitive_root),
@@ -148,7 +136,6 @@ class MolStatSettings:
             statistics_hour=_legacy_hour(payload, "statistics_hour", 5),
             backlog_first_hour=_legacy_hour(payload, "backlog_first_hour", 6),
             backlog_last_hour=_legacy_hour(payload, "backlog_last_hour", 18),
-            statistics_lookup_paths=lookups,
             lvms_config_path=Path(lvms_config) if lvms_config else None,
             lvms_url=_optional_string(payload, "lvms_url") or "",
             enabled_units=DEFAULT_ENABLED_UNIT_KEYS,
@@ -163,7 +150,7 @@ class MolStatSettings:
         allow_local_runtime: bool,
     ) -> MolStatSettings:
         version = payload.get("schema_version")
-        if type(version) is not int or version != SETTINGS_SCHEMA_VERSION:
+        if type(version) is not int or version not in (2, SETTINGS_SCHEMA_VERSION):
             raise ValueError("Ukjent skjemaversjon for MolStat-innstillinger.")
         allowed = {"schema_version", "sensitive_root", "sharepoint_root", "lvms_url", "schedules", "units"}
         if allow_local_runtime:
@@ -186,7 +173,6 @@ class MolStatSettings:
             )
 
         enabled: list[str] = []
-        lookups: dict[str, Path] = {}
         configs: dict[str, Path] = {}
         backlogs: dict[str, Path] = {}
         for key in ACTIVE_UNIT_KEYS:
@@ -199,11 +185,6 @@ class MolStatSettings:
                 raise ValueError(f"Aktivering for {key} må være sann eller usann.")
             if is_enabled:
                 enabled.append(key)
-            lookup = raw_unit.get("statistics_lookup_path", "")
-            if not isinstance(lookup, str):
-                raise ValueError(f"Lookup-sti for {key} må være tekst.")
-            if lookup:
-                lookups[key] = Path(lookup)
             config = raw_unit.get("config_path", "")
             if not isinstance(config, str):
                 raise ValueError(f"Enhetsfil for {key} må være tekst.")
@@ -231,7 +212,6 @@ class MolStatSettings:
             statistics_hour=_required_hour(schedules, "statistics_hour"),
             backlog_first_hour=_required_hour(schedules, "backlog_first_hour"),
             backlog_last_hour=_required_hour(schedules, "backlog_last_hour"),
-            statistics_lookup_paths=lookups,
             lvms_config_path=Path(lvms_config) if lvms_config else None,
             lvms_url=_required_string(payload, "lvms_url"),
             enabled_units=tuple(enabled),

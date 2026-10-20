@@ -1,8 +1,8 @@
 import csv
 from pathlib import Path
 
-from molstat._statistics.flow_reports import process, read_lookup, turnaround
-from molstat._statistics.specialized_lookup import default_lookup_path
+from molstat._statistics.flow_reports import process, turnaround
+from unit_fixtures import analysis_codes
 
 
 def raw(path: Path, headers: list[str], rows: list[list[str]]) -> None:
@@ -12,14 +12,6 @@ def raw(path: Path, headers: list[str], rows: list[list[str]]) -> None:
         writer.writerows(rows)
 
 
-def test_flow_lookup_preserves_code_price_conflicts():
-    lookup = read_lookup(default_lookup_path("flow"))
-    assert len(lookup) == 66
-    assert lookup["FLOW-02-OU"]["Pris2026NOK"] == "323.60"
-    assert lookup["FLOW-61-OU"]["Pris2026NOK"] == "250.00"
-    assert lookup["FLOW-06-B-OU"]["Pris2026NOK"] == ""
-    assert "FLOW-06-ALT-OU" not in lookup
-    assert lookup["FLOW-36-OU"]["Pris2026NOK"] == ""
 
 
 def test_flow_processes_two_approval_turnarounds_without_extraction(tmp_path):
@@ -34,7 +26,7 @@ def test_flow_processes_two_approval_turnarounds_without_extraction(tmp_path):
         ["SENSITIVE2", "PID2", "Blod", "FLOW-06-B-OU", "02.09.2026 08:00:00", "02.09.2026 09:00:00", "02.09.2026 10:00:00", "02.09.2026 11:00:00", "01.09.2026 08:00:00"],
     ])
     out = tmp_path / "out"
-    summary = process(ordered, answered, out, default_lookup_path("flow"))
+    summary = process(ordered, answered, out, analysis_codes("flow"))
     assert summary["antall"] == 1
     assert summary["resultater"] == 2
     assert summary["valid_patient_turnaround"] == 1

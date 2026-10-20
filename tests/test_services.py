@@ -1,3 +1,4 @@
+from unit_fixtures import default_unit_file
 import json
 from pathlib import Path
 import sqlite3
@@ -6,8 +7,6 @@ import pytest
 
 from molstat._backlog.export import BACKLOG_PUBLIC_COLUMNS
 from molstat.services import DefaultServices, _unavailable_path_messages
-from molstat._statistics.specialized_lookup import default_lookup_path
-from molstat._statistics.lege_lookup import default_lege_lookup_path
 
 
 def test_lease_failure_diagnostic_includes_safe_reason_without_raw_payload(tmp_path, monkeypatch):
@@ -23,26 +22,16 @@ def test_lease_failure_diagnostic_includes_safe_reason_without_raw_payload(tmp_p
     assert 'SECRET' not in message
 
 
-def test_first_launch_opens_with_empty_settings(tmp_path: Path) -> None:
+def test_first_launch_opens_with_empty_settings(tmp_path):
     services = DefaultServices(tmp_path / "settings.json")
+    fields = services.load_settings_fields()
+    assert fields["sensitive_root"] == ""
+    assert fields["sharepoint_root"] == ""
+    assert fields["lvms_url"] == ""
+    assert not any(name.startswith("lookup_") for name in fields)
+    assert fields["enabled_hemato"] == "true"
+    assert fields["enabled_flow"] == "false"
 
-    assert services.load_settings_fields() == {
-        "sensitive_root": "",
-        "sharepoint_root": "",
-        "lvms_url": "",
-        "lookup_hemato": "",
-        "lookup_solide": "",
-        "lookup_flow": str(default_lookup_path("flow")),
-        "lookup_fish": str(default_lookup_path("fish")),
-        "lookup_pre": str(default_lookup_path("pre")),
-        "lookup_lege": str(default_lege_lookup_path()),
-        "enabled_hemato": "true",
-        "enabled_solide": "true",
-        "enabled_flow": "false",
-        "enabled_fish": "false",
-        "enabled_pre": "false",
-        "enabled_lege": "false",
-    }
 
 
 def test_second_pc_opens_current_shared_database_without_migrating(
@@ -51,7 +40,7 @@ def test_second_pc_opens_current_shared_database_without_migrating(
     """A current shared database must be read-only during app startup."""
 
     sensitive = tmp_path / "shared-sensitive"
-    database_path = sensitive / "data" / "molstat.sqlite3"
+    database_path = sensitive / "database" / "molstat.sqlite3"
     database_path.parent.mkdir(parents=True)
     with sqlite3.connect(database_path) as connection:
         connection.execute("CREATE TABLE schema_info(version INTEGER NOT NULL)")
@@ -69,7 +58,7 @@ def test_second_pc_opens_current_shared_database_without_migrating(
 
     assert database.path == database_path
     assert migrate_calls == []
-    assert not (sensitive / "data" / "backups").exists()
+    assert not (sensitive / "database" / "backups").exists()
 
 
 def test_refresh_gui_runtime_reports_and_logs_configuration_failure(
@@ -126,6 +115,8 @@ def test_save_settings_accepts_existing_production_paths(tmp_path: Path) -> None
             "lvms_url": "https://lvms.example.invalid/clims/",
             "lookup_hemato": str(hemato),
             "lookup_solide": str(solide),
+            "config_hemato": str(default_unit_file("hemato")),
+            "config_solide": str(default_unit_file("solide")),
         }
     )
 
@@ -152,13 +143,11 @@ def test_save_settings_uses_bundled_patolog_lookup(
         "enabled_hemato": "false",
         "enabled_solide": "false",
         "enabled_lege": "true",
+        "config_lege": str(default_unit_file("lege")),
     })
 
     assert services.settings.enabled_units == ("lege",)
-    lookup = services.settings.statistics_lookup_paths["lege"]
-    assert lookup.is_relative_to(sensitive / "config" / "lookups" / "lege")
-    assert lookup.read_bytes() == default_lege_lookup_path().read_bytes()
-    assert services.load_settings_fields()["lookup_lege"] == str(lookup)
+    assert not hasattr(services.settings, "statistics_lookup_paths")
     assert services.settings.unit_config_paths["lege"].is_file()
     assert services._build_system(require_statistics=True).statistics_processors["lege"].profile == "lege"
     assert (local / "MolStat" / "lvms-config.json").is_file()
@@ -204,6 +193,8 @@ def test_system_build_wires_exact_backlog_publication_policy(
             "lvms_url": "https://lvms.test/clims/",
             "lookup_hemato": str(hemato),
             "lookup_solide": str(solide),
+            "config_hemato": str(default_unit_file("hemato")),
+            "config_solide": str(default_unit_file("solide")),
         }
     )
 
@@ -218,7 +209,6 @@ def test_system_build_wires_exact_backlog_publication_policy(
             raise AssertionError("unused")
 
     monkeypatch.setattr("molstat.services.UnifiedLvmsFetcher", FakeFetcher)
-    monkeypatch.setattr("molstat.services.load_lookup", lambda _path: {})
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
 
     system = services._build_system(require_statistics=False)
@@ -254,8 +244,6 @@ def test_settings_transfer_imports_unavailable_paths_with_safe_labels(
     assert warnings == (
         "K-sensitiv mappe",
         "SharePoint-mappe",
-        "Lookup-fil for Hemato",
-        "Lookup-fil for Solide",
     )
     assert services.settings.sensitive_root == tmp_path / "mangler-sensitiv"
     assert settings_path.is_file()
@@ -284,7 +272,7 @@ def test_settings_export_excludes_local_lvms_runtime(tmp_path: Path) -> None:
     services.export_settings(transfer)
 
     exported = transfer.read_text(encoding="utf-8").casefold()
-    assert '"schema_version": 2' in exported
+    assert '"schema_version": 3' in exported
     for forbidden in ("lvms_config_path", "profile_directory", "cdp", "session"):
         assert forbidden not in exported
 
@@ -389,10 +377,10 @@ def test_missing_disabled_lookup_does_not_block_saving_active_unit(tmp_path):
         "enabled_hemato": "false",
         "enabled_solide": "false",
         "enabled_lege": "true",
+        "config_lege": str(default_unit_file("lege")),
         "lookup_solide": str(missing),
     })
 
     assert services.settings.enabled_units == ("lege",)
-    assert services.settings.statistics_lookup_paths["solide"] == missing
-    assert services.settings.statistics_lookup_paths["lege"].is_file()
+    assert not hasattr(services.settings, "statistics_lookup_paths")
     assert services.settings_path.is_file()

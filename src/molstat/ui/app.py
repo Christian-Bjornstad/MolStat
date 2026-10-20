@@ -429,8 +429,6 @@ class MainWindow(QMainWindow):
         self.settings_page.sensitive_root.setText(values.get("sensitive_root", ""))
         self.settings_page.sharepoint_root.setText(values.get("sharepoint_root", ""))
         self.settings_page.lvms_url.setText(values.get("lvms_url", ""))
-        for key, field in self.settings_page.lookup_fields.items():
-            field.setText(values.get(f"lookup_{key}", ""))
         for key, field in self.settings_page.config_fields.items():
             field.setText(values.get(f"config_{key}", ""))
         for key, field in self.settings_page.backlog_fields.items():
@@ -459,12 +457,6 @@ class MainWindow(QMainWindow):
             "sharepoint_root": self.settings_page.sharepoint_root.text().strip(),
             "lvms_url": self.settings_page.lvms_url.text().strip(),
         }
-        values.update(
-            {
-                f"lookup_{key}": field.text().strip()
-                for key, field in self.settings_page.lookup_fields.items()
-            }
-        )
         values.update(
             {
                 f"enabled_{key}": "true" if field.isChecked() else "false"

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source_system": "LVMS",
+  "sample_number_scope": "source_system",
+  "reports": {
+    "backlog": {
+      "sample_id_columns": ["SampleID", "Sample ID"],
+      "occurrence_id_columns": ["WorkItem", "Workitem", "WorkItem ID"],
+      "analysis_code_columns": ["Analyse"],
+      "ordered_at_columns": ["Tidspunkt analysebestilling"]
+    },
+    "statistics_ordered": {
+      "sample_id_columns": ["Sample ID", "Sample.ID"],
+      "occurrence_id_columns": ["WorkItem", "Workitem", "WorkItem ID"],
+      "analysis_code_columns": ["Analyse"],
+      "ordered_at_columns": ["Tidspunkt analysebestilling", "Tidspunkt opprettet"]
+    },
+    "statistics_answered": {
+      "sample_id_columns": ["Sample ID", "Sample.ID"],
+      "occurrence_id_columns": ["WorkItem", "Workitem", "WorkItem ID"],
+      "analysis_code_columns": ["Analyse"],
+      "ordered_at_columns": ["Tidspunkt analysebestilling", "Tidspunkt opprettet"]
+    },
+    "statistics_extraction": {
+      "sample_id_columns": ["Sample ID", "Sample.ID"],
+      "occurrence_id_columns": ["WorkItem", "Workitem", "WorkItem ID"],
+      "analysis_code_columns": ["Analyse"],
+      "ordered_at_columns": ["Tidspunkt analysebestilling", "Tidspunkt opprettet"]
+    }
+  }
+}

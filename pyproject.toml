@@ -31,12 +31,10 @@ molstat = [
     "assets/*.png",
     "assets/*.ico",
     "assets/*.svg",
-    "defaults/units/*.json",
-    "defaults/lookups/*.csv",
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 testpaths = ["tests"]
 addopts = "-q"
 qt_api = "pyqt6"

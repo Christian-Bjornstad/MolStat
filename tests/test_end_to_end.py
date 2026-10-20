@@ -1,3 +1,4 @@
+from unit_fixtures import analysis_codes
 import csv
 from typing import Mapping
 from datetime import date, datetime
@@ -206,11 +207,11 @@ def test_complete_flow_keeps_identifiers_out_of_public_outputs(tmp_path: Path) -
     assert not backlog_download.exists()
     archived_text = " ".join(
         path.read_text(errors="ignore")
-        for path in (sensitive / "raw").rglob("*.csv")
+        for path in (sensitive / "data" / "raw").rglob("*.csv")
     )
     assert "SECRET-STAT-RAW" in archived_text
-    assert "SECRET-BACKLOG-42" not in archived_text
-    assert not (sensitive / "raw" / "backlog").exists()
+    assert "SECRET-BACKLOG-42" in archived_text
+    assert len(list((sensitive / "data" / "raw" / "backlog").rglob("*.csv"))) == 1
     public_text = repr(snapshot) + " ".join(
         path.read_text(encoding="utf-8-sig")
         for path in sharepoint.rglob("*.csv")
@@ -292,7 +293,7 @@ def test_second_statistics_run_publishes_complete_deduplicated_history(
         database=database,
         archive=RawArchive(sensitive),
         statistics_processors={
-            "hemato": StatisticsProcessor(tmp_path / "unused-lookup.xlsx")
+            "hemato": StatisticsProcessor(analysis_codes=analysis_codes("hemato"))
         },
         backlog_processor=object(),
         publisher=publisher,

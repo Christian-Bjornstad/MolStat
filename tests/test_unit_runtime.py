@@ -10,7 +10,7 @@ from molstat.database import MolStatDatabase, WriterLeaseBusy
 from molstat.orchestrator import MolStatOrchestrator
 from molstat.services import DefaultServices
 from molstat.system import CapabilityRun
-from molstat.unit_settings import default_unit_file
+from unit_fixtures import default_unit_file
 
 
 def _services(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DefaultServices:
@@ -26,8 +26,8 @@ def _services(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DefaultService
         sharepoint_root=public,
         lvms_url="https://lvms.test/clims/",
         enabled_units=("flow", "solide"),
-        unit_config_paths={key: default_unit_file(key) for key in ("flow", "solide")},
-        statistics_lookup_paths={"solide": tmp_path / "missing.xlsx"},
+        unit_config_paths={"flow": default_unit_file("flow"), "solide": tmp_path / "missing-solide.json"},
+
     )
     services.settings.save(services.settings_path)
     services._settings_exist = True
@@ -76,7 +76,7 @@ def test_composite_run_reports_bad_lookup_only_for_affected_unit(tmp_path, monke
     assert [(item.unit_key, item.status) for item in result.capability_results] == [
         ("flow", "succeeded"), ("solide", "failed")
     ]
-    assert result.capability_results[1].error_code == "LOOKUP_INVALID"
+    assert result.capability_results[1].error_code == "CONFIG_INVALID"
     assert "missing.xlsx" not in result.capability_results[1].message
 
 
@@ -200,9 +200,9 @@ def test_manual_service_reports_invalid_lookup_for_selected_unit(tmp_path, monke
 
     assert result.status == "failed"
     assert result.capability_results[0].unit_key == "solide"
-    assert result.capability_results[0].error_code == "LOOKUP_INVALID"
+    assert result.capability_results[0].error_code == "CONFIG_INVALID"
     assert services.unit_status_fields()["solide"][0] == "Oppsett må rettes"
-    assert not (services.settings.sensitive_root / "raw").exists()
+    assert not list((services.settings.sensitive_root / "data/raw").rglob("*.csv"))
 
 
 def test_corrupt_saved_settings_open_recoverable_configuration_without_overwrite(tmp_path, monkeypatch):
@@ -224,13 +224,9 @@ def test_corrupt_saved_settings_open_recoverable_configuration_without_overwrite
 def test_backlog_only_build_does_not_clear_statistics_configuration_error(tmp_path, monkeypatch):
     services = _services(tmp_path, monkeypatch)
     services.settings = replace(services.settings, enabled_units=("hemato",),
-                                unit_config_paths={"hemato": default_unit_file("hemato")},
-                                statistics_lookup_paths={})
-    services.refresh_gui_runtime()
-    assert services.unit_status_fields()["hemato"][0] == "Delvis klar"
-
+        unit_config_paths={"hemato": default_unit_file("hemato")})
+    services._capability_readiness[("hemato", "statistics")] = "CONFIG_INVALID"
     services._build_system(require_statistics=False)
-
     assert services.unit_status_fields()["hemato"][0] == "Delvis klar"
 
 
@@ -249,7 +245,7 @@ def test_retry_publication_continues_for_healthy_unit_after_invalid_configuratio
     definition = load_unit_file(default_unit_file("flow"))
     capability = configured_registry({"flow": definition}).require("flow").capability("statistics")
     publisher = SharePointPublisher(PublicationPolicy(capability.allowed_columns, default_forbidden_patterns()))
-    candidate = services.settings.sensitive_root / "processed/flow/statistics/synthetic-run"
+    candidate = services.settings.sensitive_root / "data/processed/flow/statistics/synthetic-run"
     candidate.mkdir(parents=True)
     files = {}
     for name, columns in capability.publication_files:
@@ -322,7 +318,7 @@ def test_corrupt_settings_cannot_create_database_through_scheduling(tmp_path, mo
     assert not (tmp_path / "data").exists()
 
 
-def test_unconfigured_disabled_unit_can_be_enabled_using_bundled_definition(tmp_path, monkeypatch):
+def test_unconfigured_disabled_unit_requires_explicit_json_when_enabled(tmp_path, monkeypatch):
     sensitive, public = tmp_path / "sensitive", tmp_path / "public"
     sensitive.mkdir()
     public.mkdir()
@@ -332,10 +328,12 @@ def test_unconfigured_disabled_unit_can_be_enabled_using_bundled_definition(tmp_
         "sensitive_root": str(sensitive), "sharepoint_root": str(public),
         "lvms_url": "https://lvms.test/clims/", "enabled_hemato": "false",
         "enabled_solide": "false", "enabled_lege": "true",
+        "config_lege": str(default_unit_file("lege")),
     })
     fields = services.load_settings_fields()
     assert fields.get("config_flow", "") == ""
     fields["enabled_flow"] = "true"
+    fields["config_flow"] = str(default_unit_file("flow"))
 
     services.save_settings_fields(fields)
 

@@ -53,12 +53,6 @@ class UnitFile:
         }
 
 
-def default_unit_file(key: str) -> Path:
-    if key not in ("hemato", "solide", "flow", "fish", "pre", "lege"):
-        raise UnitConfigError("Enheten trenger en importert definisjon.")
-    return Path(__file__).parent / "defaults" / "units" / f"{key}.json"
-
-
 def load_unit_file(path: Path, expected_key: str | None = None, *, backlog_path: Path | None = None) -> UnitFile:
     try:
         if path.stat().st_size > 2_000_000:
@@ -70,10 +64,6 @@ def load_unit_file(path: Path, expected_key: str | None = None, *, backlog_path:
         key = raw.get("key")
         if not isinstance(key, str) or (expected_key and key != expected_key):
             raise UnitConfigError("key: filen tilhører en annen enhet")
-        if key == "solide" and raw.get("backlog") is None:
-            # Statistics-only unit files from earlier installations must expose
-            # the new backlog capability without losing operator-edited reports.
-            raw["backlog"] = json.loads(default_unit_file(key).read_text(encoding="utf-8"))["backlog"]
         if backlog_path is not None:
             if key not in {"hemato", "solide"}:
                 raise UnitConfigError("Restansefil støttes bare for Hemato og Solide.")
@@ -81,11 +71,6 @@ def load_unit_file(path: Path, expected_key: str | None = None, *, backlog_path:
         if not isinstance(raw.get("label"), str) or not raw["label"].strip():
             raise UnitConfigError("label: navn mangler")
         reports = raw.get("statistics")
-        if raw.get("profile") == "lege" and isinstance(reports, dict):
-            retired = {"current", "previous", "production", "macro"}
-            if set(reports) <= retired | {"workflow"} and ("workflow" in reports or {"current", "previous"} <= set(reports)):
-                workflow = reports.get("workflow") or json.loads(default_unit_file("lege").read_text(encoding="utf-8"))["statistics"]["workflow"]
-                reports = raw["statistics"] = {"workflow": workflow}
         _object(reports, {"workflow", "antall", "resultater", "ekstraksjon", "current", "previous", "production", "macro"}, "statistics")
         expected_roles = {
             "hemato": {"antall", "resultater", "ekstraksjon"},
@@ -108,11 +93,7 @@ def load_unit_file(path: Path, expected_key: str | None = None, *, backlog_path:
             if raw.get("profile") == "lege" and report.get("job_key") != name:
                 raise UnitConfigError(f"statistics.{name}.job_key: må være {name} for denne rapportrollen")
             if raw.get("profile") == "lege":
-                from ._statistics.patolog_process import REPORT_STEMS
-                from ._statistics.patolog_reports import PRODUCTION_STEM, MACRO_STEM
-
-                storage_stems = dict(zip(("current", "previous"), REPORT_STEMS))
-                storage_stems.update(production=PRODUCTION_STEM, macro=MACRO_STEM, workflow="PAT-TID-STOP-SNITT-OU")
+                storage_stems = {"workflow": "PAT-TID-STOP-SNITT-OU"}
                 if report.get("report_id") != storage_stems[name]:
                     raise UnitConfigError(
                         f"statistics.{name}.report_id: patologprofilen krever {storage_stems[name]} som arkivnavn. "
@@ -217,16 +198,6 @@ def write_json(path: Path, payload: dict) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def activate_unit_file(source: Path, config_root: Path, key: str) -> Path:
-    candidate = load_unit_file(source, key)
-    destination = config_root / "units" / f"{candidate.key}.json"
-    if destination.is_file():
-        previous = load_unit_file(destination, key)
-        write_json(config_root / "revisions" / previous.digest / f"{key}.json", previous.payload)
-    write_json(destination, candidate.payload)
-    return destination
-
-
 def load_backlog_file(path: Path, key: str) -> dict:
     """One independently editable restanse file per unit, using the same contract."""
     try:
@@ -242,71 +213,8 @@ def load_backlog_file(path: Path, key: str) -> dict:
 def load_active_units(sensitive_root: Path, paths: dict[str, Path], keys, *, backlog_paths: dict[str, Path] | None = None) -> dict[str, UnitFile]:
     result = {}
     for key in keys:
-        source = paths.get(key) or sensitive_root / "config" / "units" / f"{key}.json"
-        if key not in paths and not source.exists():
-            source = activate_unit_file(upgrade_source(sensitive_root, key), sensitive_root / "config", key)
+        source = paths.get(key)
+        if source is None:
+            raise UnitConfigError(f"Enhetsfil (JSON) mangler for {key}. Velg din egen fil i Innstillinger.")
         result[key] = load_unit_file(source, key, backlog_path=(backlog_paths or {}).get(key))
     return result
-
-
-def upgrade_source(sensitive_root: Path, key: str, legacy_root: Path | None = None) -> Path:
-    """Preserve the previously active installation configuration on first upgrade."""
-    if key in {"flow", "fish", "pre", "lege"}:
-        return default_unit_file(key)
-    legacy_root = legacy_root or Path(__file__).resolve().parents[2] / "config"
-    legacy_units = legacy_root / "units.json"
-    if not legacy_units.is_file():
-        return default_unit_file(key)
-    try:
-        raw = json.loads(legacy_units.read_text(encoding="utf-8-sig"), object_pairs_hook=_unique)
-        units = {unit.key: unit for unit in validate_units(raw)}
-        unit = units[key]
-        if len(unit.reports) != 3:
-            raise UnitConfigError("Eldre statistikkoppsett må ha tre rapportroller.")
-        reports = {}
-        for role, marker in (("antall", "ANTALL"), ("resultater", "RESULTATER"), ("ekstraksjon", "EKSTRAKSJON")):
-            matches = [report for report in unit.reports if marker in report.report_id.upper()]
-            if len(matches) != 1:
-                raise UnitConfigError(f"Kan ikke entydig migrere rapportrollen {role}.")
-            report = matches[0]
-            reports[role] = {"job_key": report.job_key, "fetch_report_id": report.fetch_report_id,
-                             "report_id": report.report_id, "analysis_codes": list(report.analysis_codes or unit.analysis_codes)}
-        payload = {"schema_version": 1, "key": key, "label": unit.label, "profile": unit.profile,
-                   "statistics": reports, "backlog": None}
-        originals = {"units.json": raw}
-        if key == "hemato":
-            payload["backlog"] = {}
-            for section in ("report", "analyses", "columns"):
-                filename = f"backlog-{section}.json"
-                content = json.loads((legacy_root / filename).read_text(encoding="utf-8-sig"), object_pairs_hook=_unique)
-                originals[filename] = content
-                payload["backlog"][section] = content
-        elif key == "solide":
-            # Restanse was added after the legacy statistics-only definition.
-            # Keep edited statistics while adding the verified restanse setup.
-            default = json.loads(default_unit_file(key).read_text(encoding="utf-8"))
-            payload["backlog"] = default["backlog"]
-            originals["solide.json"] = default["backlog"]
-        digest = hashlib.sha256(json.dumps(originals, sort_keys=True).encode()).hexdigest()
-        root = sensitive_root / "config" / "migration" / digest
-        source = root / f"{key}.json"
-        write_json(source, payload)
-        load_unit_file(source, key)
-        for name, content in originals.items():
-            write_json(root / "originals" / name, content)
-        return source
-    except (ValueError, KeyError, OSError) as exc:
-        raise UnitConfigError(f"CONFIG_MIGRATION: Eldre oppsett kunne ikke overføres. Originalene er bevart. {exc}") from exc
-
-
-def materialize_snapshot(sensitive_root: Path, definitions: dict[str, UnitFile]) -> Path:
-    """Legacy pipeline inputs are pinned to the exact validated unit versions."""
-    digest = hashlib.sha256("".join(f"{k}:{v.digest}" for k, v in sorted(definitions.items())).encode()).hexdigest()
-    root = sensitive_root / "config" / "revisions" / digest
-    write_json(root / "units.json", {"units": {key: definition.legacy_statistics() for key, definition in definitions.items()}})
-    for key, definition in definitions.items():
-        write_json(root / f"{key}.json", definition.payload)
-        if definition.payload.get("backlog"):
-            for section, content in definition.payload["backlog"].items():
-                write_json(root / key / f"backlog-{section}.json", content)
-    return root

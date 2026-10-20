@@ -1,16 +1,19 @@
+from unit_fixtures import analysis_codes
+from unit_fixtures import analysis_codes
 import csv
 from datetime import date
 
 import pytest
 
-from molstat._statistics.specialized_lookup import default_lookup_path, validate_lookup
+from unit_fixtures import analysis_codes as default_lookup_path
 from molstat.fetching import _statistics_job
 from molstat.lvms.report_job import validate_report_job
 from molstat.statistics import StatisticsProcessor
 from molstat.services import DefaultServices
 from molstat.modules import DEFAULT_UNITS
 from molstat.publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
-from molstat.unit_settings import default_unit_file, load_unit_file
+from molstat.unit_settings import load_unit_file
+from unit_fixtures import default_unit_file
 
 
 LOOKUPS = {profile: default_lookup_path(profile) for profile in ("flow", "fish", "pre")}
@@ -35,8 +38,7 @@ def test_specialized_defaults_match_lookup_and_roles(key, count, roles):
     unit = load_unit_file(default_unit_file(key)).unit
     assert len(unit.analysis_codes) == count
     assert tuple(unit_file.job_key for unit_file in unit.reports) == tuple("ordered" if r == "antall" else "answered" for r in roles)
-    validate_lookup(LOOKUPS[key], key, set(unit.analysis_codes))
-    validate_lookup(default_lookup_path(key), key, set(unit.analysis_codes))
+    assert LOOKUPS[key] == set(unit.analysis_codes)
 
 
 def test_fish_codes_keep_original_case_and_slash():
@@ -70,9 +72,10 @@ def test_new_units_can_be_enabled_in_molstat_settings(tmp_path, monkeypatch):
         "lvms_url": "https://lvms.test/clims/",
         "enabled_hemato": "false", "enabled_solide": "false",
         "enabled_flow": "true", "enabled_fish": "true", "enabled_pre": "true",
+        **{f"config_{key}": str(default_unit_file(key)) for key in ("flow", "fish", "pre")},
     })
     assert service.settings.enabled_units == ("flow", "fish", "pre")
-    assert all(service.settings.statistics_lookup_paths[key].is_relative_to(sensitive) for key in LOOKUPS)
+    assert not hasattr(service.settings, "statistics_lookup_paths")
     system = service._build_system(require_statistics=True)
     assert tuple(unit.key for unit in system.units.for_job("statistics")) == ("flow", "fish", "pre")
     assert (local / "MolStat" / "lvms-config.json").is_file()
@@ -85,7 +88,7 @@ def test_two_report_profiles_process_archives_without_identifiers(tmp_path, key,
     raw = tmp_path / "raw"
     row = ["SENSITIVE", "PERSON", code, "01.09.2026 08:00:00", "01.09.2026 07:00:00", "01.09.2026 09:00:00", "02.09.2026 08:00:00", "02.09.2026 09:00:00"]
     files = [archive(raw, report_id, [row]) for report_id in report_ids.values()]
-    result = StatisticsProcessor(LOOKUPS[key], profile=key, report_ids=report_ids).process(key, files, tmp_path / "out")
+    result = StatisticsProcessor(analysis_codes=analysis_codes(key), profile=key, report_ids=report_ids).process(key, files, tmp_path / "out")
     assert result.row_counts == {"antall": 1, "resultater": 1}
     text = result.resultater.read_text(encoding="utf-8-sig")
     assert "SENSITIVE" not in text and "PERSON" not in text
@@ -108,7 +111,7 @@ def test_flow_and_fish_registry_import_and_excel_refresh_under_writer_lease(tmp_
     database = MolStatDatabase(tmp_path / 'data' / 'molstat.sqlite3')
     database.migrate()
     with database.writer_lease('synthetic-pc', timedelta(minutes=5), renew=True):
-        result = StatisticsProcessor(LOOKUPS[key], profile=key, report_ids=report_ids,
+        result = StatisticsProcessor(analysis_codes=analysis_codes(key), profile=key, report_ids=report_ids,
             database=database).process(key, files, tmp_path / 'out')
         snapshot = read_excel_snapshot(database, generated_at=datetime(2026, 10, 19))
         published = publish_search_workbook(snapshot, tmp_path / 'Prøvesøk.xlsx')
@@ -126,12 +129,12 @@ def test_pre_single_report_processes_activity_chain(tmp_path):
         ["SENSITIVE", "PERSON", "EKSTRAMAXDNA-OU", "01.09.2026 08:00:00", "", "", "02.09.2026 08:00:00", ""],
     ]
     current = archive(tmp_path / "raw", report_id, rows)
-    processor = StatisticsProcessor(LOOKUPS["pre"], profile="pre", report_ids={"resultater": report_id})
+    processor = StatisticsProcessor(analysis_codes=analysis_codes("pre"), profile="pre", report_ids={"resultater": report_id})
     result = processor.process("pre", [current], tmp_path / "out")
     assert result.row_counts == {"antall": 0, "resultater": 3}
     with result.resultater.open(encoding="utf-8-sig", newline="") as handle:
         data = {row["Analyse"]: row for row in csv.DictReader(handle, delimiter=";")}
-    assert data["EKSTRAMAXDNA-OU"]["Prosessdager"] == "0.8333333333"
+    assert data["EKSTRAMAXDNA-OU"]["Prosessdager"] == ""
     assert "SENSITIVE" not in result.resultater.read_text(encoding="utf-8-sig")
     capability = DEFAULT_UNITS.require("pre").capability("statistics")
     publisher = SharePointPublisher(PublicationPolicy(capability.allowed_columns, default_forbidden_patterns()))

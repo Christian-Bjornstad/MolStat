@@ -1,3 +1,4 @@
+from unit_fixtures import analysis_codes
 from datetime import datetime
 from pathlib import Path
 
@@ -61,7 +62,7 @@ def test_statistics_links_all_sources_idempotently_without_changing_exports(
         observed_at=datetime(2026, 9, 8, 9, 0),
     )
     processor = StatisticsProcessor(
-        tmp_path / "unused.xlsx",
+        analysis_codes=analysis_codes("hemato"),
         database=database,
         now=lambda: datetime(2026, 9, 10, 12, 0),
     )
