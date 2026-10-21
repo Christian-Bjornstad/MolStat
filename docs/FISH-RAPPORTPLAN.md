@@ -1,33 +1,33 @@
-# FISH – plan for senere Power BI-rapport
+# FISH-rapport
 
-Avklart 20. oktober 2026: Rapporten skal følge samme hovedoppsett og uttrykk som Solide, Hemato og Flow, tilpasset FISH-data. Dette er en plan; ingen Power BI-rapport er opprettet eller endret. Eksisterende rapportprosjekter finnes ikke i dette repoet, så nøyaktig layout og gjenbruk av mål avklares ved senere gjennomgang av dem.
+Oppdatert 21. oktober 2026. Rapporten er bygget med de samme ti sidene, navigasjonen, fargene og diagramoppsettet som den oppdaterte Solide-rapporten, som bygger på Hemato V13. Ingen egen datakvalitetsside er lagt til.
 
-## Rapportinnhold
+Rapportfilen ligger lokalt i `outputs/fish_20261021/FISH_Statistikk_ferdig.pbix`. Power BI-filer og produksjonsdata er utelatt fra Git. Rapporten er ikke publisert til Power BI-tjenesten.
 
-Første versjon har to sider og ingen egen datakvalitetsside, feillister eller tekniske kontrollvisualer.
+## Sider og datamodell
 
-| Side | Innhold |
-| --- | --- |
-| Aktivitet | Antall bestilte analyser, resultatrader, månedsutvikling, sammenligning med samme periode året før og fordeling på analyse/rapportgruppe. |
-| Svartid | Median og P90 for bestilling til analyseresultat, bestilling til godkjenning og eventuelt resultat til godkjenning. Trend per måned og analysetabell med antall observasjoner og svartider. |
+Sidene er Oversikt, Antall per uke, Antall per rapportgruppe, Antall per analyse, Svartid over tid, Stablet tidsforløp, Svartid per analyse, Oppfølging, Uke og sesong og Brukerveiledning.
 
-Bruk samme farger, navigasjon, filterplassering og KPI-uttrykk som de eksisterende rapportene. Aktuelle filtre er år, måned, analysekode og rapportgruppe. Materiale filtrerer resultat-/svartidsvisualer; bestillingsfilen har ikke materiale. Vis antall sammen med svartid slik at analyser med lite datagrunnlag kan vurderes riktig. Sammenlign et ufullstendig år med tilsvarende periode året før.
+Bestillinger og resultater ligger i separate faktatabeller med felles analyseoppslag og kalender. Bestillingsvolum følger bestillingsdato; resultatbaserte mål følger resultatdato. Materialfilter gjelder resultatdata, siden bestillingsfilen ikke har materiale. Analyse- og årfiltre er kontrollert mot begge faktatabellene.
 
-Ingen restansemåling beregnes som bestillinger minus resultatrader. Unike prøver/pasienter, positivandel og kliniske resultater inngår ikke med dagens eksport. Pris-/inntektsmål og andel innen svarfrist tas bare med dersom egne, avklarte oppslag og beregningsregler foreligger.
+Analyseregisteret fra brukerens `Statistikk, FISH.xlsm` er innebygd: 61 koder med fem kalenderdøgn fra bestilling til analyseresultat. Normoppnåelse beregnes per gyldig resultat og endres ikke med perspektivvelgeren. Oppslagsfeltene er tomme i MolStat-eksporten og fylles derfor i Power BI. Priser eller kliniske resultater er ikke konstruert.
 
-## Datamodell og mål
+Perspektivene er prøvetaking → resultat, opprettet → resultat og FISH-bestilling → resultat. Opprettet er registreringstidspunkt; det antas ikke å være fysisk ankomst. Bestilling → godkjenning er et eget mål. FISH har ingen ekstraksjonsdata eller sikker etterbestillingsindikator i uttrekket, så disse egenskapene overføres ikke fra Solide.
 
-- SharePoint `fish/antall.csv`: én eksportert bestillingsrad som grunnlag for bestillingsvolum etter bestillingsdato.
-- SharePoint `fish/resultater.csv`: resultatrader og tidsintervaller. Resultatvolum vises etter resultatdato, godkjenninger etter godkjenningsdato.
-- Felles analyseoppslag med avklarte visningsnavn og rapportgrupper. Ingen direkte kobling mellom faktatabellene etter bare analysekode eller dato.
-- Kalender med tydelige datoroller for bestilling, resultat og godkjenning. Svartidstrend bruker en konsekvent angitt sluttdato for hvert intervall.
-- Dagens `Svartid dager` betyr bestilling til analyseresultat, i kalenderdøgn. Bestilling til godkjenning beregnes separat. Manglende og negative intervaller bidrar ikke med null til tidsmålene; antall i grunnlaget vises.
-- `Rapportgruppe`, `Svarfrist`, `MolStat-ID`, `Pris2026NOK` og `Priskobling` er tomme i det undersøkte uttrekket. Rapportgruppe, priser og svarfrister må komme fra egne oppslag i Power BI; MolStat-ID gir foreløpig ingen prøvekobling.
+Stablet tidsforløp bruker samme komplette utvalg for alle deler: prøvetaking → opprettet, opprettet → FISH-bestilling og FISH-bestilling → resultat. Summen er total gjennomsnittstid. Femdagersnormen gjelder bare FISH-delen og brukes ikke som frist for hele det stablede forløpet. Manglende, negative og over 365 døgn lange intervaller blir ikke gjort om til null.
 
-## Forutsetninger før bygging
+## Rettet import og kontroll mot ekte data
 
-FISH-resultatfilen i data.zip har 13 poster splittet over flere CSV-rader. Dagens import fyller ut de korte radene og behandler fortsettelsesrader som egne poster. Dette må løses og kontrolleres i databehandlingen før rapporttallene ferdigstilles; kontrollen skal foregå i bakgrunnen og trenger ingen egen rapportside. Denne endringen i patologpublisering retter ikke FISH-importen.
+Resultatfilen i `data.zip` har 13 kommentarer med uescapede anførselstegn inne i tekst som går over flere linjer. Den tidligere CSV-leseren delte disse postene og fylte ut fortsettelsesradene med tomme felt. Den felles LVMS-leseren bevarer nå kommentaren som ett felt. Samme leser brukes ved sammenslåing, vanlig behandling og manuell import. Uavklarte felt-/kolonnefeil stoppes; råfilene beholdes uendret.
 
-Undersøkt behandlet eksport har 2 376 bestillingsrader, 2 361 resultatrader og 51 analysekoder med data. Dette er kontrollreferanser for uttrekket, ikke permanente forventede totaler eller ferdig validerte produksjonstall. Det foreløpige svartidsgrunnlaget gir median 4,07 kalenderdøgn til resultat og 5,55 til godkjenning, med ulike gyldige grunnlag.
+Manuell FISH-import validerer analysebestilling mot valgt uttrekksperiode, ikke prøvens opprettelsesdato. Begge originale FISH-filer er kontrollert gjennom hele importflyten med register, lokal publisering og Excel-søk uten LVMS-tilgang. De publiserte CSV-filene er identiske med rapportens korrigerte inndata.
 
-Ved senere bygging: sammenlign layouten med de eksisterende rapportene, rett og verifiser FISH-importen, avklar analyseoppslag og svartidsdefinisjoner, og bygg deretter de to sidene. Kontroller tellinger, datoroller og filtre uten å legge til en datakvalitetsside.
+Uttrekket er behandlet med den rettede leseren. De berørte postene har fått datoene tilbake, og kommentarfragmenter blir ikke lenger falske ekskluderte analysekoder. Forskjellen mellom antall bestillinger og resultater brukes ikke som restanse.
+
+Alle 90 mål er kjørt i Power BI-motoren. Hovedtall, normoppnåelse, medianer og summerte tidsdeler er avstemt mot uavhengige CSV-beregninger for alle analyser og år med data. Den lagrede PBIX-filen inneholder de ekte, korrigerte dataene, med SharePoint som kilde for senere oppdatering. Produksjonstall og kontrollfiler ligger bare i den lokale leveransen under outputs og tas ikke inn i Git.
+
+## Videre oppdatering
+
+Standardkilden er `fish/antall.csv` og `fish/resultater.csv` under samme MolStat-rot i SharePoint som Solide. Bruk oppdatert MolStat for å behandle og publisere neste uttrekk. De to korrigerte CSV-filene følger også den lokale leveransen og kan erstatte den tidligere FISH-eksporten.
+
+Ved bruk av lokale eksportfiler settes parameteren `MolStatKilde` til `Lokal`, og `MolStatLokalMappe` settes til mappen med de to behandlede CSV-filene. Råfiler skal ikke brukes direkte som Power BI-kilde. `MolStat-ID` er foreløpig tom i FISH-eksporten, så rapporten gir ikke prøvesøk eller unike prøvetellinger basert på denne kolonnen.
