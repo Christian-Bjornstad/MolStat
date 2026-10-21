@@ -128,10 +128,12 @@ def _validate_statistics_csv(path: Path, profile: str, role: str, request: Repor
                         raise ManualImportError(f"{role}: ugyldig datoformat. Bruk originalt LVMS-uttrekk.")
             if parse_tidspunkt(row["Tidspunkt.analysebestilling"]) is None:
                 raise ManualImportError(f"{role}: analysebestilling mangler et gyldig tidspunkt.")
-            # The normal LVMS statistics query filters the request creation
-            # timestamp. Older ordered/resulted events can belong to a request
-            # created inside this interval, so only check the source filter.
-            if "Tidspunkt.opprettet" in row:
+            # FISH's "analyse opprettet" / "analysebestilling" form filter
+            # is the analysis order, not the sample creation timestamp. Older
+            # samples and missing sample-creation dates are valid FISH orders.
+            if profile == "fish":
+                _require_date_in_period(parse_tidspunkt(row["Tidspunkt.analysebestilling"]), request, role)
+            elif "Tidspunkt.opprettet" in row:
                 _require_date_in_period(parse_tidspunkt(row["Tidspunkt.opprettet"]), request, role)
 
 

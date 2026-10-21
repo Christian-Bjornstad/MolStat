@@ -215,6 +215,34 @@ def test_manual_fish_accepts_multiline_lvms_comment_and_preserves_all_result_dat
     assert "PRIVATE" not in output
 
 
+@pytest.mark.parametrize("role", ["antall", "resultater"])
+@pytest.mark.parametrize("created", ["", "01.01.2020 08:00"])
+def test_fish_manual_period_uses_analysis_order_not_sample_creation(tmp_path, role, created):
+    from molstat.manual_import import _validate_statistics_csv
+    from molstat.lvms.report import ReportRequest
+    source = tmp_path / "fish.csv"
+    source.write_text(
+        'Sample ID;Analyse;Tidspunkt opprettet;Tidspunkt analysebestilling;Tidspunkt analyseresultat\n'
+        f'SYNTHETIC;FISH-ALKBA-OU;{created};01.10.2026 08:00;03.10.2026 08:00\n', encoding="cp1252")
+    before = source.read_bytes()
+    request = ReportRequest("statistics", "fish", "REPORT", date(2026, 10, 1), date(2026, 10, 7))
+    _validate_statistics_csv(source, "fish", role, request)
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("role", ["antall", "resultater"])
+def test_fish_manual_rejects_order_outside_period_even_if_sample_created_inside(tmp_path, role):
+    from molstat.manual_import import _validate_statistics_csv
+    from molstat.lvms.report import ReportRequest
+    source = tmp_path / "fish.csv"
+    source.write_text(
+        'Sample ID;Analyse;Tidspunkt opprettet;Tidspunkt analysebestilling;Tidspunkt analyseresultat\n'
+        'SYNTHETIC;FISH-ALKBA-OU;01.10.2026 08:00;30.09.2026 08:00;03.10.2026 08:00\n', encoding="cp1252")
+    request = ReportRequest("statistics", "fish", "REPORT", date(2026, 10, 1), date(2026, 10, 7))
+    with pytest.raises(ManualImportError, match="periode"):
+        _validate_statistics_csv(source, "fish", role, request)
+
+
 def test_manual_backlog_preserves_original_and_uses_normal_snapshot(tmp_path):
     system, definition = _system(tmp_path)
     payload = definition.payload["backlog"]
