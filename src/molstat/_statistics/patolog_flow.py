@@ -283,14 +283,36 @@ def needs_refresh(path, start, end, today):
 
 
 def read_archive(folder, as_of=None):
-    rows, seen = [], set()
-    for month, (path, end) in sorted(latest_months(folder).items()):
-        part = validate_month(path, month, end)
-        ids = {clean(r["Prøvenummer"]) for r in part}
-        if ids & seen:
-            raise ValueError("Samme prøve finnes i flere ankomstmåneder")
-        seen.update(ids)
-        rows.extend(part)
+    pattern = re.compile(r"__(\d{4}-\d{2}-\d{2})__(\d{4}-\d{2}-\d{2})(?:__r(\d+))?\.csv$")
+    snapshots = []
+    for path in folder.glob(STEM + "__*.csv"):
+        match = pattern.search(path.name)
+        if match:
+            start, end = date.fromisoformat(match[1]), date.fromisoformat(match[2])
+            if start > end:
+                raise ValueError("Ugyldig uttrekksperiode")
+            snapshots.append((path.stat().st_mtime_ns, int(match[3] or 1), path.name, path, start, end))
+    # Newest confirmed snapshot owns its entire arrival interval, including
+    # deletions and all glass/signature rows. Never append changed sample rows
+    # to an older snapshot, which would leave contradictory facts behind.
+    covered = []
+    rows = []
+    for _, _, _, path, start, end in sorted(snapshots, reverse=True):
+        if not any(a <= start and end <= b for a, b in covered):
+            part = validate_month(path, start, end)
+            for row in part:
+                arrival = moment(row["Ankomsttid"]).date()
+                if not any(a <= arrival <= b for a, b in covered):
+                    rows.append(row)
+        # Daily overlaps normally form one continuous range. Coalesce them so
+        # old, fully replaced monthly files need not be read or checked per row.
+        merged = []
+        for a, b in sorted([*covered, (start, end)]):
+            if merged and (a - merged[-1][1]).days <= 1:
+                merged[-1] = merged[-1][0], max(merged[-1][1], b)
+            else:
+                merged.append((a, b))
+        covered = merged
     return process_rows(rows, as_of=as_of)
 
 

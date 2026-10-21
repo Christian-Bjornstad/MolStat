@@ -51,11 +51,6 @@ def validate_manual_import(plan: ManualImportPlan, definition: UnitFile) -> None
         plan.date_from != date(2024, 1, 1) or plan.date_to != date.today()
     ):
         raise ManualImportError("Restanse krever hele uttrekket fra 01.01.2024 til i dag.")
-    if definition.unit.profile == "lege" and (
-        plan.date_from.day != 1
-        or (plan.date_from.year, plan.date_from.month) != (plan.date_to.year, plan.date_to.month)
-    ):
-        raise ManualImportError("Patologer krever perioden fra første dag i én måned.")
     required = set(manual_import_roles(definition, plan.job_kind))
     if set(plan.files) != required:
         raise ManualImportError("Velg én CSV-fil for hver rapportrolle i skjemaet.")
@@ -185,6 +180,10 @@ def process_manual_import(
     system: MolStatSystem, plan: ManualImportPlan, definition: UnitFile,
 ) -> tuple[CapabilityRun, ...]:
     """Must be called within the normal writer lease (via DefaultServices)."""
+    from .progress import emit_progress, plan_progress
+    plan_progress(1)
+    emit_progress(plan.unit_key, plan.job_kind, 'started')
+    emit_progress(plan.unit_key, plan.job_kind, 'processing')
     validate_manual_import(plan, definition)
     error = getattr(system, "capability_errors", {}).get((plan.unit_key, plan.job_kind))
     if error is not None:
@@ -240,4 +239,5 @@ def process_manual_import(
             summary = selected.run_backlog_unit(plan.unit_key)
         # Propagate the shared Excel export result to the service status view.
         system.excel_status = selected.excel_status
+        emit_progress(plan.unit_key, plan.job_kind, 'finished')
         return (CapabilityRun(plan.unit_key, plan.job_kind, summary),)

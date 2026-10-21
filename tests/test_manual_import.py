@@ -55,7 +55,9 @@ def _system(tmp_path, key="hemato", workflow=False):
     return system, definition
 
 
-def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path):
+@pytest.mark.parametrize('start,end', [(date(2026,10,1),date(2026,10,7)), (date(2026,10,18),date(2026,10,21)),
+                                      (date(2026,9,29),date(2026,10,2))])
+def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path, start, end):
     from molstat._statistics import patolog_flow as flow
     from molstat.manual_import import manual_import_roles
     system, definition = _system(tmp_path, "lege", workflow=True)
@@ -63,12 +65,13 @@ def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path)
     assert manual_import_roles(definition, "statistics") == ("workflow",)
     row = dict.fromkeys(flow.DATE_FIELDS + ["Prøvenummer", "Lab", "Prosess", "Prioritet", "BeholderId", "BlokkId", "GlassId", "Glasstype", "Signert av", "Godkjent type"], "")
     row.update(Prøvenummer="PRIVATE-FLOW-1", Lab="OU-PAT-HIST-RA", Prosess="HEMATO", Ankomsttid="01.10.2026 08:00")
+    row['Ankomsttid'] = start.strftime('%d.%m.%Y 08:00')
     source = tmp_path / "workflow.csv"
     with source.open("w", encoding="cp1252", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(row), delimiter=";")
         writer.writeheader(); writer.writerow(row)
     original = source.read_bytes()
-    result = process_manual_import(system, ManualImportPlan("lege", "statistics", date(2026, 10, 1), date(2026, 10, 7), {"workflow": source}), definition)
+    result = process_manual_import(system, ManualImportPlan("lege", "statistics", start, end, {"workflow": source}), definition)
     assert result[0].error is None
     assert source.read_bytes() == original
     assert len(list((tmp_path / "sensitive/data/raw/statistics/lege").glob("*.csv"))) == 1

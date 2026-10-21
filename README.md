@@ -1,6 +1,6 @@
 # MolStat
 
-MolStat henter statistikk og restanse fra LVMS og leverer behandlede CSV-filer til Power BI. Hemato og Solide har statistikk og restanse. Flow, FISH og Preanalyse har statistikk. Patologer bruker bare PAT-TID-STØP-SNITT-OU, én kalendermåned om gangen fra januar 2024.
+MolStat henter statistikk og restanse fra LVMS og leverer behandlede CSV-filer til Power BI. Hemato og Solide har statistikk og restanse. Flow, FISH og Preanalyse har statistikk. Patologer bruker bare PAT-TID-STØP-SNITT-OU. Statistikk bygges fra januar 2024 bare når rapporten ikke har arkivert historikk. Senere kjøringer henter fra siste arkiverte sluttdato minus to dager til i dag, separat for hver rapport. Patolog deler lange intervaller ved månedsskifter og gjenopptar fra arkivet etter avbrudd. Restanse henter fortsatt hele perioden fra januar 2024.
 
 ## Oppsett
 

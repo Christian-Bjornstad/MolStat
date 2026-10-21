@@ -221,3 +221,38 @@ def test_backlog_window_ignores_existing_raw_archives(tmp_path: Path) -> None:
         date(2024, 1, 1),
         date(2026, 9, 10),
     )
+
+
+def test_statistics_window_is_planned_separately_for_each_report(tmp_path):
+    from dataclasses import replace
+    from molstat._statistics.units import load_units
+    unit = load_units(_units(tmp_path / 'units.json'))[0]
+    unit = replace(unit, reports=(unit.reports[0], replace(unit.reports[0], job_key='result', report_id='RESULT', fetch_report_id='RESULT')))
+    folder = tmp_path / 'data/raw/statistics/hemato'
+    folder.mkdir(parents=True)
+    (folder / 'PAT-DIT-ANTALL-OU__2024-01-01__2026-10-20.csv').write_text('existing')
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(unit,), run_batch=runner, today=lambda: date(2026, 10, 21))
+    fetcher.fetch_statistics(('hemato',))
+    assert [j.interval.created_from for j in runner.jobs] == [date(2026, 10, 18), date(2024, 1, 1)]
+
+
+@pytest.mark.parametrize('key', ['hemato', 'solide', 'flow', 'fish', 'pre'])
+@pytest.mark.parametrize('populated', [False, True])
+def test_every_statistics_profile_only_backfills_missing_report_history(tmp_path, key, populated):
+    from unit_fixtures import default_unit_file
+    from molstat.unit_settings import load_unit_file
+    unit = load_unit_file(default_unit_file(key)).unit
+    if populated:
+        folder = tmp_path / 'data/raw/statistics' / key
+        folder.mkdir(parents=True)
+        for report in unit.reports:
+            (folder / f'{report.report_id}__2024-01-01__2026-10-20.csv').write_text('existing')
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(unit,), run_batch=runner, today=lambda: date(2026, 10, 21))
+    fetched = fetcher.fetch_statistics((key,))[key]
+    assert len(fetched) == len(unit.reports)
+    assert all(job.interval.created_from == (date(2026, 10, 18) if populated else date(2024, 1, 1))
+               and job.interval.created_to == date(2026, 10, 21) for job in runner.jobs)
