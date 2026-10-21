@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 
 from .storage_layout import StorageLayout
 from ._statistics.processing import clean_text, parse_tidspunkt
+from ._statistics.lvms_csv import read_lvms_rows
 from .system import CapabilityRun, MolStatSystem
 from .unit_settings import UnitFile
 from .lvms.report import ReportRequest
@@ -106,7 +107,7 @@ def _validate_statistics_csv(path: Path, profile: str, role: str, request: Repor
         raise ManualImportError("Patolog krever kun workflow-rapporten PAT-TID-STØP-SNITT-OU.")
 
     with path.open(encoding="cp1252", newline="") as stream:
-        reader = csv.reader(stream, delimiter=";", strict=True)
+        reader = read_lvms_rows(stream)
         header = [name.strip().replace(" ", ".") for name in next(reader, [])]
         required = {"Sample.ID", "Analyse", "Tidspunkt.analysebestilling"}
         if role in {"resultater", "ekstraksjon"}:

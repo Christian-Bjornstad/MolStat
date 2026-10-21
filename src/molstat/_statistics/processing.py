@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import re
 from .selection import AnalysisSelection, codes_for_report
+from .lvms_csv import read_lvms_rows
 
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
@@ -126,7 +127,7 @@ def _normalize_header(row: Sequence[str]) -> list[str]:
 def read_lvms_csv(path: Path) -> list[dict[str, str]]:
     """Read one raw LVMS export with cleaned text values."""
     with open(path, encoding=RAW_ENCODING, newline="") as handle:
-        reader = csv.reader(handle, delimiter=DELIMITER)
+        reader = read_lvms_rows(handle)
         header = _normalize_header(next(reader))
         rows: list[dict[str, str]] = []
         for raw in reader:

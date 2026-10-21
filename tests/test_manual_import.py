@@ -187,6 +187,34 @@ def test_manual_specialized_units_process_and_update_registry(tmp_path, key):
     assert (tmp_path / "sensitive/Prøvesøk.xlsx").is_file()
 
 
+def test_manual_fish_accepts_multiline_lvms_comment_and_preserves_all_result_dates(tmp_path):
+    system, definition = _system(tmp_path, "fish")
+    code = "FISH-ALKBA-OU"
+    system.statistics_processors["fish"] = StatisticsProcessor(
+        analysis_codes=analysis_codes("fish"), profile="fish", database=system.database,
+        report_ids={role: value["report_id"] for role, value in definition.payload["statistics"].items()},
+    )
+    files = {role: path for role, path in _files(tmp_path).items() if role in ("antall", "resultater")}
+    for path in files.values():
+        path.write_text(path.read_text("cp1252").replace("CALR-OU", code), encoding="cp1252")
+    files["resultater"].write_text(
+        'Sample ID;Analyse;Ekstern analysekommentar;Tidspunkt opprettet;Tidspunkt analysebestilling;Tidspunkt analyseresultat;Materiale\n'
+        f'PRIVATE-42;{code};"PRIVATE "signal" text\ncontinuation";01.10.2026 08:00;01.10.2026 08:00;03.10.2026 08:00;PAK\n',
+        encoding="cp1252", newline="",
+    )
+    original = files["resultater"].read_bytes()
+
+    result = process_manual_import(system, ManualImportPlan("fish", "statistics", date(2026, 10, 1),
+                                   date(2026, 10, 7), files), definition)
+
+    assert result[0].summary["rows"] == 2
+    assert files["resultater"].read_bytes() == original
+    output = (tmp_path / "public/fish/resultater.csv").read_text("utf-8-sig")
+    rows = list(csv.DictReader(output.splitlines(), delimiter=";"))
+    assert len(rows) == 1 and rows[0]["Svartid dager"] == "2.0000000000"
+    assert "PRIVATE" not in output
+
+
 def test_manual_backlog_preserves_original_and_uses_normal_snapshot(tmp_path):
     system, definition = _system(tmp_path)
     payload = definition.payload["backlog"]
