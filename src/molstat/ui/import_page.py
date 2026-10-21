@@ -15,7 +15,7 @@ from .components import action_button, help_text, section_title, set_tone, statu
 
 
 ROLE_LABELS = {
-    "workflow": "Patologforløp – valgt måned",
+    "workflow": "Patologforløp – valgt periode",
     "antall": "Antall",
     "resultater": "Resultater",
     "ekstraksjon": "Ekstraksjon",
@@ -279,7 +279,7 @@ class ImportPage(QWidget):
         if self.job_combo.currentData() == "backlog":
             self.period_hint.setText("Restanse krever en komplett liste fra 01.01.2024 til i dag. Perioden er låst for å unngå at et deluttrekk erstatter restansestatus.")
         elif self._unit_profiles.get(self.unit_combo.currentData()) == "lege" and self._roles == ("workflow",):
-            self.period_hint.setText("Velg én fil fra Patologforløp med ankomst fra første dag i én måned til valgt sluttdato. Historiske måneder kan også importeres.")
+            self.period_hint.setText("Velg én fil fra Patologforløp og den samme ankomstperioden som i LVMS. Du kan importere noen få dager eller en historisk periode. Data i perioden erstattes; øvrig historikk beholdes.")
         elif self._unit_profiles.get(self.unit_combo.currentData()) == "lege":
             previous = self.from_date.date().addMonths(-1)
             start = QDate(previous.year(), previous.month(), 1)

@@ -1,12 +1,14 @@
 # MolStat på jobb-PC
 
-## Oppdatering 20. oktober 2026
+## Oppdatering 21. oktober 2026
 
 Bytt hele programmappen med den nye pakken; behold den lokale innstillingsfilen og eksisterende datarot. Lukk alle andre MolStat-vinduer og vent til jobber er ferdige før første oppstart.
 
 Velg Innstillinger, datarot, SharePoint-mappe og LVMS-adresse. For hver aktiv enhet velges brukerens egen enhets-JSON. Valgt filbane beholdes; appen lager ingen kopier under config. Hemato/Solide kan bruke en separat restanse-JSON eller restanseinnholdet i enhetsfilen. Ingen CSV-/Excel-oppslag velges i appen. En gammel manglende lege.csv blokkerer ikke kjøring.
 
 Hvis en tidligere innstilling peker på en generert config-kopi, velg originalfilen på nytt før den gamle config-mappen ryddes. Originalens tidligere plassering kan ikke gjettes sikkert.
+
+Alle statistikkenheter, også Patolog, henter nå fra siste arkiverte sluttdato minus to dager til i dag. Bare rapporter uten råarkiv starter i januar 2024. Ved avbrutt førstegangsinnlasting av Patolog beholdes bekreftede delperioder, og neste kjøring fortsetter fra arkivet. Restanse bruker fortsatt hele perioden. Oversikt viser aktiv enhet og trinn, en fremdriftslinje med antall ferdigbehandlede oppgaver og medgått tid. Enhetsstatus oppdateres underveis, også når en annen enhet fortsatt kjører.
 
 ## Mapper
 
@@ -22,7 +24,7 @@ Koble analyseoppslagene i Power BI. Grupper, navn, priser og normer kommer ikke 
 
 Patolog publiserer de sju tabellene `Prøver.csv`, `Glass.csv`, `Signeringer.csv`, `Grupper.csv`, `Periode.csv`, `Leger.csv` og `Prioriteter.csv` til SharePoint-mappen `lege/`, med samme kolonner og koblingsnøkler som de lokale kopiene i `data/processed/lege/powerbi/`. Tabellene inneholder prøvenummer, glass-ID og legeidentitet. Råfiler og `source_audit.json` følger ikke med. Nye kjøringer lager ikke `prosess.csv`; en eksisterende kopi slettes ikke automatisk. Rapporter som bruker den, må bytte til de nye tabellene.
 
-Kjør patolog eller importer et gyldig månedsuttrekk med den nye versjonen for å opprette den nye SharePoint-leveransen. En gammel publiseringskandidat med bare `prosess.csv` passer ikke den nye filkontrakten og må behandles på nytt. Nye kandidater med alle sju tabeller støtter vanlig «Prøv publisering igjen».
+Kjør patolog eller importer et gyldig uttrekk med den nye versjonen for å opprette den nye SharePoint-leveransen. En gammel publiseringskandidat med bare `prosess.csv` passer ikke den nye filkontrakten og må behandles på nytt. Nye kandidater med alle sju tabeller støtter vanlig «Prøv publisering igjen».
 
 Planen for en senere FISH-rapport ligger i [FISH-RAPPORTPLAN.md](docs/FISH-RAPPORTPLAN.md).
 
@@ -42,7 +44,7 @@ Ved midlertidig filtilgang eller låsing prøver trygge delsteg igjen etter 5, 1
 
 Et innsendt LVMS-rapportforsøk får maksimalt fem minutter fra eksport startes til CSV er bekreftet. Ved tidsavbrudd lukkes den eide nettleseren før neste forsøk. Hvert forsøk bruker egen nedlastingsmappe, slik at en forsinket CSV fra et eldre forsøk ikke kan bli brukt som ny rapport. Bekreftede rapporter hentes ikke på nytt fordi et annet delsteg feiler.
 
-Etter to tidsavbrudd på samme rapport kan datoperioden deles i to. Alle delene må være hentet og kontrollert før de samles til én fil for den opprinnelige perioden og importeres. Patolog beholder månedlige filer. En enkeltdag prøves maksimalt tre ganger; oppdeling er begrenset til åtte nivåer og 24 rapportforespørsler per opprinnelig rapport. Ved vedvarende feil stoppes kjøringen med en forklaring. Restansestatus kan endres mens delrapportene hentes, så delte uttrekk er ikke et helt samtidig øyeblikksbilde.
+Etter to tidsavbrudd på samme rapport kan datoperioden deles i to. Alle delene må være hentet og kontrollert før de samles til én fil for den opprinnelige perioden og importeres. Lange Patolog-intervaller deles ved månedsskifter; daglige oppdateringer arkiveres med sin faktiske periode. En enkeltdag prøves maksimalt tre ganger; oppdeling er begrenset til åtte nivåer og 24 rapportforespørsler per opprinnelig rapport. Ved vedvarende feil stoppes kjøringen med en forklaring. Restansestatus kan endres mens delrapportene hentes, så delte uttrekk er ikke et helt samtidig øyeblikksbilde.
 
 **Stopp kjøring** avbryter venting og hindrer neste delsteg. Appen venter på trygg nettleser- og filopprydding før den blir klar igjen. Pågående databaseoperasjoner og tilbakeføring av filsett avbrytes ikke midt i kritisk opprydding. Databaseimporter og usikre COMMIT gjentas aldri automatisk. Publiseringsfeil krever ikke et nytt LVMS-uttrekk: ferdigbehandlede kandidater beholdes. Validerte Excel-kandidater beholdes hvis installasjon ikke kan bekreftes.
 
@@ -56,4 +58,4 @@ LVMS-leseren håndterer kommentarer over flere linjer med uescapede anførselste
 
 Ved manuell FISH-import kontrolleres perioden mot analysebestilling, slik LVMS-feltet «analyse opprettet» gjør. Prøvens egen opprettelsesdato kan være eldre eller mangle uten at en gyldig FISH-bestilling avvises. Oppgi fortsatt den faktiske fra-/til-perioden som ble valgt i LVMS.
 
-Ved statistikkimport oppgis perioden som faktisk ble valgt i LVMS. Et femdagersuttrekk kan overlappe to dager som allerede finnes: helt identiske rader fjernes ved sammenslåing, og historikken beholdes. Datoene gjettes eller omskrives ikke. Hvis samme post har fått nye verdier mellom ulike, overlappende perioder, kan begge versjonene beholdes; dette er ikke en generell oppdatering etter prøvenummer. Et korrigert uttrekk for nøyaktig samme fra-/til-periode erstatter derimot tidligere revisjoner av den perioden i behandlingen. Patolog krever første dag i én kalendermåned til månedsslutt eller valgt dato i samme måned. Restanse krever hele perioden fra 01.01.2024 til i dag.
+Ved statistikkimport oppgis perioden som faktisk ble valgt i LVMS. Et femdagersuttrekk kan overlappe to dager som allerede finnes: helt identiske rader fjernes ved sammenslåing, og historikken beholdes. Datoene gjettes eller omskrives ikke. For Hemato, Solide, Flow, FISH og Preanalyse kan begge versjonene beholdes hvis samme post har fått nye verdier mellom ulike, overlappende perioder; dette er ikke en generell oppdatering etter prøvenummer. Et korrigert uttrekk for nøyaktig samme fra-/til-periode erstatter derimot tidligere revisjoner av den perioden i behandlingen. Patolog tillater også noen få dager og perioder over månedsskifter: det nyeste uttrekket erstatter alle rader i sin ankomstperiode, og øvrig historikk beholdes. Gamle Patolog-saker utenfor den automatiske overlappen oppdateres ved et nytt manuelt uttrekk for ønsket periode. Restanse krever hele perioden fra 01.01.2024 til i dag.

@@ -43,6 +43,50 @@ def test_statistics_only_system_returns_safe_empty_public_board(tmp_path):
     assert not database.path.exists()
 
 
+def test_daily_pathology_refresh_publishes_complete_history_and_reports_real_stages(tmp_path):
+    from molstat._statistics import patolog_flow as flow
+    from molstat.progress import progress_context
+    from molstat.modules import UnitRegistry
+    sensitive = tmp_path / 'sensitive'
+    database = MolStatDatabase(sensitive / 'database/molstat.sqlite3')
+    database.migrate()
+    archive = RawArchive(sensitive)
+    public = tmp_path / 'sharepoint'
+    capability = DEFAULT_UNITS.require('lege').capability('statistics')
+    publisher = SharePointPublisher(PublicationPolicy(capability.allowed_columns, default_forbidden_patterns()))
+    fields = flow.DATE_FIELDS + ['Prøvenummer', 'Lab', 'Prosess', 'Prioritet', 'BeholderId',
+                                'BlokkId', 'GlassId', 'Glasstype', 'Signert av', 'Godkjent type']
+    def snapshot(name, arrivals):
+        path = tmp_path / name
+        with path.open('w', encoding='cp1252', newline='') as stream:
+            writer = csv.DictWriter(stream, fields, delimiter=';')
+            writer.writeheader()
+            for sample, arrival, approval in arrivals:
+                row = dict.fromkeys(fields, '')
+                row.update(Prøvenummer=sample, Lab='TEST', Prosess='HEMATO', Ankomsttid=arrival)
+                row['Godkjent dato'] = approval
+                writer.writerow(row)
+        return path
+    old = snapshot('old.csv', [('KEEP','01.10.2026 08:00',''),('UPDATED','19.10.2026 08:00','')])
+    archive.store(old, ReportRequest('statistics','lege',flow.STEM,date(2026,10,1),date(2026,10,20)))
+    new = snapshot('new.csv', [('UPDATED','19.10.2026 08:00','21.10.2026 08:00'),('NEW','21.10.2026 09:00','')])
+    request = ReportRequest('statistics','lege',flow.STEM,date(2026,10,18),date(2026,10,21))
+    system = MolStatSystem(database=database, archive=archive,
+        statistics_processors={'lege': StatisticsProcessor(analysis_codes=set(), profile='lege', now=lambda: datetime(2026,10,21,12))},
+        backlog_processor=None, publisher={'lege': publisher}, sharepoint_root=public, work_root=sensitive / 'data/processed',
+        statistics_fetch=lambda keys: {'lege': ((request,new),)}, backlog_fetch=lambda: None,
+        units=UnitRegistry((DEFAULT_UNITS.require('lege'),)))
+    events = []
+    with progress_context(events.append):
+        outcome, = system.run_unit('lege')
+    assert outcome.error is None
+    with (public / 'lege/Prøver.csv').open(encoding='utf-8-sig',newline='') as stream:
+        rows = list(csv.DictReader(stream, delimiter=';'))
+    assert {r['Prøvenummer']: r['Godkjent'] for r in rows} == {'KEEP':'0','UPDATED':'1','NEW':'0'}
+    assert {p.stem for p in (public / 'lege').glob('*.csv')} == set(flow.TABLE_FIELDS)
+    assert [e.stage for e in events] == ['planned','started','fetching','processing','publishing','excel','finished']
+
+
 @pytest.mark.parametrize("fail_publication", [False, True])
 def test_pathologist_publishes_seven_tables_and_keeps_local_copies(tmp_path, monkeypatch, fail_publication):
     import json

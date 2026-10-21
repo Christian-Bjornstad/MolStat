@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 from threading import Event
+from time import monotonic
 from typing import Any
 
-from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -25,9 +26,11 @@ from .diagnostics import DiagnosticsPage
 from .settings import SettingsPage
 from .import_page import ImportPage
 from .theme import build_stylesheet
+from .components import set_tone
 from ..orchestrator import JobResult
 from ..failures import storage_failure
 from ..recovery import recovery_context, check_cancelled
+from ..progress import RunProgress, progress_context
 
 
 class _WorkerSignals(QObject):
@@ -46,7 +49,7 @@ class _JobWorker(QRunnable):
 
     def run(self) -> None:
         try:
-            with recovery_context(observer=self.signals.progress.emit, cancel=self.cancel):
+            with recovery_context(observer=self.signals.progress.emit, cancel=self.cancel), progress_context(self.signals.progress.emit):
                 check_cancelled()
                 result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
         except Exception as exc:
@@ -73,6 +76,11 @@ class MainWindow(QMainWindow):
         self._configuration_error = configuration_error
         self._workers: set[_JobWorker] = set()
         self._capability_outcomes: dict[tuple[str, str], Any] = {}
+        self._live_stages: dict[tuple[str, str], str] = {}
+        self._run_started_at = 0.0
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._update_run_elapsed)
         self._history_database: Path | None = None
         self.setWindowTitle("MolStat")
         self.setWindowIcon(QIcon(str(asset_path("molstat.ico"))))
@@ -176,10 +184,64 @@ class MainWindow(QMainWindow):
             worker.cancel.set()
         self.stop_button.setEnabled(False)
         self.statusBar().showMessage("Stopper kjøringen. Venter på trygg opprydding …")
+        self.overview.run_detail.setText('Stopper · venter på trygg opprydding …')
 
     def _retry_progress(self, event: Any) -> None:
+        if isinstance(event, RunProgress):
+            self._run_progress(event)
+            return
         self.statusBar().showMessage(str(event))
+        self.overview.run_detail.setText(str(event))
         self._refresh_diagnostics()
+
+    def _begin_run_progress(self, message: str) -> None:
+        self._live_stages.clear()
+        self._run_started_at = monotonic()
+        self.overview.run_panel.show()
+        self.overview.run_activity.show()
+        self.overview.run_progress.setRange(0, 0)
+        self.overview.run_detail.setText(message)
+        set_tone(self.overview.run_detail, 'working')
+        self.overview.run_count.setText('Forbereder kjøringen …')
+        self._update_run_elapsed()
+        self._elapsed_timer.start()
+
+    def _update_run_elapsed(self) -> None:
+        elapsed = int(monotonic() - self._run_started_at)
+        self.overview.run_elapsed.setText(f'{elapsed // 60}:{elapsed % 60:02d}')
+
+    def _run_progress(self, event: RunProgress) -> None:
+        if event.stage == 'planned':
+            self.overview.run_progress.setRange(0, max(1, event.total))
+            self.overview.run_progress.setValue(0)
+            self._update_run_count()
+            return
+        card = self.overview.unit_cards.get(event.unit_key)
+        if card is None or event.unit_key not in self._enabled_unit_keys():
+            return
+        self._live_stages[(event.unit_key, event.job_kind)] = event.stage
+        kind = 'Statistikk' if event.job_kind == 'statistics' else 'Restanse'
+        message = f'{card.unit.display_name} · {kind} · {event.message}'
+        self.overview.run_detail.setText(message)
+        self.statusBar().showMessage(message)
+        terminal = event.stage in {'finished', 'failed'}
+        state = 'Fullført' if event.stage == 'finished' else 'Feilet' if event.stage == 'failed' else 'Kjører'
+        detail = event.message
+        if terminal:
+            detail = 'Data behandlet' if event.stage == 'finished' else 'Se Diagnostikk'
+        card.set_capability_status(event.job_kind, state, detail)
+        failed = any(stage == 'failed' for (unit, _), stage in self._live_stages.items() if unit == event.unit_key)
+        card.set_status('Delvis feil' if terminal and failed and state == 'Fullført' else state,
+            f'{kind} ferdigbehandlet' if event.stage == 'finished' else detail)
+        self._update_run_count()
+
+    def _update_run_count(self) -> None:
+        completed = sum(stage in {'finished', 'failed'} for stage in self._live_stages.values())
+        total = self.overview.run_progress.maximum()
+        if total:
+            self.overview.run_progress.setValue(completed)
+            failed = sum(stage == 'failed' for stage in self._live_stages.values())
+            self.overview.run_count.setText(f'{completed} av {total} oppgaver ferdigbehandlet' + (f' · {failed} feilet' if failed else ''))
 
     def _navigate(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
@@ -236,6 +298,7 @@ class MainWindow(QMainWindow):
         self.import_page.set_busy(True)
         self._refresh_run_button_states()
         self.statusBar().showMessage("Manuell import pågår …")
+        self._begin_run_progress('Manuell import · behandler uttrekk …')
         worker.signals.finished.connect(lambda result, active=worker: self._job_finished(result, active))
         worker.signals.progress.connect(self._retry_progress)
         QThreadPool.globalInstance().start(worker)
@@ -255,6 +318,7 @@ class MainWindow(QMainWindow):
             )
             return
         self.statusBar().showMessage("Kjøring pågår …")
+        self._begin_run_progress('Starter kjøringen …')
         worker = _JobWorker(self.orchestrator, target)
         self._workers.add(worker)
         self._refresh_run_button_states()
@@ -266,6 +330,26 @@ class MainWindow(QMainWindow):
 
     def _job_finished(self, result: Any, worker: _JobWorker) -> None:
         self._workers.discard(worker)
+        self._elapsed_timer.stop()
+        self._update_run_elapsed()
+        self.overview.run_activity.hide()
+        cancelled = getattr(result, 'error_code', None) == 'CANCELLED'
+        if self.overview.run_progress.maximum() == 0:
+            self.overview.run_progress.setRange(0, 1)
+            self.overview.run_progress.setValue(1 if result.status == 'succeeded' else 0)
+        label, tone = ('Avbrutt', 'warning') if cancelled else {
+            'succeeded': ('Fullført', 'success'), 'partial': ('Delvis fullført · se Diagnostikk', 'warning'),
+            'busy': ('Opptatt · en annen kjøring pågår', 'warning'),
+        }.get(result.status, ('Feilet · se Diagnostikk', 'danger'))
+        self.overview.run_detail.setText(label)
+        set_tone(self.overview.run_detail, tone)
+        if not self._live_stages:
+            self.overview.run_count.setText(self._completion_detail(result.summary) if result.status == 'succeeded' else 'Ingen oppgaver ble bekreftet fullført')
+        for (unit, kind), stage in self._live_stages.items():
+            if stage not in {'finished', 'failed'}:
+                card = self.overview.unit_cards[unit]
+                card.set_status('Avbrutt' if cancelled else 'Feilet', 'Kjøringen ble stoppet' if cancelled else 'Se Diagnostikk')
+                card.set_capability_status(kind, 'Avbrutt' if cancelled else 'Feilet', 'Kjøringen er avsluttet')
         self._refresh_run_button_states()
         if self.settings_store and hasattr(self.settings_store, "overview_status_fields"):
             for key, value in self.settings_store.overview_status_fields().items():

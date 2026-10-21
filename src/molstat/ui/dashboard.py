@@ -3,7 +3,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout,
-    QLineEdit, QScrollArea, QVBoxLayout, QWidget,
+    QLineEdit, QProgressBar, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from ..modules import DEFAULT_UNITS, UnitDefinition, UnitRegistry
@@ -105,6 +105,7 @@ class UnitCard(QFrame):
         actions.addWidget(self.backlog_button)
         actions.addWidget(self.run_button)
         layout.addLayout(actions)
+
         self.set_enabled(self.enabled)
 
     def set_definition(self, unit: UnitDefinition) -> None:
@@ -209,6 +210,38 @@ class OverviewPage(QWidget):
         actions.addWidget(self.import_button)
         actions.addStretch(1)
         layout.addLayout(actions)
+
+        self.run_panel = QFrame()
+        self.run_panel.setObjectName('run-progress-panel')
+        progress_layout = QVBoxLayout(self.run_panel)
+        progress_layout.setContentsMargins(20, 16, 20, 16)
+        progress_layout.setSpacing(10)
+        progress_heading = QHBoxLayout()
+        self.run_detail = QLabel('Klar for kjøring')
+        self.run_detail.setProperty('sectionTitle', True)
+        self.run_detail.setWordWrap(True)
+        self.run_elapsed = QLabel()
+        self.run_elapsed.setProperty('cardDetail', True)
+        progress_heading.addWidget(self.run_detail, 1)
+        progress_heading.addWidget(self.run_elapsed)
+        progress_layout.addLayout(progress_heading)
+        self.run_progress = QProgressBar()
+        self.run_progress.setObjectName('run-progress')
+        self.run_progress.setAccessibleName('Fremdrift for kjøringen')
+        self.run_progress.setTextVisible(False)
+        self.run_progress.setFixedHeight(10)
+        progress_layout.addWidget(self.run_progress)
+        self.run_count = help_text('Forbereder kjøringen')
+        progress_layout.addWidget(self.run_count)
+        self.run_activity = QProgressBar()
+        self.run_activity.setObjectName('run-activity')
+        self.run_activity.setAccessibleName('Pågående arbeid')
+        self.run_activity.setRange(0, 0)
+        self.run_activity.setTextVisible(False)
+        self.run_activity.setFixedHeight(4)
+        progress_layout.addWidget(self.run_activity)
+        self.run_panel.hide()
+        layout.addWidget(self.run_panel)
 
         self.summary_label = QLabel()
         self.summary_label.setObjectName("unit-summary")

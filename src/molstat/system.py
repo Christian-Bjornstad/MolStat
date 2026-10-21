@@ -20,6 +20,7 @@ from ._writer_lease import WriterLeaseLost, guarded_output
 from .private_delivery import install_private_files
 from .recovery import check_cancelled, retry_operation
 from .failures import RunFailure
+from .progress import emit_progress, plan_progress
 
 
 FetchedReport = tuple[ReportRequest, Path]
@@ -95,6 +96,7 @@ class MolStatSystem:
         self._require_capability_ready(unit_key, "statistics")
         if self.fetch_error is not None:
             raise self.fetch_error
+        emit_progress(unit_key, 'statistics', 'fetching')
         fetched = self.statistics_fetch((unit_key,))
         if tuple(fetched) != (unit_key,):
             raise RuntimeError(
@@ -115,6 +117,7 @@ class MolStatSystem:
         archived = tuple(self._archive_and_remove(item) for item in reports)
         output_dir = self.work_root / unit_key / "statistics" / uuid4().hex
         check_cancelled()
+        emit_progress(unit_key, 'statistics', 'processing')
         result = processor.process(unit_key, archived, output_dir)
         check_cancelled()
         if result.private_files:
@@ -124,6 +127,7 @@ class MolStatSystem:
             if isinstance(self.publisher, Mapping)
             else self.publisher
         )
+        emit_progress(unit_key, 'statistics', 'publishing')
         deliver(active_publisher,
             result.publication_files or {
                 "antall.csv": result.antall,
@@ -132,6 +136,7 @@ class MolStatSystem:
             self.sharepoint_root / capability.sharepoint_folder,
             output_dir,
         )
+        emit_progress(unit_key, 'statistics', 'excel')
         excel_published = self._refresh_excel_search()
         return {
             "rows": sum(int(value) for value in result.row_counts.values()),
@@ -150,11 +155,13 @@ class MolStatSystem:
         fetch = getattr(self, "backlog_fetchers", {}).get(unit_key, self.backlog_fetch)
         processor = getattr(self, "backlog_processors", {}).get(unit_key, self.backlog_processor)
         publisher = getattr(self, "backlog_publishers", {}).get(unit_key, self.backlog_publisher)
+        emit_progress(unit_key, 'backlog', 'fetching')
         request, source = fetch()
         if request.kind != "backlog" or request.unit != unit_key:
             raise ValueError("Restanserapporten har feil type eller enhet.")
         archived = self._archive_and_remove((request, source))
         check_cancelled()
+        emit_progress(unit_key, 'backlog', 'processing')
         imported = processor.import_snapshot(
             archived,
             self.database,
@@ -164,6 +171,7 @@ class MolStatSystem:
         check_cancelled()
         published_rows = 0
         if publisher is not None:
+            emit_progress(unit_key, 'backlog', 'publishing')
             filename = capability.publication_files[0][0]
             output_dir = self.work_root / unit_key / "backlog" / uuid4().hex
             candidate = output_dir / filename
@@ -188,6 +196,7 @@ class MolStatSystem:
                     (unit_key,),
                 ).fetchone()[0]
             )
+        emit_progress(unit_key, 'backlog', 'excel')
         excel_published = self._refresh_excel_search()
         return {
             "rows": imported.rows_read,
@@ -248,6 +257,7 @@ class MolStatSystem:
         unit = self.units.require(unit_key)
         if unit.status != "active":
             raise ValueError(f"Enheten {unit.display_name} kommer senere.")
+        plan_progress(len(unit.capabilities))
         return tuple(
             self._capture_capability(unit.key, capability.job_kind)
             for capability in unit.capabilities
@@ -258,20 +268,21 @@ class MolStatSystem:
     ) -> tuple[CapabilityRun, ...]:
         for key in enabled_units:
             self.units.require(key)
-        return tuple(
-            result
-            for unit in self.units.active(enabled_units)
-            for result in self.run_unit(unit.key)
-        )
+        jobs = tuple((unit.key, capability.job_kind)
+            for unit in self.units.active(enabled_units) for capability in unit.capabilities)
+        plan_progress(len(jobs))
+        return tuple(self._capture_capability(unit, kind) for unit, kind in jobs)
 
     def run_job(
         self,
         job_kind: JobKind,
         enabled_units: Sequence[str],
     ) -> tuple[CapabilityRun, ...]:
+        units = self.units.for_job(job_kind, enabled_units)
+        plan_progress(len(units))
         return tuple(
             self._capture_capability(unit.key, job_kind)
-            for unit in self.units.for_job(job_kind, enabled_units)
+            for unit in units
         )
 
     def _capture_capability(
@@ -280,6 +291,7 @@ class MolStatSystem:
         job_kind: JobKind,
     ) -> CapabilityRun:
         check_cancelled()
+        emit_progress(unit_key, job_kind, 'started')
         try:
             summary = self._run_capability(unit_key, job_kind)
             check_cancelled()
@@ -288,7 +300,9 @@ class MolStatSystem:
         except Exception as error:
             if isinstance(error, RunFailure) and error.code == "CANCELLED":
                 raise
+            emit_progress(unit_key, job_kind, 'failed')
             return CapabilityRun(unit_key, job_kind, {}, error=error)
+        emit_progress(unit_key, job_kind, 'finished')
         return CapabilityRun(unit_key, job_kind, summary)
 
     def public_snapshot(self, now: datetime) -> dict[str, object]:

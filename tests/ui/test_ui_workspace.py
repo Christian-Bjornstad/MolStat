@@ -226,7 +226,7 @@ def test_import_action_and_validation_feedback_remain_visible_when_scrolled(qtbo
     assert page.import_button.isEnabled()
 
 
-def test_workflow_import_requires_one_file_and_describes_one_month(qtbot):
+def test_workflow_import_requires_one_file_and_describes_incremental_period(qtbot):
     page = ImportPage()
     qtbot.addWidget(page)
     page.unit_combo.setCurrentIndex(page.unit_combo.findData("lege"))
@@ -234,3 +234,5 @@ def test_workflow_import_requires_one_file_and_describes_one_month(qtbot):
     assert set(page.file_fields) == {"workflow"}
     assert "én fil" in page.period_hint.text()
     assert "forrige måned" not in page.period_hint.text()
+    assert "noen få dager" in page.period_hint.text()
+    assert "historikk beholdes" in page.period_hint.text()

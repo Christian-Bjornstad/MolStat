@@ -79,6 +79,11 @@ def build_stylesheet() -> str:
     QLabel[tone="warning"] {{ color: {COLORS['warning']}; }}
     QLabel[tone="working"] {{ color: {COLORS['primary']}; }}
     QLabel[capabilityStatus="true"] {{ font-size: 12px; }}
+    QFrame#run-progress-panel {{
+        background: {COLORS['surface']}; border: 1px solid {COLORS['border']}; border-radius: 8px;
+    }}
+    QProgressBar {{ border: none; background: {COLORS['muted']}; border-radius: 4px; }}
+    QProgressBar::chunk {{ background: {COLORS['primary']}; border-radius: 4px; }}
     QFrame#status-card {{
         background: white;
         border: 1px solid {COLORS['border']};
