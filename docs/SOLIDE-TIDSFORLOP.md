@@ -11,6 +11,14 @@ i Power BI, ikke av Python eller kopierte verdier i faktafilene. Solide har
 3. Metodevalg → ekstraksjon ferdig: PRE.
 4. Ekstraksjon ferdig → analyseresultat: Solide.
 
+Seksjonstid er PRE + enhet, fra metodevalg til analyseresultat. I den
+stablede figuren vises enhet nederst, deretter PRE, transport og før
+registrering. Enhetens farge følger enhetstiden mot fristen; PRE-fargen
+følger samlet seksjonstid mot fristen. Transport og før registrering har
+faste blågrå farger. Fristlinjen og kortene bruker fristen fra oppslaget.
+Nøyaktig på fristen er grønt, over er rødt. Gjennomsnittet i hvert utvalg
+styrer figurens farger; detaljtabellen vurderer den enkelte analyseraden.
+
 Metodevalg finnes som `Tidspunkt analyseresultat` på `EKSTRAKSJON-OU`, der
 `Analyseresultat` inneholder metoden (for eksempel DNA FFPE/celler kolonne).
 Slutt på PRE er det opprinnelige `Ekstraksjon.ferdig`: tidspunkt analyseresultat
