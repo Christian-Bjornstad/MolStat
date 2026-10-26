@@ -10,6 +10,8 @@ Velg datarot, SharePoint-mappe og LVMS-adresse i Innstillinger. Velg din egen en
 
 Appen trenger ingen CSV-/Excel-oppslagsfiler eller legeregister. Gamle lookup-stier ignoreres. Analyseoppslag med grupper, navn, priser og normer kobles i Power BI. MolStat beholder tidsstempler og beregnbare intervaller; oppslagsavhengige verdier er tomme eller ikke beregnet.
 
+Solide eksporterer metodevalg fra analyseresultattidspunktet på `EKSTRAKSJON-OU` og ekstraksjonsslutt fra godkjenningen på samme registrering. Manglende eller feil rekkefølge får eksplisitt status. Myriad og Idylla inngår i PRE. Se [Solides tidsdefinisjoner](docs/SOLIDE-TIDSFORLOP.md) for de fire tidsleddene, forutsetninger og historiske databegrensninger. Grupper og 15-dagersfrister vedlikeholdes i `Analyse_lookup.xlsx` og hentes av begge Power BI-rapportene.
+
 ## Lagring
 
 ```text

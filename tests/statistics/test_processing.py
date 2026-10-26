@@ -246,44 +246,20 @@ def test_read_lvms_csv_normalises_headers_and_wrappers(tmp_path: Path) -> None:
 # --- solide profile ----------------------------------------------------
 
 
-def test_build_resultater_solide_picks_latest_finished_before_approval() -> None:
-    results = [
-        {
-            "Sample.ID": "S1",
-            "Analyse": "KRAS-VAR-OU",
-            "Materiale": "Plasma",
-            "Tidspunkt.prøvetaking": "01.01.2024",
-            "Tidspunkt.opprettet": "02.01.2024 10:00",
-            "Tidspunkt.analysebestilling": "03.01.2024 09:00",
-            "Tidspunkt.analyseresultat": "06.01.2024 12:00",
-            "Tidspunkt.godkjenning": "08.01.2024 08:00",
-        }
-    ]
-    extractions = [
-        # later finished but after approval - must NOT be chosen
-        {"Sample.ID": "S1", "Analyse": "EKSTRAKSJON-SO-OU",
-         "Tidspunkt.analysebestilling": "04.01.2024 09:00",
-         "Tidspunkt.analyseresultat": "09.01.2024 10:00"},
-        # latest finished BEFORE approval -> the answer
-        {"Sample.ID": "S1", "Analyse": "EKSTRAKSJON-SO-OU",
-         "Tidspunkt.analysebestilling": "03.01.2024 12:00",
-         "Tidspunkt.analyseresultat": "05.01.2024 14:30"},
-        # earlier candidate, must lose to the one above
-        {"Sample.ID": "S1", "Analyse": "EKSTRAKSJON-SO-OU",
-         "Tidspunkt.analysebestilling": "03.01.2024 07:00",
-         "Tidspunkt.analyseresultat": "04.01.2024 11:00"},
-    ]
-    lookup = {"KRAS-VAR-OU": {"Rapportgruppe": "Solide tumorer", "Svarfrist": "7"}}
-    rows = build_resultater_solide(results, extractions, lookup)
-    assert len(rows) == 1
-    row = rows[0]
+def test_build_resultater_solide_keeps_lookup_values() -> None:
+    results = [{"Sample.ID": "S1", "Analyse": "TERT-OU",
+                "Tidspunkt.analyseresultat": "06.01.2024 12:00"}]
+    extractions = [{"Sample.ID": "S1", "Analyse": "EKSTRAKSJON-OU",
+                    "Analyseresultat": "Maxwell DNA",
+                    "Tidspunkt.analyseresultat": "03.01.2024 12:00",
+                    "Tidspunkt.godkjenning": "05.01.2024 14:30"}]
+    lookup = {"TERT-OU": {"Rapportgruppe": "Sanger", "Svarfrist": "15"}}
+    row = build_resultater_solide(results, extractions, lookup)[0]
+    assert row["Ekstraksjon.valgt"] == "2024/01/03 12:00:00"
     assert row["Ekstraksjon.ferdig"] == "2024/01/05 14:30:00"
-    assert row["Ekstraksjon.Analyse"] == "EKSTRAKSJON-SO-OU"
-    assert row["Ekstraksjon.analysebestilling"] == "2024/01/03 12:00:00"
-    # start = max(bestilling, ekstraksjon ferdig)
-    assert row["Starttid.svartid"] == "2024/01/05 14:30:00"
-    assert row["Rapportgruppe"] == "Solide tumorer"
-    assert row["Svarfrist"] == "7"
+    assert row["Starttid.svartid"] == row["Ekstraksjon.ferdig"]
+    assert row["Rapportgruppe"] == "Sanger"
+    assert row["Svarfrist"] == "15"
 
 
 def test_result_export_fails_closed_when_registry_mapping_is_missing() -> None:
@@ -337,12 +313,12 @@ def test_process_reports_solide_writes_result_export_contract(tmp_path: Path) ->
     lookup = make_lookup(tmp_path)
     antall_path = raw_rows(
         ant_header,
-        [['=T("S1")', '"KRAS-VAR-OU"', "01.01.2024", "02.01.2024 10:00",
+        [['=T("S1")', '"CALR-OU"', "01.01.2024", "02.01.2024 10:00",
           "03.01.2024 09:00", '=T("OU-SOLIDE")', '=T("Reported")']],
     )
     resultater_path = raw_rows(
         res_header,
-        [['=T("S1")', '"KRAS-VAR-OU"', '"Plasma"', "01.01.2024",
+        [['=T("S1")', '"CALR-OU"', '"Plasma"', "01.01.2024",
           "02.01.2024 10:00", "03.01.2024 09:00", "06.01.2024 12:00",
           "08.01.2024 08:00"]],
     )

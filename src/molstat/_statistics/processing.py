@@ -1,10 +1,9 @@
-"""Python port of Hemato_Statistikk.R / Solide_Statistikk.R.
+"""Process Hemato and Solide statistics from archived LVMS reports.
 
 Reads the archived LVMS report exports (Windows-1252, semicolon,
-``=T("...")`` wrapped), applies the exact same cleaning, classification,
-extraction matching and turnaround computation as the R scripts, and
-writes ``Prosessert/antall.csv`` and ``resultater.csv`` in the same
-format Power BI already consumes.
+``=T("...")`` wrapped). Hemato retains the legacy extraction rules;
+Solide exports method selection separately from extraction approval.
+Power BI supplies groups and deadlines from the analysis lookup.
 """
 
 from __future__ import annotations
@@ -47,7 +46,7 @@ RESULTATER_COLUMNS = (
     "MolStat-ID",
 )
 
-# Solide export retains the 13 legacy columns and appends MolStat-ID.
+# Keep legacy field order; append explicit selection/provenance fields.
 SOLIDE_RESULTATER_COLUMNS = (
     "Materiale",
     "Analyse",
@@ -63,6 +62,9 @@ SOLIDE_RESULTATER_COLUMNS = (
     "Starttid.svartid",
     "Svarfrist",
     "MolStat-ID",
+    "Ekstraksjon.valgt",
+    "Ekstraksjon.metode",
+    "Ekstraksjon.status",
 )
 
 ANTALL_COLUMNS = (
@@ -358,22 +360,27 @@ def build_resultater(
     return out
 
 
+SOLIDE_PRE_CODES = frozenset({
+    "MYRIAD-OU", "KRAS-VAR-OU", "NRASBRAF-VAR-OU", "MSI-OU",
+    "GENEFUSION-OU", "EGFR-VAR-OU",
+})
+
+
 def _best_extraction_solide(
-    godkjenning: datetime | None,
+    resultat: datetime | None,
     extractions: Sequence[Mapping[str, object]],
 ) -> dict[str, object] | None:
-    """Solide rule (Solide_Statistikk.R §8-9): latest finished extraction
-    on the same Sample.ID that finished before the result approval.
+    """Latest method selection before the analysis result, on the same sample.
 
-    No nucleic-acid priority - input is pre-sorted finished-descending,
-    so the first candidate meeting the deadline is the answer.
+    A concrete method's execution result is not a method-selection event.
+    Missing or late approval is retained for audit, but cannot start unit
+    turnaround. Never use final approval as the selection deadline.
     """
-    if godkjenning is None:
+    if resultat is None:
         return None
     for extraction in extractions:
-        finished = extraction["ferdig"]
-        assert isinstance(finished, datetime)
-        if finished <= godkjenning:
+        selected = extraction["valgt"]
+        if selected <= resultat:
             return dict(extraction)
     return None
 
@@ -385,18 +392,25 @@ def build_resultater_solide(
     *,
     molstat_ids: Mapping[str, str] | None = None,
 ) -> list[dict[str, str]]:
-    """Solide resultater with Starttid.svartid and appended MolStat-ID."""
+    """Export Solide's selection -> extraction approval -> analysis result."""
     require_molstat_id = molstat_ids is not None
     resolved_ids = molstat_ids or {}
     by_sample: dict[str, list[dict[str, object]]] = {}
     for row in extraction_rows:
-        sample_id = clean_text(row.get("Sample.ID"))
-        ferdig = parse_tidspunkt(row.get("Tidspunkt.analyseresultat"))
-        if ferdig is None:
-            continue  # candidates without a finished time can never match
+        sample_id = clean_text(row.get("Sample.ID")).upper()
+        method = clean_text(row.get("Analyseresultat"))
+        selected = parse_tidspunkt(row.get("Tidspunkt.analyseresultat"))
+        if (not sample_id or clean_text(row.get("Analyse")).upper() != "EKSTRAKSJON-OU"
+                or selected is None or any(marker in method.casefold() for marker in
+                    ("ikke utført", "ikke aktuell", "kansellert")) or not re.search(
+                    r"dna|rna|maxwell|genexus|geneuxus|recover|ez1|kolonne|qia", method, re.I)):
+            continue
+        ferdig = parse_tidspunkt(row.get("Tidspunkt.godkjenning"))
         by_sample.setdefault(sample_id, []).append(
             {
                 "analyse": clean_text(row.get("Analyse")),
+                "metode": method,
+                "valgt": selected,
                 "bestilling": parse_tidspunkt(
                     row.get("Tidspunkt.analysebestilling")
                 ),
@@ -404,13 +418,15 @@ def build_resultater_solide(
             }
         )
     for rows in by_sample.values():
-        rows.sort(key=lambda e: e["ferdig"], reverse=True)
+        rows.sort(key=lambda e: (e["valgt"], e["ferdig"] or datetime.min, e["metode"]), reverse=True)
 
     out: list[dict[str, str]] = []
     for row in result_rows:
         analyse = clean_text(row.get("Analyse"))
+        if analyse.upper() in SOLIDE_PRE_CODES:
+            continue
         entry = lookup.get(analyse, {})
-        sample_id = clean_text(row.get("Sample.ID"))
+        sample_id = clean_text(row.get("Sample.ID")).upper()
         molstat_id = resolved_ids.get(sample_id.upper(), "")
         if require_molstat_id and not molstat_id:
             raise ValueError("En resultatlinje kunne ikke kobles til MolStat-ID.")
@@ -419,25 +435,35 @@ def build_resultater_solide(
         godkjenning = parse_tidspunkt(row.get("Tidspunkt.godkjenning"))
 
         chosen = _best_extraction_solide(
-            godkjenning, by_sample.get(sample_id, [])
+            parse_tidspunkt(row.get("Tidspunkt.analyseresultat")), by_sample.get(sample_id, [])
         )
         if chosen is None:
             ekstr_analyse = ""
             ekstr_bestilling = None
             ekstr_ferdig = None
+            ekstr_valgt = None
+            ekstr_metode = ""
         else:
             ekstr_analyse = str(chosen["analyse"])
             ekstr_bestilling = chosen["bestilling"]
             ekstr_ferdig = chosen["ferdig"]
+            ekstr_valgt = chosen["valgt"]
+            ekstr_metode = str(chosen["metode"])
             assert isinstance(ekstr_bestilling, datetime) or ekstr_bestilling is None
             assert isinstance(ekstr_ferdig, datetime) or ekstr_ferdig is None
 
-        if bestilling is not None and ekstr_ferdig is not None:
-            starttid = max(bestilling, ekstr_ferdig)
-        elif bestilling is not None:
-            starttid = bestilling
+        resultat_tid = parse_tidspunkt(row.get("Tidspunkt.analyseresultat"))
+        if chosen is None:
+            extraction_status = "Mangler metodevalg"
+        elif ekstr_ferdig is None:
+            extraction_status = "Mangler ekstraksjonsgodkjenning"
+        elif ekstr_ferdig < ekstr_valgt:
+            extraction_status = "Ekstraksjon godkjent før metodevalg"
+        elif ekstr_ferdig > resultat_tid:
+            extraction_status = "Ekstraksjon godkjent etter analyseresultat"
         else:
-            starttid = ekstr_ferdig
+            extraction_status = "OK"
+        starttid = ekstr_ferdig if extraction_status == "OK" else None
 
         out.append(
             {
@@ -461,6 +487,9 @@ def build_resultater_solide(
                 "Starttid.svartid": _fmt(starttid),
                 "Svarfrist": entry.get("Svarfrist", ""),
                 "MolStat-ID": molstat_id,
+                "Ekstraksjon.valgt": _fmt(ekstr_valgt),
+                "Ekstraksjon.metode": ekstr_metode,
+                "Ekstraksjon.status": extraction_status,
             }
         )
     return out
@@ -492,14 +521,15 @@ def process_reports(
 ) -> dict[str, int]:
     """Full pipeline over one unit's reports; returns exported row counts.
 
-    ``profile`` selects the export dialect: ``"hemato"`` (default, the
-    original 12/5-column Hemato_Statistikk.R layout) or ``"solide"``
-    (the 13/5-column Solide_Statistikk.R layout with its own simpler
-    extraction rule).
+    ``profile`` selects Hemato's legacy fields or Solide's explicit
+    method-selection/approval fields. Metadata stays in Power BI's lookup.
     """
     lookup = {}
     ordered_codes = codes_for_report(analysis_codes, "antall")
     result_codes = codes_for_report(analysis_codes, "resultater")
+    if profile == "solide":
+        ordered_codes = ordered_codes - SOLIDE_PRE_CODES
+        result_codes = result_codes - SOLIDE_PRE_CODES
     antall = build_antall((row for row in read_lvms_csv(antall_path) if row.get("Analyse") in ordered_codes), lookup)
     if profile == "solide":
         resultater = build_resultater_solide(
