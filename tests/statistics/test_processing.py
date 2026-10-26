@@ -248,15 +248,16 @@ def test_read_lvms_csv_normalises_headers_and_wrappers(tmp_path: Path) -> None:
 
 def test_build_resultater_solide_keeps_lookup_values() -> None:
     results = [{"Sample.ID": "S1", "Analyse": "TERT-OU",
-                "Tidspunkt.analyseresultat": "06.01.2024 12:00"}]
+                "Tidspunkt.analyseresultat": "06.01.2024 12:00",
+                "Tidspunkt.godkjenning": "08.01.2024 12:00"}]
     extractions = [{"Sample.ID": "S1", "Analyse": "EKSTRAKSJON-OU",
                     "Analyseresultat": "Maxwell DNA",
                     "Tidspunkt.analyseresultat": "03.01.2024 12:00",
-                    "Tidspunkt.godkjenning": "05.01.2024 14:30"}]
+                    "Tidspunkt.godkjenning": "09.01.2024 14:30"}]
     lookup = {"TERT-OU": {"Rapportgruppe": "Sanger", "Svarfrist": "15"}}
     row = build_resultater_solide(results, extractions, lookup)[0]
     assert row["Ekstraksjon.valgt"] == "2024/01/03 12:00:00"
-    assert row["Ekstraksjon.ferdig"] == "2024/01/05 14:30:00"
+    assert row["Ekstraksjon.ferdig"] == "2024/01/03 12:00:00"
     assert row["Starttid.svartid"] == row["Ekstraksjon.ferdig"]
     assert row["Rapportgruppe"] == "Sanger"
     assert row["Svarfrist"] == "15"

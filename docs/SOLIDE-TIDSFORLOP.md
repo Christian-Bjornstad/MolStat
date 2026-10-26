@@ -8,21 +8,20 @@ i Power BI, ikke av Python eller kopierte verdier i faktafilene. Solide har
 
 1. Prøvetaking → opprettet: før registrering.
 2. Opprettet → metodevalg: transport.
-3. Metodevalg → ekstraksjonsgodkjenning: PRE.
-4. Ekstraksjonsgodkjenning → analyseresultat: Solide.
+3. Metodevalg → ekstraksjon ferdig: PRE.
+4. Ekstraksjon ferdig → analyseresultat: Solide.
 
 Metodevalg finnes som `Tidspunkt analyseresultat` på `EKSTRAKSJON-OU`, der
 `Analyseresultat` inneholder metoden (for eksempel DNA FFPE/celler kolonne).
-`Tidspunkt godkjenning` på samme registrering er slutt på PRE.
-Resultattid på en konkret metodeanalyse med «Utført» er en annen hendelse.
-Dette er valgt tolkning basert på de delte rådataene; må bekreftes mot LVMS
-før tallene brukes som en dokumentert måling av fysisk mottak.
+Slutt på PRE er det opprinnelige `Ekstraksjon.ferdig`: tidspunkt analyseresultat
+på ekstraksjonsraden som den gamle Solide-regelen valgte. Denne regelen velger
+siste ekstraksjonsresultat på samme prøve før endelig resultatgodkjenning.
+Ekstraksjonens eget godkjenningstidspunkt brukes ikke som slutt på PRE.
 
-Match på samme Sample ID, seneste metodevalg som ikke ligger etter resultatet.
-Godkjenning må ligge mellom metodevalg og analyseresultat for gyldig enhetstid.
-En sen eller for tidlig godkjenning beholdes for kontroll, med eksplisitt status.
-Manglende godkjenning beholdes som manglende. Endelig resultatgodkjenning brukes ikke som grense.
-Etterbestilling beholdes som eget filter, og flytter ikke ekstraksjonsslutt.
+Metodevalget knyttes til siste metodevalg på EKSTRAKSJON-OU før ekstraksjonsslutt
+og analyseresultat. Etterbestilling beholdes som eget filter, og flytter ikke
+ekstraksjonsslutt. Enhetstid kan beregnes fra ekstraksjonsslutt selv når
+metodevalget mangler. Manglende hendelser blir ikke null dager.
 
 Den stablede figuren bruker samme komplette, kronologiske kohort for alle
 fire ledd, slik at gjennomsnittene summerer til totalen. Manglende tidsstempler
@@ -38,6 +37,9 @@ fra samme Excel-oppslag i statistikk og restanse. Nye gruppeforslag merkes rødt
 Koder uten oppslag skal fortsatt være synlige som mangler.
 
 Tester dekker separate hendelser, etterbestilling, gjentatt ekstraksjon,
-manglende godkjenning, feil prøve og ekstraksjon etter analyseresultat.
+manglende tidspunkter, feil prøve og ekstraksjon etter analyseresultat.
 Rapportkontroll må også verifisere at fire ledd summerer til totalen, at PRE-
 analyser er fjernet, og at ingen kjente analysekoder mangler gruppe eller frist.
+
+Rapportvisningen omtaler ikke gyldighet, datakvalitet eller utelatte rader.
+Interne datokontroller beholdes, og deres hjelpefelt skjules i modellen.

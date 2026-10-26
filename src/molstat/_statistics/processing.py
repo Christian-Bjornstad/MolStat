@@ -2,7 +2,7 @@
 
 Reads the archived LVMS report exports (Windows-1252, semicolon,
 ``=T("...")`` wrapped). Hemato retains the legacy extraction rules;
-Solide exports method selection separately from extraction approval.
+Solide exports method selection separately from extraction completion.
 Power BI supplies groups and deadlines from the analysis lookup.
 """
 
@@ -367,20 +367,18 @@ SOLIDE_PRE_CODES = frozenset({
 
 
 def _best_extraction_solide(
-    resultat: datetime | None,
+    godkjenning: datetime | None,
     extractions: Sequence[Mapping[str, object]],
 ) -> dict[str, object] | None:
-    """Latest method selection before the analysis result, on the same sample.
+    """Preserve the original Solide completion rule, sorted latest first.
 
-    A concrete method's execution result is not a method-selection event.
-    Missing or late approval is retained for audit, but cannot start unit
-    turnaround. Never use final approval as the selection deadline.
+    Completion is the extraction row's result timestamp, bounded by final
+    analysis approval. It is not the extraction row's approval timestamp.
     """
-    if resultat is None:
+    if godkjenning is None:
         return None
     for extraction in extractions:
-        selected = extraction["valgt"]
-        if selected <= resultat:
+        if extraction["ferdig"] <= godkjenning:
             return dict(extraction)
     return None
 
@@ -392,33 +390,33 @@ def build_resultater_solide(
     *,
     molstat_ids: Mapping[str, str] | None = None,
 ) -> list[dict[str, str]]:
-    """Export Solide's selection -> extraction approval -> analysis result."""
+    """Export method selection alongside the original extraction completion."""
     require_molstat_id = molstat_ids is not None
     resolved_ids = molstat_ids or {}
     by_sample: dict[str, list[dict[str, object]]] = {}
+    selections: dict[str, list[dict[str, object]]] = {}
     for row in extraction_rows:
         sample_id = clean_text(row.get("Sample.ID")).upper()
         method = clean_text(row.get("Analyseresultat"))
         selected = parse_tidspunkt(row.get("Tidspunkt.analyseresultat"))
-        if (not sample_id or clean_text(row.get("Analyse")).upper() != "EKSTRAKSJON-OU"
-                or selected is None or any(marker in method.casefold() for marker in
+        if not sample_id or selected is None:
+            continue
+        # This is the original completion candidate pool, including its ordering.
+        by_sample.setdefault(sample_id, []).append({
+            "analyse": clean_text(row.get("Analyse")),
+            "bestilling": parse_tidspunkt(row.get("Tidspunkt.analysebestilling")),
+            "ferdig": selected,
+        })
+        if (clean_text(row.get("Analyse")).upper() != "EKSTRAKSJON-OU"
+                or any(marker in method.casefold() for marker in
                     ("ikke utført", "ikke aktuell", "kansellert")) or not re.search(
                     r"dna|rna|maxwell|genexus|geneuxus|recover|ez1|kolonne|qia", method, re.I)):
             continue
-        ferdig = parse_tidspunkt(row.get("Tidspunkt.godkjenning"))
-        by_sample.setdefault(sample_id, []).append(
-            {
-                "analyse": clean_text(row.get("Analyse")),
-                "metode": method,
-                "valgt": selected,
-                "bestilling": parse_tidspunkt(
-                    row.get("Tidspunkt.analysebestilling")
-                ),
-                "ferdig": ferdig,
-            }
-        )
+        selections.setdefault(sample_id, []).append({"metode": method, "valgt": selected})
     for rows in by_sample.values():
-        rows.sort(key=lambda e: (e["valgt"], e["ferdig"] or datetime.min, e["metode"]), reverse=True)
+        rows.sort(key=lambda e: e["ferdig"], reverse=True)
+    for rows in selections.values():
+        rows.sort(key=lambda e: e["valgt"], reverse=True)
 
     out: list[dict[str, str]] = []
     for row in result_rows:
@@ -435,35 +433,37 @@ def build_resultater_solide(
         godkjenning = parse_tidspunkt(row.get("Tidspunkt.godkjenning"))
 
         chosen = _best_extraction_solide(
-            parse_tidspunkt(row.get("Tidspunkt.analyseresultat")), by_sample.get(sample_id, [])
+            godkjenning, by_sample.get(sample_id, [])
         )
         if chosen is None:
             ekstr_analyse = ""
             ekstr_bestilling = None
             ekstr_ferdig = None
-            ekstr_valgt = None
-            ekstr_metode = ""
         else:
             ekstr_analyse = str(chosen["analyse"])
             ekstr_bestilling = chosen["bestilling"]
             ekstr_ferdig = chosen["ferdig"]
-            ekstr_valgt = chosen["valgt"]
-            ekstr_metode = str(chosen["metode"])
             assert isinstance(ekstr_bestilling, datetime) or ekstr_bestilling is None
             assert isinstance(ekstr_ferdig, datetime) or ekstr_ferdig is None
 
         resultat_tid = parse_tidspunkt(row.get("Tidspunkt.analyseresultat"))
-        if chosen is None:
+        selection_limit = min(ekstr_ferdig, resultat_tid) if ekstr_ferdig and resultat_tid else resultat_tid
+        selection = next((e for e in selections.get(sample_id, [])
+                          if selection_limit is not None and e["valgt"] <= selection_limit), None)
+        ekstr_valgt = selection["valgt"] if selection else None
+        ekstr_metode = str(selection["metode"]) if selection else ""
+        if selection is None:
             extraction_status = "Mangler metodevalg"
         elif ekstr_ferdig is None:
-            extraction_status = "Mangler ekstraksjonsgodkjenning"
+            extraction_status = "Mangler ekstraksjonsslutt"
         elif ekstr_ferdig < ekstr_valgt:
-            extraction_status = "Ekstraksjon godkjent før metodevalg"
+            extraction_status = "Ekstraksjon ferdig før metodevalg"
         elif ekstr_ferdig > resultat_tid:
-            extraction_status = "Ekstraksjon godkjent etter analyseresultat"
+            extraction_status = "Ekstraksjon ferdig etter analyseresultat"
         else:
             extraction_status = "OK"
-        starttid = ekstr_ferdig if extraction_status == "OK" else None
+        starttid = (ekstr_ferdig if ekstr_ferdig is not None and resultat_tid is not None
+                    and ekstr_ferdig <= resultat_tid else None)
 
         out.append(
             {

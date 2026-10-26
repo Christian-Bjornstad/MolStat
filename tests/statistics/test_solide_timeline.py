@@ -21,28 +21,50 @@ def extraction(**changes):
             "Tidspunkt.godkjenning": "05.01.2024 08:00", **changes}
 
 
+def completed(**changes):
+    return extraction(Analyse="EKSTRAFFPEKOL-OU", Analyseresultat="Utført",
+                      **{"Tidspunkt.analyseresultat": "05.01.2024 08:00",
+                         "Tidspunkt.godkjenning": "09.01.2024 08:00", **changes})
+
+
 def test_selection_completion_and_late_order_are_separate():
-    row = build_resultater_solide([result()], [extraction()], {})[0]
+    row = build_resultater_solide([result()], [extraction(), completed()], {})[0]
     assert row["Ekstraksjon.valgt"] == "2024/01/03 08:00:00"
     assert row["Ekstraksjon.ferdig"] == "2024/01/05 08:00:00"
     assert row["Starttid.svartid"] == row["Ekstraksjon.ferdig"]
     assert row["Ekstraksjon.metode"] == "DNA FFPE/celler kolonne"
 
 
-def test_never_uses_execution_timestamp_as_selection_or_approval_as_result():
+def test_preserves_result_timestamp_as_completion_despite_late_extraction_approval():
     late = extraction(**{"Tidspunkt.godkjenning": "09.01.2024 08:00"})
-    method = extraction(Analyse="EKSTRAFFPEKOL-OU", Analyseresultat="Utført")
-    row = build_resultater_solide([result()], [late, method], {})[0]
+    row = build_resultater_solide([result()], [late, completed()], {})[0]
     assert row["Ekstraksjon.valgt"] == "2024/01/03 08:00:00"
+    assert row["Ekstraksjon.ferdig"] == "2024/01/05 08:00:00"
+    assert row["Ekstraksjon.Analyse"] == "EKSTRAFFPEKOL-OU"
+    assert row["Ekstraksjon.status"] == "OK"
+    assert row["Starttid.svartid"] == row["Ekstraksjon.ferdig"]
+
+
+def test_extraction_approval_is_not_required_for_the_original_completion_rule():
+    row = build_resultater_solide([result()], [extraction(), completed(**{"Tidspunkt.godkjenning": ""})], {})[0]
+    assert row["Ekstraksjon.valgt"] == "2024/01/03 08:00:00"
+    assert row["Ekstraksjon.ferdig"] == "2024/01/05 08:00:00"
+
+
+def test_completion_still_uses_original_final_approval_boundary():
+    after_result = completed(**{"Tidspunkt.analyseresultat": "09.01.2024 08:00"})
+    after_approval = completed(**{"Tidspunkt.analyseresultat": "11.01.2024 08:00"})
+    row = build_resultater_solide([result()], [extraction(), after_approval, after_result], {})[0]
     assert row["Ekstraksjon.ferdig"] == "2024/01/09 08:00:00"
-    assert row["Ekstraksjon.status"] == "Ekstraksjon godkjent etter analyseresultat"
+    assert row["Ekstraksjon.status"] == "Ekstraksjon ferdig etter analyseresultat"
     assert row["Starttid.svartid"] == ""
 
 
-def test_missing_completion_is_not_fabricated():
-    row = build_resultater_solide([result()], [extraction(**{"Tidspunkt.godkjenning": ""})], {})[0]
-    assert row["Ekstraksjon.valgt"] == "2024/01/03 08:00:00"
-    assert row["Ekstraksjon.ferdig"] == ""
+def test_unit_start_remains_available_without_method_selection():
+    row = build_resultater_solide([result()], [completed()], {})[0]
+    assert row["Ekstraksjon.valgt"] == ""
+    assert row["Ekstraksjon.ferdig"] == "2024/01/05 08:00:00"
+    assert row["Starttid.svartid"] == row["Ekstraksjon.ferdig"]
 
 
 @pytest.mark.parametrize('method', ['Ikke utført', 'Ikke utført DNA', 'Ikke aktuell RNA'])
