@@ -19,6 +19,10 @@ faste blågrå farger. Fristlinjen og kortene bruker fristen fra oppslaget.
 Nøyaktig på fristen er grønt, over er rødt. Gjennomsnittet i hvert utvalg
 styrer figurens farger; detaljtabellen vurderer den enkelte analyseraden.
 
+Valget «Før registrering i figur» viser eller skjuler dette leddet i
+søylene og boksen. Standard er «Skjul». Vist totalsnitt følger de synlige
+leddene; selve tidsberegningene, fristfargene og radutvalget påvirkes ikke.
+
 Metodevalg finnes som `Tidspunkt analyseresultat` på `EKSTRAKSJON-OU`, der
 `Analyseresultat` inneholder metoden (for eksempel DNA FFPE/celler kolonne).
 Slutt på PRE er det opprinnelige `Ekstraksjon.ferdig`: tidspunkt analyseresultat
