@@ -1,31 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Literal, Mapping
+from datetime import datetime, time
+import re
 
 
-JobKind = Literal["statistics", "backlog"]
+def parse_daily_time(value: str) -> time:
+    if not isinstance(value, str) or not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", value):
+        raise ValueError("Daglig klokkeslett må være mellom 00:00 og 23:59 (HH:mm).")
+    return time.fromisoformat(value)
 
 
-def due_jobs(
-    now: datetime,
-    last_success: Mapping[JobKind, datetime | None],
-    *,
-    statistics_hour: int = 5,
-    backlog_first_hour: int = 6,
-    backlog_last_hour: int = 18,
-) -> tuple[JobKind, ...]:
-    due: list[JobKind] = []
-    statistics_last = last_success.get("statistics")
-    if now.hour == statistics_hour and (
-        statistics_last is None or statistics_last.date() < now.date()
-    ):
-        due.append("statistics")
-
-    backlog_last = last_success.get("backlog")
-    current_hour = now.replace(minute=0, second=0, microsecond=0)
-    if backlog_first_hour <= now.hour <= backlog_last_hour and (
-        backlog_last is None or backlog_last < current_hour
-    ):
-        due.append("backlog")
-    return tuple(due)
+def daily_boundary(now: datetime, daily_time: str = "07:00") -> datetime | None:
+    """Today's configured start in the PC clock's time zone, once due."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("Klokken må ha tidssone.")
+    clock = parse_daily_time(daily_time)
+    start = now.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
+    return start if now >= start else None

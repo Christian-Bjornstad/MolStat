@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import date, datetime
 import sys
 from threading import Event
 from time import monotonic
 from typing import Any
 
-from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, QTimer, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, QTimer, QTime, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -31,6 +32,7 @@ from ..orchestrator import JobResult
 from ..failures import storage_failure
 from ..recovery import recovery_context, check_cancelled
 from ..progress import RunProgress, progress_context
+from ..schedule import daily_boundary
 
 
 class _WorkerSignals(QObject):
@@ -39,11 +41,13 @@ class _WorkerSignals(QObject):
 
 
 class _JobWorker(QRunnable):
-    def __init__(self, orchestrator: Any, target: str, *, operation: Any = None) -> None:
+    def __init__(self, orchestrator: Any, target: str, *, operation: Any = None,
+                 scheduled_day: date | None = None) -> None:
         super().__init__()
         self.orchestrator = orchestrator
         self.target = target
         self.operation = operation
+        self.scheduled_day = scheduled_day
         self.signals = _WorkerSignals()
         self.cancel = Event()
 
@@ -51,7 +55,10 @@ class _JobWorker(QRunnable):
         try:
             with recovery_context(observer=self.signals.progress.emit, cancel=self.cancel), progress_context(self.signals.progress.emit):
                 check_cancelled()
-                result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
+                if self.scheduled_day is not None:
+                    result = self.orchestrator.run_daily()
+                else:
+                    result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
         except Exception as exc:
             if hasattr(self.orchestrator, "_report_failure"):
                 self.orchestrator._report_failure(f"{self.target}_run_failed", exc)
@@ -75,6 +82,12 @@ class MainWindow(QMainWindow):
         self.settings_store = settings_store
         self._configuration_error = configuration_error
         self._workers: set[_JobWorker] = set()
+        self._scheduled_day: date | None = None
+        self._saved_daily_time = "07:00"
+        self._schedule_now = lambda: datetime.now().astimezone()
+        self._schedule_timer = QTimer(self)
+        self._schedule_timer.setInterval(30_000)
+        self._schedule_timer.timeout.connect(self._check_daily_schedule)
         self._capability_outcomes: dict[tuple[str, str], Any] = {}
         self._live_stages: dict[tuple[str, str], str] = {}
         self._run_started_at = 0.0
@@ -145,6 +158,28 @@ class MainWindow(QMainWindow):
             "Kontroller Innstillinger og Diagnostikk." if self._configuration_error
             else "MolStat er klar."
         )
+        self._schedule_timer.start()
+        QTimer.singleShot(0, self._check_daily_schedule)
+
+    def _check_daily_schedule(self) -> None:
+        if not self._schedule_timer.isActive():
+            return
+        now = self._schedule_now()
+        if self.orchestrator is None or not self._enabled_unit_keys():
+            self.overview.schedule_status.setText("Automatikk venter på gyldig oppsett og aktive enheter.")
+            return
+        if not hasattr(self.orchestrator, "run_daily"):
+            return
+        if self._scheduled_day == now.date():
+            return
+        if daily_boundary(now, self._saved_daily_time) is None:
+            self.overview.schedule_status.setText(f"Neste automatiske kjøring: i dag kl. {self._saved_daily_time} · PC-ens lokale tid.")
+            return
+        if self._workers:
+            self.overview.schedule_status.setText("Dagens automatiske kjøring venter til pågående arbeid er ferdig.")
+            return
+        self.overview.schedule_status.setText("Automatisk oppdatering av aktive enheter pågår …")
+        self._start_job("all", scheduled_day=now.date())
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
@@ -257,6 +292,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.statusBar().showMessage("En kjøring pågår. Vent til den er ferdig før appen lukkes.", 8000)
             return
+        self._schedule_timer.stop()
         super().closeEvent(event)
 
     def _open_unit_settings(self, key: str) -> None:
@@ -303,7 +339,7 @@ class MainWindow(QMainWindow):
         worker.signals.progress.connect(self._retry_progress)
         QThreadPool.globalInstance().start(worker)
 
-    def _start_job(self, target: str) -> None:
+    def _start_job(self, target: str, *, scheduled_day: date | None = None) -> None:
         if self._workers:
             return
         if self.orchestrator is None:
@@ -319,7 +355,7 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage("Kjøring pågår …")
         self._begin_run_progress('Starter kjøringen …')
-        worker = _JobWorker(self.orchestrator, target)
+        worker = _JobWorker(self.orchestrator, target, scheduled_day=scheduled_day)
         self._workers.add(worker)
         self._refresh_run_button_states()
         worker.signals.finished.connect(
@@ -333,6 +369,22 @@ class MainWindow(QMainWindow):
         self._elapsed_timer.stop()
         self._update_run_elapsed()
         self.overview.run_activity.hide()
+        if worker.scheduled_day is not None:
+            if result is None or result.status != "busy":
+                self._scheduled_day = worker.scheduled_day
+            message = (
+                "Dagens automatiske forsøk er allerede registrert. Se Diagnostikk."
+                if result is None else {
+                    "succeeded": f"Automatisk oppdatering fullført. Neste kjøring i morgen kl. {self._saved_daily_time}.",
+                    "busy": "Automatikk venter på en annen kjøring. Prøver igjen om 30 sekunder.",
+                }.get(result.status, f"Automatisk oppdatering feilet eller ble avbrutt. Se Diagnostikk og kjør manuelt. Neste forsøk i morgen kl. {self._saved_daily_time}.")
+            )
+            self.overview.schedule_status.setText(message)
+            if result is None:
+                self.overview.run_panel.hide()
+                self._refresh_run_button_states()
+                self.statusBar().showMessage(message, 5000)
+                return
         cancelled = getattr(result, 'error_code', None) == 'CANCELLED'
         if self.overview.run_progress.maximum() == 0:
             self.overview.run_progress.setRange(0, 1)
@@ -557,6 +609,9 @@ class MainWindow(QMainWindow):
         ):
             return
         values = self.settings_store.load_settings_fields()
+        self._saved_daily_time = values.get("daily_time", "07:00")
+        self.settings_page.daily_time.setTime(QTime.fromString(self._saved_daily_time, "HH:mm"))
+        self.overview.schedule_status.setText(f"Automatisk hver dag kl. {self._saved_daily_time} mens MolStat er åpent · PC-ens lokale tid.")
         self.settings_page.sensitive_root.setText(values.get("sensitive_root", ""))
         self.settings_page.sharepoint_root.setText(values.get("sharepoint_root", ""))
         self.settings_page.lvms_url.setText(values.get("lvms_url", ""))
@@ -564,8 +619,6 @@ class MainWindow(QMainWindow):
             field.setText(values.get(f"config_{key}", ""))
         for key, field in self.settings_page.backlog_fields.items():
             field.setText(values.get(f"backlog_{key}", ""))
-        for key, field in self.settings_page.schedule_fields.items():
-            field.setValue(int(values.get(key, field.value())))
         for key, field in self.settings_page.enabled_fields.items():
             field.setChecked(values.get(f"enabled_{key}", "true") == "true")
         self._saved_enabled_units = {
@@ -585,6 +638,7 @@ class MainWindow(QMainWindow):
             return
         values = {
             "sensitive_root": self.settings_page.sensitive_root.text().strip(),
+            "daily_time": self.settings_page.daily_time.time().toString("HH:mm"),
             "sharepoint_root": self.settings_page.sharepoint_root.text().strip(),
             "lvms_url": self.settings_page.lvms_url.text().strip(),
         }
@@ -596,7 +650,6 @@ class MainWindow(QMainWindow):
         )
         values.update({f"config_{key}": field.text().strip() for key, field in self.settings_page.config_fields.items()})
         values.update({f"backlog_{key}": field.text().strip() for key, field in self.settings_page.backlog_fields.items()})
-        values.update({key: str(field.value()) for key, field in self.settings_page.schedule_fields.items()})
         try:
             self.settings_store.save_settings_fields(values)
         except (ValueError, OSError) as exc:

@@ -198,7 +198,7 @@ def test_scheduled_entrypoint_explains_os_error_without_traceback_or_private_pay
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'local'))
     services = DefaultServices(tmp_path / 'settings.json')
     services._settings_exist = True
-    monkeypatch.setattr(services, '_database', lambda: (_ for _ in ()).throw(PermissionError(errno.EACCES, 'PRIVATE-PATH')))
+    monkeypatch.setattr(services, '_build_system', lambda **kwargs: (_ for _ in ()).throw(PermissionError(errno.EACCES, 'PRIVATE-PATH')))
     assert services.auto() == 2
     output = capsys.readouterr().out
     assert json.loads(output)['error_code'] == 'FILE_ACCESS'

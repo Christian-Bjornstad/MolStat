@@ -139,10 +139,9 @@ def test_unit_config_is_validated_and_saved_from_settings(qtbot):
     window = MainWindow(FakeOrchestrator(), store)
     qtbot.addWidget(window)
     window.settings_page.config_fields["hemato"].setText(str(default_unit_file("hemato")))
-    window.settings_page.schedule_fields["statistics_hour"].setValue(7)
     window._save_settings()
     assert store.saved["config_hemato"] == str(default_unit_file("hemato"))
-    assert store.saved["statistics_hour"] == "7"
+    assert "statistics_hour" not in store.saved
 
 
 def test_worker_exception_releases_ui_controls(qtbot):

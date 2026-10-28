@@ -201,6 +201,11 @@ class OverviewPage(QWidget):
         intro.setObjectName("page-intro")
         layout.addWidget(intro)
 
+        self.schedule_status = help_text("Automatisk hver dag kl. 07:00 mens MolStat er åpent · PC-ens lokale tid.")
+        self.schedule_status.setObjectName("daily-schedule-status")
+        self.schedule_status.setAccessibleName("Status for daglig automatisk oppdatering")
+        layout.addWidget(self.schedule_status)
+
         actions = QHBoxLayout()
         self.run_all = action_button("Kjør aktive enheter", "run-all", primary=True,
                                      accessible_name="Kjør alle funksjoner for aktive enheter")

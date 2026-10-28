@@ -103,7 +103,7 @@ def build_stylesheet() -> str:
     QLabel[cardTitle="true"] {{ color: {COLORS['muted_text']}; font-weight: 600; }}
     QLabel[cardState="true"] {{ font-size: 17px; font-weight: 700; }}
     QLabel[cardDetail="true"] {{ color: {COLORS['muted_text']}; }}
-    QLineEdit, QPlainTextEdit, QSpinBox, QComboBox, QDateEdit {{
+    QLineEdit, QPlainTextEdit, QSpinBox, QComboBox, QDateEdit, QTimeEdit {{
         background: white;
         border: 1px solid #8293AB;
         border-radius: 8px;
@@ -111,9 +111,9 @@ def build_stylesheet() -> str:
         selection-background-color: {COLORS['primary']};
         selection-color: white;
     }}
-    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus, QDateEdit:focus {{ border: 3px solid {COLORS['focus']}; }}
+    QLineEdit:focus, QPlainTextEdit:focus, QSpinBox:focus, QComboBox:focus, QDateEdit:focus, QTimeEdit:focus {{ border: 3px solid {COLORS['focus']}; }}
     QLineEdit[tone="danger"] {{ border-color: {COLORS['danger']}; }}
-    QComboBox, QDateEdit, QSpinBox {{ padding-right: 24px; }}
+    QComboBox, QDateEdit, QSpinBox, QTimeEdit {{ padding-right: 24px; }}
     QComboBox::drop-down, QDateEdit::drop-down {{ width: 24px; border: none; }}
     QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url("{chevron}"); width: 12px; height: 12px; }}
     QComboBox QAbstractItemView {{ background: white; selection-background-color: {COLORS['primary']}; selection-color: white; }}

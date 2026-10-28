@@ -30,7 +30,6 @@ from .excel_search import read_excel_snapshot, publish_search_workbook
 from .modules import DEFAULT_UNITS, UnitRegistry, configured_registry
 from .orchestrator import JobResult, MolStatOrchestrator
 from .publisher import PublicationPolicy, SharePointPublisher, default_forbidden_patterns
-from .schedule import due_jobs
 from .statistics import StatisticsProcessor
 from .lvms.config import validate_app_config as validate_lvms_config
 from .system import CapabilityRun, MolStatSystem, ExcelRefreshStatus
@@ -58,8 +57,14 @@ class DefaultServices:
 
     def gui(self) -> int:
         from .ui.app import MainWindow, create_application
+        from .windows_automation import retire_legacy_launchers
 
         application = create_application(self.settings_path)
+        try:
+            retire_legacy_launchers()
+        except OSError as error:
+            self._record_job_failure("legacy_automation_cleanup_failed", error)
+            self._diagnostics.append("Gamle Windows-startere kunne ikke fjernes. Deaktiver gamle MolStat-oppgaver i Oppgaveplanlegging.")
         orchestrator, error = self.refresh_gui_runtime()
         window = MainWindow(
             orchestrator,
@@ -123,51 +128,22 @@ class DefaultServices:
             return 2
         try:
             with recovery_context(observer=self.record_retry):
-                database = self._database()
-                now = datetime.now(timezone.utc)
-                due = due_jobs(
-                    now,
-                    retry_operation(database.last_successes, stage="database_read"),
-                    statistics_hour=self.settings.statistics_hour,
-                    backlog_first_hour=self.settings.backlog_first_hour,
-                    backlog_last_hour=self.settings.backlog_last_hour,
-                )
+                system = self._build_system(require_statistics=True)
+                result = self._orchestrator(system).run_daily()
         except Exception as error:
             return self._scheduled_failure("automatic_schedule_failed", error)
-        statuses = [self.run(kind) for kind in due]
-        if not due:
+        if result is None:
             print(json.dumps({"status": "idle"}))
-        return 0 if all(status == 0 for status in statuses) else 2
+            return 0
+        print(json.dumps({"status": result.status, **result.summary}, ensure_ascii=False))
+        return 0 if result.status == "succeeded" else 2
 
     def install_automation(self) -> int:
-        from .windows_automation import default_automation_paths, install_automation
-
-        if not self._settings_exist:
-            print(json.dumps({"status": "failed", "message": "Konfigurer MolStat først."}, ensure_ascii=False))
-            return 2
-        paths = default_automation_paths(
-            project_root=Path(__file__).resolve().parents[2],
-            settings_path=self.settings_path,
-        )
-        result = install_automation(
-            paths,
-            statistics_hour=self.settings.statistics_hour,
-            backlog_first_hour=self.settings.backlog_first_hour,
-            backlog_last_hour=self.settings.backlog_last_hour,
-        )
-        print(
-            json.dumps(
-                {
-                    "status": "ok",
-                    "tasks": [
-                        result.statistics_task,
-                        result.backlog_task,
-                    ],
-                },
-                ensure_ascii=False,
-            )
-        )
-        return 0
+        # Keep old command lines understandable without creating external tasks.
+        print(json.dumps({"status": "retired", "message":
+            "Windows-oppgaver brukes ikke lenger. Hold MolStat åpent for daglig kjøring på tidspunktet valgt i Innstillinger → Automatikk."
+        }, ensure_ascii=False))
+        return 2
 
     def _database(self) -> MolStatDatabase:
         if self._settings_load_error:
@@ -349,6 +325,7 @@ class DefaultServices:
             system.database,
             runners,
             owner=socket.gethostname() or "molstat-pc",
+            daily_time=self.settings.daily_time,
             failure_reporter=self._record_job_failure,
             retry_reporter=self.record_retry,
         )
@@ -421,6 +398,7 @@ class DefaultServices:
         if not self._settings_exist:
             fields = {
                 "sensitive_root": "",
+                "daily_time": self.settings.daily_time,
                 "sharepoint_root": "",
                 "lvms_url": "",
             }
@@ -435,6 +413,7 @@ class DefaultServices:
             return fields
         fields = {
             "sensitive_root": str(self.settings.sensitive_root),
+            "daily_time": self.settings.daily_time,
             "sharepoint_root": (
                 str(self.settings.sharepoint_root)
                 if self.settings.sharepoint_root is not None
@@ -541,6 +520,7 @@ class DefaultServices:
         sharepoint_text = values.get("sharepoint_root", "").strip()
         updated = replace(
             self.settings,
+            daily_time=values.get("daily_time", self.settings.daily_time),
             sensitive_root=Path(sensitive_text),
             sharepoint_root=Path(sharepoint_text) if sharepoint_text else None,
             statistics_hour=int(values.get("statistics_hour", self.settings.statistics_hour)),
