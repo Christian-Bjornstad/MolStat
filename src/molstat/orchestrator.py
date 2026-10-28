@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import math
 import sqlite3
@@ -16,7 +16,7 @@ from .modules import DEFAULT_UNITS, JobKind
 from .unit_settings import UnitConfigError
 from .manual_import import ManualImportError
 from ._writer_lease import WriterLeaseLost
-from .schedule import daily_boundary
+from .schedule import daily_boundary, scheduled_trigger
 
 
 JobStatus = Literal["succeeded", "partial", "failed", "busy"]
@@ -81,16 +81,15 @@ class MolStatOrchestrator:
         if boundary is None:
             return None
         with recovery_context(observer=self._retry_reporter):
-            # Count the entire local day, even if its start time was edited.
-            return self._run("all", "scheduled", daily_day=boundary.date())
+            return self._run("all", scheduled_trigger(boundary), scheduled=True)
 
-    def _run(self, kind: str, trigger: str, *, daily_day: date | None = None) -> JobResult | None:
+    def _run(self, kind: str, trigger: str, *, scheduled: bool = False) -> JobResult | None:
         if kind not in self.runners:
             raise ValueError(f"Ingen kjører er konfigurert for {kind}.")
         failed_result: JobResult | None = None
         try:
             with self.database.writer_lease(self.owner, self.lease_ttl, renew=True):
-                if daily_day is not None and self.database.has_daily_attempt(daily_day):
+                if scheduled and self.database.has_scheduled_attempt(trigger):
                     return None
                 run_id = self._start_run(kind, trigger)
                 try:

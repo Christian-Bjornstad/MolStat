@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, closing
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sqlite3
 from uuid import uuid4
@@ -587,19 +587,19 @@ class MolStatDatabase:
             ).fetchall()
         return tuple((str(row[0]), str(row[1])) for row in rows)
 
-    def has_daily_attempt(self, day: date) -> bool:
-        """Called under the writer lease before reserving the daily run.
+    def has_scheduled_attempt(self, trigger: str) -> bool:
+        """Called under the writer lease before reserving a selected time.
 
         Finished failures count too, so stopping a run never creates a retry loop.
         Unfinished crash records can be retried after their lease expires.
-        Convert each UTC timestamp to the PC's local date so a DST change
-        cannot hide an earlier run on the same calendar day.
+        The trigger identifies the local date and selected time, so an earlier
+        run today never blocks a newly selected time.
         """
         with self.read_connection() as connection:
             row = connection.execute(
-                "SELECT 1 FROM job_run WHERE kind = 'all' AND trigger = 'scheduled' "
-                "AND finished_at IS NOT NULL AND date(started_at, 'localtime') = ? LIMIT 1",
-                (day.isoformat(),),
+                "SELECT 1 FROM job_run WHERE kind = 'all' AND trigger = ? "
+                "AND finished_at IS NOT NULL LIMIT 1",
+                (trigger,),
             ).fetchone()
         return row is not None
 

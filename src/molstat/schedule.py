@@ -17,3 +17,8 @@ def daily_boundary(now: datetime, daily_time: str = "07:00") -> datetime | None:
     clock = parse_daily_time(daily_time)
     start = now.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
     return start if now >= start else None
+
+
+def scheduled_trigger(boundary: datetime) -> str:
+    """Identify one selected wall-clock time, including across DST changes."""
+    return f"scheduled:{boundary:%Y-%m-%dT%H:%M}"

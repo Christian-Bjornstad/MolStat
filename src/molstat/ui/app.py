@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from datetime import date, datetime
+from datetime import datetime
 import sys
 from threading import Event
 from time import monotonic
@@ -32,7 +32,7 @@ from ..orchestrator import JobResult
 from ..failures import storage_failure
 from ..recovery import recovery_context, check_cancelled
 from ..progress import RunProgress, progress_context
-from ..schedule import daily_boundary
+from ..schedule import daily_boundary, scheduled_trigger
 
 
 class _WorkerSignals(QObject):
@@ -42,12 +42,12 @@ class _WorkerSignals(QObject):
 
 class _JobWorker(QRunnable):
     def __init__(self, orchestrator: Any, target: str, *, operation: Any = None,
-                 scheduled_day: date | None = None) -> None:
+                 scheduled_for: str | None = None) -> None:
         super().__init__()
         self.orchestrator = orchestrator
         self.target = target
         self.operation = operation
-        self.scheduled_day = scheduled_day
+        self.scheduled_for = scheduled_for
         self.signals = _WorkerSignals()
         self.cancel = Event()
 
@@ -55,7 +55,7 @@ class _JobWorker(QRunnable):
         try:
             with recovery_context(observer=self.signals.progress.emit, cancel=self.cancel), progress_context(self.signals.progress.emit):
                 check_cancelled()
-                if self.scheduled_day is not None:
+                if self.scheduled_for is not None:
                     result = self.orchestrator.run_daily()
                 else:
                     result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
         self.settings_store = settings_store
         self._configuration_error = configuration_error
         self._workers: set[_JobWorker] = set()
-        self._scheduled_day: date | None = None
+        self._scheduled_for: str | None = None
         self._saved_daily_time = "07:00"
         self._schedule_now = lambda: datetime.now().astimezone()
         self._schedule_timer = QTimer(self)
@@ -170,16 +170,18 @@ class MainWindow(QMainWindow):
             return
         if not hasattr(self.orchestrator, "run_daily"):
             return
-        if self._scheduled_day == now.date():
-            return
-        if daily_boundary(now, self._saved_daily_time) is None:
+        boundary = daily_boundary(now, self._saved_daily_time)
+        if boundary is None:
             self.overview.schedule_status.setText(f"Neste automatiske kjøring: i dag kl. {self._saved_daily_time} · PC-ens lokale tid.")
+            return
+        trigger = scheduled_trigger(boundary)
+        if self._scheduled_for == trigger:
             return
         if self._workers:
             self.overview.schedule_status.setText("Dagens automatiske kjøring venter til pågående arbeid er ferdig.")
             return
         self.overview.schedule_status.setText("Automatisk oppdatering av aktive enheter pågår …")
-        self._start_job("all", scheduled_day=now.date())
+        self._start_job("all", scheduled_for=trigger)
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
@@ -339,7 +341,7 @@ class MainWindow(QMainWindow):
         worker.signals.progress.connect(self._retry_progress)
         QThreadPool.globalInstance().start(worker)
 
-    def _start_job(self, target: str, *, scheduled_day: date | None = None) -> None:
+    def _start_job(self, target: str, *, scheduled_for: str | None = None) -> None:
         if self._workers:
             return
         if self.orchestrator is None:
@@ -355,7 +357,7 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage("Kjøring pågår …")
         self._begin_run_progress('Starter kjøringen …')
-        worker = _JobWorker(self.orchestrator, target, scheduled_day=scheduled_day)
+        worker = _JobWorker(self.orchestrator, target, scheduled_for=scheduled_for)
         self._workers.add(worker)
         self._refresh_run_button_states()
         worker.signals.finished.connect(
@@ -369,15 +371,15 @@ class MainWindow(QMainWindow):
         self._elapsed_timer.stop()
         self._update_run_elapsed()
         self.overview.run_activity.hide()
-        if worker.scheduled_day is not None:
+        if worker.scheduled_for is not None:
             if result is None or result.status != "busy":
-                self._scheduled_day = worker.scheduled_day
+                self._scheduled_for = worker.scheduled_for
             message = (
-                "Dagens automatiske forsøk er allerede registrert. Se Diagnostikk."
+                "Automatisk forsøk for dette tidspunktet er allerede registrert. Se Diagnostikk."
                 if result is None else {
                     "succeeded": f"Automatisk oppdatering fullført. Neste kjøring i morgen kl. {self._saved_daily_time}.",
                     "busy": "Automatikk venter på en annen kjøring. Prøver igjen om 30 sekunder.",
-                }.get(result.status, f"Automatisk oppdatering feilet eller ble avbrutt. Se Diagnostikk og kjør manuelt. Neste forsøk i morgen kl. {self._saved_daily_time}.")
+                }.get(result.status, "Automatisk oppdatering feilet eller ble avbrutt. Se Diagnostikk. Velg et nytt tidspunkt i Automatikk eller kjør manuelt for å prøve igjen.")
             )
             self.overview.schedule_status.setText(message)
             if result is None:

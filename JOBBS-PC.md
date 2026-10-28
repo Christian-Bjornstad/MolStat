@@ -12,13 +12,13 @@ Alle statistikkenheter, også Patolog, henter nå fra siste arkiverte sluttdato 
 
 ## Daglig automatisk oppdatering
 
-Start MolStat som vanlig med MOLSTAT_START.cmd og la vinduet være åpent, gjerne minimert. Velg klokkeslett med timer og minutter i **Innstillinger → Automatikk → Daglig kl.**, og trykk **Valider og lagre**. Standard er 07:00. Endringen tas i bruk uten omstart og beholdes ved neste oppstart og overføring av innstillinger. En allerede utført dagskjøring gjentas ikke ved endring av tidspunktet.
+Start MolStat som vanlig med MOLSTAT_START.cmd og la vinduet være åpent, gjerne minimert. Velg klokkeslett med timer og minutter i **Innstillinger → Automatikk → Daglig kl.**, og trykk **Valider og lagre**. Standard er 07:00. Endringen tas i bruk uten omstart og beholdes ved neste oppstart og overføring av innstillinger. Et nytt tidspunkt starter en ny kjøring uavhengig av tidligere kjøringer samme dag. Har appen kjørt kl. 07:00, kan du for eksempel lagre 09:15 og få en ny kjøring kl. 09:15.
 
 Programmet kjører statistikk og restanse for alle lagrede, aktive enheter hver dag fra valgt tidspunkt, med behandling, SharePoint-publisering og Excel-søk. Oversikt viser status for automatikken. Ingen ekstra exe, Windows-oppgave eller administratorrettighet kreves for tidsstyringen.
 
 PC-en må være på og våken, med norsk tidssone og tilgang til LVMS, datarot og SharePoint. Skjermen kan være av. Programmet kan ikke kjøre mens PC-en sover eller er slått av; dagens kjøring tas igjen når MolStat er tilgjengelig etter valgt tidspunkt. Tiden kontrolleres ved oppstart og hvert 30. sekund. Pågående arbeid får fullføre først. Vanlig LVMS-innlogging og nettlesertilgang må fortsatt fungere.
 
-Samme automatiske forsøk kjøres ikke på nytt etter omstart eller i et annet vindu med samme database. Ved feil eller «Stopp kjøring»: se Diagnostikk, rett årsaken og bruk «Kjør aktive enheter». Neste automatiske forsøk kommer neste dag. De eksisterende, avgrensede gjenforsøkene inne i delsteg beholdes.
+Samme automatiske forsøk for samme dato og valgte klokkeslett kjøres ikke på nytt ved hver tidskontroll, etter omstart eller i et annet vindu med samme database. Ved feil eller «Stopp kjøring»: se Diagnostikk, rett årsaken og velg et nytt tidspunkt eller bruk «Kjør aktive enheter». De eksisterende, avgrensede gjenforsøkene inne i delsteg beholdes.
 
 Den tidligere Windows-installasjonen brukes ikke lenger. Ved oppstart fjernes gjenkjennelige, gamle MolStat-startere (`statistics.cmd`, `backlog.cmd`, `board.cmd`) i `%LOCALAPPDATA%/MolStat/`. Egne skript og innstillinger beholdes. Dersom gamle oppgaver fortsatt vises i Windows Oppgaveplanlegging, kan «MolStat - daglig statistikk», «MolStat - restansehenting» og «MolStat - tavleserver» slettes eller deaktiveres der. Appen kjører ingen Windows-kommando for dette. Hvis opprydding nektes, vises det i Diagnostikk; deaktiver da oppgavene manuelt. Gamle tidsplanverdier i innstillingsfilen styrer ikke lenger kjøringen.
 

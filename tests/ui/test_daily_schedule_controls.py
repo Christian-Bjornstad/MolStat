@@ -121,3 +121,34 @@ def test_editable_schedule_uses_only_saved_time_and_applies_without_restart(qtbo
     qtbot.waitUntil(lambda: not window._workers)
     assert orchestrator.calls == ["daily"]
     assert "08:10" in window.overview.schedule_status.text()
+
+
+def test_new_saved_time_runs_again_even_after_earlier_automatic_run(qtbot):
+    class TimeStore:
+        values = {"daily_time": "07:00"}
+
+        def load_settings_fields(self):
+            return dict(self.values)
+
+        def save_settings_fields(self, values):
+            self.values = dict(values)
+
+    orchestrator = DailyOrchestrator()
+    window = MainWindow(orchestrator, TimeStore())
+    qtbot.addWidget(window)
+    clock = [MORNING]
+    window._schedule_now = lambda: clock[0]
+    window._check_daily_schedule()
+    qtbot.waitUntil(lambda: not window._workers)
+    assert orchestrator.calls == ["daily"]
+    window.settings_page.daily_time.setTime(QTime(7, 5))
+    window._save_settings()
+    clock[0] += timedelta(minutes=4)
+    window._check_daily_schedule()
+    assert orchestrator.calls == ["daily"]
+    clock[0] += timedelta(minutes=1)
+    window._check_daily_schedule()
+    qtbot.waitUntil(lambda: not window._workers)
+    assert orchestrator.calls == ["daily", "daily"]
+    window._check_daily_schedule()
+    assert orchestrator.calls == ["daily", "daily"]

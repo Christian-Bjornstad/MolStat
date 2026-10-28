@@ -62,7 +62,7 @@ def test_abandoned_attempt_can_resume_after_lease_has_gone(tmp_path):
     database = MolStatDatabase(tmp_path / "molstat.sqlite3")
     database.migrate()
     with database._connect() as connection:
-        connection.execute("INSERT INTO job_run(kind, trigger, status, started_at) VALUES ('all', 'scheduled', 'running', ?)",
+        connection.execute("INSERT INTO job_run(kind, trigger, status, started_at) VALUES ('all', 'scheduled:2026-10-28T07:00', 'running', ?)",
                            (MORNING.astimezone(timezone.utc).isoformat(),))
     orchestrator = MolStatOrchestrator(database, {"all": lambda: {}}, owner="pc-a", now=lambda: MORNING)
     assert orchestrator.run_daily(now=MORNING).status == "succeeded"
@@ -98,7 +98,7 @@ def test_daily_service_uses_all_capabilities_of_only_saved_enabled_units(tmp_pat
         ("hemato", "statistics"), ("hemato", "backlog"), ("flow", "statistics"), ("lege", "statistics")}
     assert result.status == "succeeded"
     with database.read_connection() as connection:
-        assert connection.execute("SELECT kind, trigger FROM job_run").fetchall() == [("all", "scheduled")]
+        assert connection.execute("SELECT kind, trigger FROM job_run").fetchall() == [("all", "scheduled:2026-10-28T08:35")]
 
 
 def test_cancelled_daily_run_stays_stopped_until_next_day(tmp_path):
@@ -115,7 +115,7 @@ def test_cancelled_daily_run_stays_stopped_until_next_day(tmp_path):
     assert orchestrator.run_daily(now=MORNING + timedelta(minutes=1)) is None
 
 
-def test_changing_schedule_does_not_repeat_today_after_restart(tmp_path):
+def test_new_time_runs_again_today_and_survives_restart_without_poll_loop(tmp_path):
     database = MolStatDatabase(tmp_path / "molstat.sqlite3")
     database.migrate()
     original = MolStatOrchestrator(database, {"all": lambda: {}}, owner="pc-a", now=lambda: MORNING)
@@ -124,8 +124,39 @@ def test_changing_schedule_does_not_repeat_today_after_restart(tmp_path):
     updated = MolStatOrchestrator(database, {"all": lambda: {}}, owner="pc-a",
                                   now=lambda: later, daily_time="09:15")
     assert updated.run_daily(now=later - timedelta(seconds=1)) is None
-    assert updated.run_daily(now=later) is None
-    assert len(database.job_statuses()) == 1
+    assert updated.run_daily(now=later).status == "succeeded"
+    reopened = MolStatOrchestrator(database, {"all": lambda: {}}, owner="pc-b",
+                                   now=lambda: later, daily_time="09:15")
+    assert reopened.run_daily(now=later + timedelta(seconds=30)) is None
+    assert len(database.job_statuses()) == 2
+
+
+def test_legacy_daily_history_does_not_block_selected_time(tmp_path):
+    database = MolStatDatabase(tmp_path / "molstat.sqlite3")
+    database.migrate()
+    orchestrator = MolStatOrchestrator(database, {"all": lambda: {}}, owner="pc-a", now=lambda: MORNING)
+    assert orchestrator.run("all", "scheduled").status == "succeeded"
+    assert orchestrator.run_daily(now=MORNING).status == "succeeded"
+    assert orchestrator.run_daily(now=MORNING + timedelta(seconds=30)) is None
+
+
+@pytest.mark.parametrize("cancelled", (False, True))
+def test_new_time_runs_after_an_earlier_failure_or_stop(tmp_path, cancelled):
+    from molstat.failures import RunFailure
+
+    database = MolStatDatabase(tmp_path / "molstat.sqlite3")
+    database.migrate()
+
+    def fail():
+        raise RunFailure("CANCELLED", "job_run") if cancelled else RuntimeError("synthetic")
+
+    first = MolStatOrchestrator(database, {"all": fail}, owner="pc-a", now=lambda: MORNING)
+    assert first.run_daily(now=MORNING).status == "failed"
+    later = MORNING.replace(hour=9, minute=15)
+    updated = MolStatOrchestrator(database, {"all": lambda: {}}, owner="pc-a",
+                                  now=lambda: later, daily_time="09:15")
+    assert updated.run_daily(now=later).status == "succeeded"
+    assert updated.run_daily(now=later + timedelta(seconds=30)) is None
 
 
 def test_early_run_is_still_today_after_pc_changes_to_winter_time(tmp_path):
