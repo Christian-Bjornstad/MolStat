@@ -1,6 +1,6 @@
 # MolStat
 
-MolStat henter statistikk og restanse fra LVMS og leverer behandlede CSV-filer til Power BI. Hemato og Solide har statistikk og restanse. Flow, FISH og Preanalyse har statistikk. Patologer bruker bare PAT-TID-STØP-SNITT-OU. Statistikk bygges fra januar 2024 bare når rapporten ikke har arkivert historikk. Senere kjøringer henter fra siste arkiverte sluttdato minus to dager til i dag, separat for hver rapport. Patolog deler lange intervaller ved månedsskifter og gjenopptar fra arkivet etter avbrudd. Restanse henter fortsatt hele perioden fra januar 2024.
+MolStat henter statistikk og restanse fra LVMS og leverer behandlede CSV-filer til Power BI. Hemato og Solide har statistikk og restanse. Flow, FISH og Preanalyse har statistikk. Patologer bruker bare PAT-TID-STØP-SNITT-OU. Statistikk bygges fra januar 2024 bare når rapporten ikke har arkivert historikk. Senere kjøringer henter fra siste arkiverte sluttdato minus to dager til i dag, separat for hver rapport. Alle statistikkenheter deler manglende intervaller over to kalendermåneder ved månedsskifter og gjenopptar fra bekreftede arkiver etter avbrudd. Patolog bruker alltid månedsavgrensede uttrekk. Restanse henter fortsatt hele perioden fra januar 2024.
 
 ## Oppsett
 
@@ -11,6 +11,8 @@ Velg datarot, SharePoint-mappe og LVMS-adresse i Innstillinger. Velg din egen en
 La MolStat være åpent for automatisk oppdatering hver dag. Velg timer og minutter i **Innstillinger → Automatikk → Daglig kl.**, og trykk **Valider og lagre**. Standard er **07:00**. Alle aktiverte enheter kjøres med statistikk, restanse, publisering og Excel-søk. PC-ens lokale klokke brukes. Forsinkede kjøringer tas igjen etter valgt tidspunkt. Tidsstyringen krever ingen ekstra exe eller Windows-oppgave. Se [daglig automatikk](docs/AUTOMATIKK.md) og [oppsett på jobb-PC](JOBBS-PC.md).
 
 Appen trenger ingen CSV-/Excel-oppslagsfiler eller legeregister. Gamle lookup-stier ignoreres. Analyseoppslag med grupper, navn, priser og normer kobles i Power BI. MolStat beholder tidsstempler og beregnbare intervaller; oppslagsavhengige verdier er tomme eller ikke beregnet.
+
+Registeret importerer bare nye eller endrede statistikkarkiver etter første fullstendige kontrollpunkt. Historiske Power BI-filer og Excel-søket beholder hele datagrunnlaget. Ved samlet kjøring bygges Excel én gang til slutt. Se [ytelsesmålinger og oppgraderingsatferd](docs/YTELSE.md).
 
 Solide eksporterer metodevalg fra analyseresultattidspunktet på `EKSTRAKSJON-OU` og ekstraksjonsslutt fra analyseresultattidspunktet etter den opprinnelige Solide-regelen. Interne datokontroller hindrer at manglende tidspunkter blir null dager. Myriad og Idylla inngår i PRE. Se [Solides tidsdefinisjoner](docs/SOLIDE-TIDSFORLOP.md) for de fire tidsleddene, forutsetninger og historiske databegrensninger. Grupper og 15-dagersfrister vedlikeholdes i `Analyse_lookup.xlsx` og hentes av begge Power BI-rapportene.
 

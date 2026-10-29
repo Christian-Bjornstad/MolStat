@@ -371,22 +371,27 @@ def generate_search_workbook(
             excel_row = row_index + 1
             inputs = "'Prøvesøk'!$A$5:$A$54"
             exact = (
-                f"(SUMPRODUCT(--(UPPER(TRIM({inputs}))=UPPER(A{excel_row})))+"
-                f"SUMPRODUCT(--(UPPER(TRIM({inputs}))=UPPER(B{excel_row})))>0)"
+                f"(SUMPRODUCT(--(_xlpm.upper=UPPER(A{excel_row})))+"
+                f"SUMPRODUCT(--(_xlpm.upper=UPPER(B{excel_row})))>0)"
             )
             prefix = (
-                f"(SUMPRODUCT(--(TRIM({inputs})<>\"\"),"
-                f"--(LEFT(UPPER(A{excel_row}),LEN(TRIM({inputs})))="
-                f"UPPER(TRIM({inputs}))))"
-                f"+SUMPRODUCT(--(TRIM({inputs})<>\"\"),"
-                f"--(LEFT(UPPER(B{excel_row}),LEN(TRIM({inputs})))="
-                f"UPPER(TRIM({inputs}))))>0)"
+                f"(SUMPRODUCT(--(_xlpm.queries<>\"\"),"
+                f"--(LEFT(UPPER(A{excel_row}),LEN(_xlpm.queries))="
+                f"_xlpm.upper))"
+                f"+SUMPRODUCT(--(_xlpm.queries<>\"\"),"
+                f"--(LEFT(UPPER(B{excel_row}),LEN(_xlpm.queries))="
+                f"_xlpm.upper))>0)"
             )
+            # LET shares the query normalization within each sample formula.
+            # Explicit future-function prefixes also keep XlsxWriter from
+            # scanning every large row formula for functions to expand.
             samples.write_formula(
                 row_index,
                 7,
-                f'=IF(COUNTA({inputs})=0,FALSE,IF('
-                f"'Prøvesøk'!$B$56=\"Eksakt\",{exact},{prefix}))",
+                f'=_xlfn.LET(_xlpm.queries,TRIM({inputs}),'
+                f'_xlpm.upper,UPPER(_xlpm.queries),'
+                f'IF(COUNTA({inputs})=0,FALSE,IF('
+                f"'Prøvesøk'!$B$56=\"Eksakt\",{exact},{prefix})))",
                 formats["body"],
                 False,
             )

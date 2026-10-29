@@ -103,6 +103,18 @@ def parse_tidspunkt(value: object) -> datetime | None:
     text = clean_text(value)
     if not text:
         return None
+    # LVMS's padded timestamps can use the C parser without trying several
+    # strptime formats per cell. Keep the fallback for legacy unpadded fields
+    # and whitespace variants, whose acceptance rules differ from ISO parsing.
+    if (len(text) in (10, 16, 19) and text[2] == "." and text[5] == "."
+            and (len(text) == 10 or (text[10] == " " and text[13] == ":"))
+            and (len(text) != 19 or text[16] == ":")):
+        try:
+            return datetime.fromisoformat(
+                text[6:10] + "-" + text[3:5] + "-" + text[:2] + text[10:]
+            )
+        except ValueError:
+            pass
     for pattern in ("%d.%m.%Y %H:%M:%S", "%d.%m.%Y %H:%M", "%d.%m.%Y"):
         try:
             return datetime.strptime(text, pattern)

@@ -1,6 +1,6 @@
 # MolStat på jobb-PC
 
-## Oppdatering 28. oktober 2026
+## Oppdatering 29. oktober 2026
 
 Bytt hele programmappen med den nye pakken; behold den lokale innstillingsfilen og eksisterende datarot. Lukk alle andre MolStat-vinduer og vent til jobber er ferdige før første oppstart.
 
@@ -8,7 +8,9 @@ Velg Innstillinger, datarot, SharePoint-mappe og LVMS-adresse. For hver aktiv en
 
 Hvis en tidligere innstilling peker på en generert config-kopi, velg originalfilen på nytt før den gamle config-mappen ryddes. Originalens tidligere plassering kan ikke gjettes sikkert.
 
-Alle statistikkenheter, også Patolog, henter nå fra siste arkiverte sluttdato minus to dager til i dag. Bare rapporter uten råarkiv starter i januar 2024. Ved avbrutt førstegangsinnlasting av Patolog beholdes bekreftede delperioder, og neste kjøring fortsetter fra arkivet. Restanse bruker fortsatt hele perioden. Oversikt viser aktiv enhet og trinn, en fremdriftslinje med antall ferdigbehandlede oppgaver og medgått tid. Enhetsstatus oppdateres underveis, også når en annen enhet fortsatt kjører.
+Alle statistikkenheter henter fra siste arkiverte sluttdato minus to dager til i dag, separat for hver rapport. Bare rapporter uten råarkiv starter i januar 2024. Manglende statistikk over to kalendermåneder hentes én kalendermåned om gangen for Hemato, Solide, Flow, FISH og Preanalyse; Patolog bruker alltid månedsavgrensede uttrekk. Bekreftede måneder arkiveres underveis, slik at neste forsøk kan fortsette etter avbrudd. Restanse bruker fortsatt hele perioden og får ikke denne månedsplanleggingen. Oversikt viser aktiv enhet og trinn, en fremdriftslinje med antall ferdigbehandlede oppgaver og medgått tid.
+
+Statistikkbehandlingen skriver ikke lenger hele registerhistorikken på nytt hver dag. Første kjøring med den nye versjonen kan fortsatt gjøre én full registerinnhenting for å etablere et sikkert kontrollpunkt. Deretter importeres bare nye eller endrede råarkiver. Power BI-filene og Excel-søket beholder komplett historikk. En samlet kjøring oppdaterer Excel én gang etter siste deljobb. Se [målinger og begrensninger](docs/YTELSE.md).
 
 ## Daglig automatisk oppdatering
 
@@ -56,7 +58,7 @@ Ved midlertidig filtilgang eller låsing prøver trygge delsteg igjen etter 5, 1
 
 Et innsendt LVMS-rapportforsøk får maksimalt fem minutter fra eksport startes til CSV er bekreftet. Ved tidsavbrudd lukkes den eide nettleseren før neste forsøk. Hvert forsøk bruker egen nedlastingsmappe, slik at en forsinket CSV fra et eldre forsøk ikke kan bli brukt som ny rapport. Bekreftede rapporter hentes ikke på nytt fordi et annet delsteg feiler.
 
-Etter to tidsavbrudd på samme rapport kan datoperioden deles i to. Alle delene må være hentet og kontrollert før de samles til én fil for den opprinnelige perioden og importeres. Lange Patolog-intervaller deles ved månedsskifter; daglige oppdateringer arkiveres med sin faktiske periode. En enkeltdag prøves maksimalt tre ganger; oppdeling er begrenset til åtte nivåer og 24 rapportforespørsler per opprinnelig rapport. Ved vedvarende feil stoppes kjøringen med en forklaring. Restansestatus kan endres mens delrapportene hentes, så delte uttrekk er ikke et helt samtidig øyeblikksbilde.
+Ved en uttrykkelig forbigående LVMS-feil venter appen fem sekunder og prøver samme rapport på nytt. Etter to slike feil kan datoperioden deles i to og hver del prøves separat. Dette gjelder forbigående tidsavbrudd, LVMS- og skjemafeil; permanente oppsetts-, innloggings- og CSV-feil deles ikke blindt. Alle delene må være hentet og kontrollert før de samles til én fil for den opprinnelige perioden og importeres. En enkeltdag prøves maksimalt tre ganger, med fem og femten sekunders venting; oppdeling er begrenset til åtte nivåer og 24 rapportforespørsler per opprinnelig rapport. Ved vedvarende feil stoppes kjøringen med en forklaring. Restansestatus kan endres mens delrapportene hentes, så delte uttrekk er ikke et helt samtidig øyeblikksbilde.
 
 **Stopp kjøring** avbryter venting og hindrer neste delsteg. Appen venter på trygg nettleser- og filopprydding før den blir klar igjen. Pågående databaseoperasjoner og tilbakeføring av filsett avbrytes ikke midt i kritisk opprydding. Databaseimporter og usikre COMMIT gjentas aldri automatisk. Publiseringsfeil krever ikke et nytt LVMS-uttrekk: ferdigbehandlede kandidater beholdes. Validerte Excel-kandidater beholdes hvis installasjon ikke kan bekreftes.
 

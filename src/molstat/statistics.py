@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
+import json
 import re
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -120,10 +121,12 @@ class StatisticsProcessor:
             from ._statistics import fish_reports, flow_reports, pre_reports
 
             inputs: dict[str, Path] = {}
+            source_inputs: dict[str, Path] = {}
             for role, report_id in self.report_ids.items():
                 matches = [path for path in raw_files if path.name.partition("__")[0] == report_id]
                 if len(matches) != 1:
                     raise ValueError(f"Forventet nøyaktig én rapport for {role}.")
+                source_inputs[role] = matches[0]
                 inputs[role] = _merge_archives(matches[0], merged_dir)
             if self.profile == "flow":
                 counts = flow_reports.process(
@@ -139,14 +142,7 @@ class StatisticsProcessor:
                 counts = pre_reports.process(inputs["resultater"], output_dir, self.selection)
                 antall_count, result_count = 0, counts["activity_rows"]
             if self.database is not None:
-                interval_from, interval_to = _archive_interval(raw_files)
-                SampleRegistry(self.database).import_batch(
-                    _registry_records(inputs.get("antall"), inputs["resultater"], None),
-                    kind="statistics", unit_key=unit,
-                    date_from=interval_from, date_to=interval_to,
-                    observed_at=self._now(),
-                    source_fingerprint=_combined_fingerprint(tuple(inputs.values())),
-                )
+                self._import_registry(unit, source_inputs, inputs)
             return StatisticsResult(
                 antall=output_dir / "antall.csv",
                 resultater=output_dir / "resultater.csv",
@@ -161,29 +157,18 @@ class StatisticsProcessor:
                 raise ValueError(f"Forventet nøyaktig én rapport for {role}.")
             return matches[0]
 
-        ordered = _merge_archives(report("antall", "ANTALL"), merged_dir)
-        answered = _merge_archives(
-            report("resultater", "RESULTATER"), merged_dir
-        )
-        extraction = _merge_archives(
-            report("ekstraksjon", "EKSTRAKSJON"), merged_dir
-        )
+        source_inputs = {
+            role: report(role, marker)
+            for role, marker in (("antall", "ANTALL"), ("resultater", "RESULTATER"),
+                                 ("ekstraksjon", "EKSTRAKSJON"))
+        }
+        inputs = {role: _merge_archives(path, merged_dir)
+                  for role, path in source_inputs.items()}
+        ordered, answered, extraction = (inputs[role] for role in
+                                         ("antall", "resultater", "ekstraksjon"))
         molstat_ids: Mapping[str, str] | None = None
         if self.database is not None:
-            interval_from, interval_to = _archive_interval(raw_files)
-            records = _registry_records(ordered, answered, extraction)
-            registry = SampleRegistry(self.database)
-            registry.import_batch(
-                records,
-                kind="statistics",
-                unit_key=unit,
-                date_from=interval_from,
-                date_to=interval_to,
-                observed_at=self._now(),
-                source_fingerprint=_combined_fingerprint(
-                    (ordered, answered, extraction)
-                ),
-            )
+            registry = self._import_registry(unit, source_inputs, inputs)
             molstat_ids = registry.molstat_ids()
         counts = process_reports(
             ordered,
@@ -199,6 +184,68 @@ class StatisticsProcessor:
             resultater=output_dir / "resultater.csv",
             row_counts=counts,
         )
+
+    def _import_registry(
+        self,
+        unit: str,
+        source_inputs: Mapping[str, Path],
+        merged_inputs: Mapping[str, Path],
+    ) -> SampleRegistry:
+        """Import changed archives; retain a transactional archive checkpoint.
+
+        The first import, including upgrades from an older fingerprint format,
+        uses the merged history to retain the original sample-ID ordering.
+        Following imports discover every archive, including intermediate fetch
+        windows and corrections to older intervals. The checkpoint is committed
+        by the same import transaction as the occurrences and their events.
+        """
+        assert self.database is not None
+        archives = {role: _report_archives(path) for role, path in source_inputs.items()}
+        fingerprints = {
+            f"{role}:{path.name}": _combined_fingerprint((path,))
+            for role, paths in archives.items() for path in paths
+        }
+        prefix = "statistics-archives-v1:"
+        with self.database.read_connection() as connection:
+            previous = connection.execute(
+                "SELECT source_fingerprint FROM import_run "
+                "WHERE kind = 'statistics' AND unit_key = ? AND status = 'completed' "
+                "ORDER BY id DESC LIMIT 1",
+                (unit,),
+            ).fetchone()
+        checkpoint = None
+        if previous and isinstance(previous[0], str) and previous[0].startswith(prefix):
+            try:
+                decoded = json.loads(previous[0][len(prefix):])
+                if isinstance(decoded, dict) and all(
+                    isinstance(key, str) and isinstance(value, str)
+                    for key, value in decoded.items()
+                ):
+                    checkpoint = decoded
+            except (ValueError, TypeError):
+                pass  # Legacy or malformed checkpoints require a full catchup.
+        if checkpoint is None:
+            records = _registry_records(merged_inputs.get("antall"),
+                                        merged_inputs["resultater"],
+                                        merged_inputs.get("ekstraksjon"))
+        else:
+            changed = {
+                role: tuple(path for path in paths
+                            if checkpoint.get(f"{role}:{path.name}") !=
+                            fingerprints[f"{role}:{path.name}"])
+                for role, paths in archives.items()
+            }
+            records = _registry_records(changed.get("antall"),
+                                        changed["resultater"],
+                                        changed.get("ekstraksjon"))
+        registry = SampleRegistry(self.database)
+        interval_from, interval_to = _archive_interval(tuple(source_inputs.values()))
+        registry.import_batch(
+            records, kind="statistics", unit_key=unit,
+            date_from=interval_from, date_to=interval_to, observed_at=self._now(),
+            source_fingerprint=prefix + json.dumps(fingerprints, sort_keys=True),
+        )
+        return registry
 
 
 def _report_archives(current: Path) -> tuple[Path, ...]:
@@ -252,9 +299,9 @@ def _first_value(row: Mapping[str, str], names: Sequence[str]) -> str:
 
 
 def _registry_records(
-    ordered: Path | None,
-    answered: Path,
-    extraction: Path | None,
+    ordered: Path | Sequence[Path] | None,
+    answered: Path | Sequence[Path],
+    extraction: Path | Sequence[Path] | None,
 ) -> tuple[RegistryImportItem, ...]:
     records: list[RegistryImportItem] = []
     sources = (
@@ -271,10 +318,12 @@ def _registry_records(
         "resulted": ("Tidspunkt.analyseresultat",),
         "approved": ("Tidspunkt.godkjenning",),
     }
-    for source_kind, path, event_types in sources:
-        if path is None:
+    for source_kind, paths, event_types in sources:
+        if paths is None:
             continue
-        for row in read_lvms_csv(path):
+        if isinstance(paths, Path):
+            paths = (paths,)
+        for row in (row for path in paths for row in read_lvms_csv(path)):
             sample_number = _first_value(row, ("Sample.ID", "SampleID"))
             analysis_code = _first_value(row, ("Analyse",))
             ordered_at = parse_tidspunkt(

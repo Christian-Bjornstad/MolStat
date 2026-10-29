@@ -10,29 +10,45 @@ def _quoted_lines(stream: TextIO) -> Iterator[str]:
     quoted = False
     field_start = True
     for line in stream:
+        quote = line.find('"')
+        if quote < 0:
+            if line and not quoted:
+                field_start = line[-1] in (';', '\r', '\n')
+            yield line
+            continue
         normalized = []
         index = 0
-        while index < len(line):
-            char = line[index]
-            following = line[index + 1:index + 2]
+        while quote >= 0:
+            # Ordinary text cannot change quoted state. Outside a quoted
+            # field, only the character immediately before a quote matters.
+            if quote > index:
+                normalized.append(line[index:quote])
+                if not quoted:
+                    field_start = line[quote - 1] in (';', '\r', '\n')
+            following = line[quote + 1:quote + 2]
             if quoted:
-                if char == '"':
-                    if following == '"':
-                        normalized.extend(('"', '"'))
-                        index += 2
-                        continue
-                    if following in (';', '\r', '\n', ''):
-                        quoted = False
-                    else:
-                        # LVMS sometimes leaves narrative quotes unescaped.
-                        # A quote followed by text cannot terminate a CSV field.
-                        normalized.append('"')
-            elif char == '"' and field_start:
+                if following == '"':
+                    normalized.append('""')
+                    index = quote + 2
+                    quote = line.find('"', index)
+                    continue
+                if following in (';', '\r', '\n', ''):
+                    quoted = False
+                else:
+                    # LVMS sometimes leaves narrative quotes unescaped.
+                    # A quote followed by text cannot terminate a CSV field.
+                    normalized.append('"')
+            elif field_start:
                 quoted = True
             if not quoted:
-                field_start = char in (';', '\r', '\n')
-            normalized.append(char)
-            index += 1
+                field_start = False
+            normalized.append('"')
+            index = quote + 1
+            quote = line.find('"', index)
+        if index < len(line):
+            normalized.append(line[index:])
+            if not quoted:
+                field_start = line[-1] in (';', '\r', '\n')
         yield ''.join(normalized)
     if quoted:
         raise ValueError("LVMS-uttrekket har et uavsluttet tekstfelt.")
