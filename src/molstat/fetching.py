@@ -101,10 +101,16 @@ class UnifiedLvmsFetcher:
                 raise ValueError("Patolog krever et oppdatert workflow-oppsett i JSON.")
             else:
                 usernames = ()
-                planned = [(report, *plan_window(
-                    self.sensitive_root, kind="statistics", unit=unit.key,
-                    report_name=report.report_id, baseline=self.history_from, today=today,
-                )) for report in unit.reports]
+                planned = []
+                for report in unit.reports:
+                    start, end = plan_window(
+                        self.sensitive_root, kind="statistics", unit=unit.key,
+                        report_name=report.report_id, baseline=self.history_from, today=today,
+                    )
+                    if end > _two_months_after(start):
+                        self._backfill_statistics_months(unit, report, start, end)
+                        start = max(start, end.replace(day=1))
+                    planned.append((report, start, end))
             jobs = tuple(
                 _statistics_job(unit, report, start, end, usernames=usernames)
                 for report, start, end in planned
@@ -132,6 +138,9 @@ class UnifiedLvmsFetcher:
         report = unit.report_by_key("workflow")
         start, _ = plan_window(self.sensitive_root, kind="statistics", unit=unit.key,
             report_name=report.report_id, baseline=self.history_from, today=today)
+        self._backfill_statistics_months(unit, report, start, today)
+
+    def _backfill_statistics_months(self, unit: Unit, report, start: date, today: date) -> None:
         archive = RawArchive(self.sensitive_root)
         # Chunk only the missing interval, checkpointing each confirmed file so
         # interrupted initial loads resume without requesting all history again.
@@ -249,8 +258,8 @@ class UnifiedLvmsFetcher:
             error.attempt, error.run_id = attempt, run_root.name
             if not error.retryable:
                 raise error
-            report_timeout = error.code == "LVMS_TIMEOUT" and error.stage.endswith(("_export", "_download"))
-            can_split = (report_timeout and job.interval.created_from < job.interval.created_to
+            transient_lvms = error.code in {"LVMS_TIMEOUT", "LVMS_FAILED", "LVMS_FORM"}
+            can_split = (transient_lvms and job.interval.created_from < job.interval.created_to
                          and depth < MAX_SPLIT_DEPTH)
             if can_split and attempt == 2:
                 check_cancelled()
@@ -287,6 +296,12 @@ def _statistics_job(unit: Unit, report, created_from: date, created_to: date, *,
 def _month_end(month: date) -> date:
     next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
     return next_month - timedelta(days=1)
+
+
+def _two_months_after(start: date) -> date:
+    year, month = divmod(start.year * 12 + start.month - 1 + 2, 12)
+    target = date(year, month + 1, 1)
+    return target.replace(day=min(start.day, _month_end(target).day))
 
 
 def combine_report_parts(parts: Sequence[Path], destination: Path) -> None:

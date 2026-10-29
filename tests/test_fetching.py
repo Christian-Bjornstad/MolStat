@@ -141,7 +141,8 @@ def test_fetcher_runs_statistics_and_backlog_through_one_runtime(
     backlog_request, backlog_source = fetcher.fetch_backlog()
 
     assert len(statistics["hemato"]) == 1
-    assert statistics["hemato"][0][0].date_from == date(2024, 1, 1)
+    assert statistics["hemato"][0][0].date_from == date(2026, 9, 1)
+    assert runner.jobs[0].interval.created_from == date(2024, 1, 1)
     assert statistics["hemato"][0][1].is_file()
     assert backlog_request.date_from == date(2024, 1, 1)
     assert backlog_source.is_file()
@@ -163,7 +164,7 @@ def test_fetcher_scopes_statistics_to_requested_unit(tmp_path: Path) -> None:
     statistics = fetcher.fetch_statistics(("solide",))
 
     assert tuple(statistics) == ("solide",)
-    assert [job.job_key for job in runner.jobs] == ["solide-ordered"]
+    assert runner.jobs and {job.job_key for job in runner.jobs} == {"solide-ordered"}
 
 
 def test_fetcher_rejects_unknown_unit_before_running_lvms(tmp_path: Path) -> None:
@@ -235,7 +236,13 @@ def test_statistics_window_is_planned_separately_for_each_report(tmp_path):
     fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
         work_root=tmp_path / 'work', units=(unit,), run_batch=runner, today=lambda: date(2026, 10, 21))
     fetcher.fetch_statistics(('hemato',))
-    assert [j.interval.created_from for j in runner.jobs] == [date(2026, 10, 18), date(2024, 1, 1)]
+    ordered = [j for j in runner.jobs if j.job_key == 'ordered']
+    missing = [j for j in runner.jobs if j.job_key == 'result']
+    assert [(j.interval.created_from, j.interval.created_to) for j in ordered] == [
+        (date(2026, 10, 18), date(2026, 10, 21))]
+    assert missing[0].interval.created_from == date(2024, 1, 1)
+    assert missing[-1].interval.created_to == date(2026, 10, 21)
+    assert len(missing) == 34
 
 
 @pytest.mark.parametrize('key', ['hemato', 'solide', 'flow', 'fish', 'pre'])
@@ -254,5 +261,112 @@ def test_every_statistics_profile_only_backfills_missing_report_history(tmp_path
         work_root=tmp_path / 'work', units=(unit,), run_batch=runner, today=lambda: date(2026, 10, 21))
     fetched = fetcher.fetch_statistics((key,))[key]
     assert len(fetched) == len(unit.reports)
-    assert all(job.interval.created_from == (date(2026, 10, 18) if populated else date(2024, 1, 1))
-               and job.interval.created_to == date(2026, 10, 21) for job in runner.jobs)
+    for report in unit.reports:
+        jobs = [job for job in runner.jobs if job.output_stem == report.report_id]
+        assert jobs[0].interval.created_from == (date(2026, 10, 18) if populated else date(2024, 1, 1))
+        assert jobs[-1].interval.created_to == date(2026, 10, 21)
+        assert len(jobs) == (1 if populated else 34)
+
+
+@pytest.mark.parametrize('key', ['hemato', 'solide', 'flow', 'fish', 'pre', 'lege'])
+def test_long_missing_statistics_interval_fetches_and_checkpoints_each_calendar_month(tmp_path, key):
+    from molstat._statistics import patolog_flow as flow
+    from molstat.unit_settings import load_unit_file
+    from unit_fixtures import default_unit_file
+    unit = load_unit_file(default_unit_file(key)).unit
+    calls = []
+
+    def runner(config, jobs_path, keys, **kwargs):
+        report, = load_report_jobs(jobs_path)
+        calls.append(report)
+        destination = kwargs['repository_root'] / 'rådata' / batch_filename(report)
+        destination.parent.mkdir(parents=True)
+        fields = flow.DATE_FIELDS + ['Prøvenummer', 'Lab', 'Prosess', 'Prioritet',
+            'BeholderId', 'BlokkId', 'GlassId', 'Glasstype', 'Signert av', 'Godkjent type']
+        destination.write_text(';'.join(fields) + '\n' if key == 'lege' else 'Kode;Verdi\n', encoding='cp1252')
+        return 0
+
+    archive = tmp_path / 'data/raw/statistics' / key
+    archive.mkdir(parents=True)
+    for report in unit.reports:
+        (archive / f'{report.report_id}__2024-01-01__2026-06-17.csv').write_text('existing')
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(unit,), run_batch=runner, today=lambda: date(2026, 10, 21))
+
+    fetched = fetcher.fetch_statistics((key,))[key]
+
+    expected = [(date(2026, 6, 15), date(2026, 6, 30)),
+                (date(2026, 7, 1), date(2026, 7, 31)),
+                (date(2026, 8, 1), date(2026, 8, 31)),
+                (date(2026, 9, 1), date(2026, 9, 30)),
+                (date(2026, 10, 1), date(2026, 10, 21))]
+    for report in unit.reports:
+        assert [(job.interval.created_from, job.interval.created_to) for job in calls
+                if job.output_stem == report.report_id] == expected
+        for start, end in expected[:-1]:
+            assert (archive / f'{report.report_id}__{start.isoformat()}__{end.isoformat()}.csv').is_file()
+    assert len(fetched) == len(unit.reports)
+    assert all((request.date_from, request.date_to) == expected[-1] and source.is_file()
+               for request, source in fetched)
+
+
+@pytest.mark.parametrize(('start', 'today', 'expected'), [
+    (date(2026, 7, 31), date(2026, 9, 30), [(date(2026, 7, 31), date(2026, 9, 30))]),
+    (date(2026, 7, 31), date(2026, 10, 1), [
+        (date(2026, 7, 31), date(2026, 7, 31)),
+        (date(2026, 8, 1), date(2026, 8, 31)),
+        (date(2026, 9, 1), date(2026, 9, 30)),
+        (date(2026, 10, 1), date(2026, 10, 1))]),
+    (date(2026, 12, 31), date(2027, 2, 28), [(date(2026, 12, 31), date(2027, 2, 28))]),
+    (date(2026, 12, 31), date(2027, 3, 1), [
+        (date(2026, 12, 31), date(2026, 12, 31)),
+        (date(2027, 1, 1), date(2027, 1, 31)),
+        (date(2027, 2, 1), date(2027, 2, 28)),
+        (date(2027, 3, 1), date(2027, 3, 1))]),
+])
+def test_statistics_month_splitting_uses_calendar_threshold(tmp_path, start, today, expected):
+    from molstat._statistics.units import load_units
+    unit = load_units(_units(tmp_path / 'units.json'))[0]
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(unit,), run_batch=runner,
+        today=lambda: today, history_from=start)
+
+    fetcher.fetch_statistics()
+
+    assert [(job.interval.created_from, job.interval.created_to) for job in runner.jobs] == expected
+
+
+def test_interrupted_monthly_statistics_resumes_from_confirmed_archive_overlap(tmp_path):
+    from molstat._statistics.units import load_units
+    from molstat.failures import RunFailure
+    unit = load_units(_units(tmp_path / 'units.json'))[0]
+    completed = FakeBatchRunner()
+    calls = []
+    interrupted = True
+
+    def runner(config, jobs_path, keys, **kwargs):
+        report, = load_report_jobs(jobs_path)
+        calls.append((report.interval.created_from, report.interval.created_to))
+        if interrupted and report.interval.created_from.month == 7:
+            kwargs['error_reporter'](RunFailure('CANCELLED', 'batch'))
+            return 130
+        return completed(config, jobs_path, keys, **kwargs)
+
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(unit,), run_batch=runner,
+        today=lambda: date(2026, 10, 21), history_from=date(2026, 6, 15))
+    with pytest.raises(RunFailure, match='CANCELLED'):
+        fetcher.fetch_statistics()
+    assert calls == [(date(2026, 6, 15), date(2026, 6, 30)),
+                     (date(2026, 7, 1), date(2026, 7, 31))]
+    interrupted = False
+    calls.clear()
+
+    fetcher.fetch_statistics()
+
+    assert calls == [(date(2026, 6, 28), date(2026, 6, 30)),
+                     (date(2026, 7, 1), date(2026, 7, 31)),
+                     (date(2026, 8, 1), date(2026, 8, 31)),
+                     (date(2026, 9, 1), date(2026, 9, 30)),
+                     (date(2026, 10, 1), date(2026, 10, 21))]

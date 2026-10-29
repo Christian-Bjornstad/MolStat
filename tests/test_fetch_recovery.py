@@ -82,6 +82,41 @@ def test_two_report_timeouts_split_then_combine_exact_interval(tmp_path):
             ["Kode", "Verdi"], ["2026-10-01", "blå"], ["2026-10-03", "blå"]]
 
 
+@pytest.mark.parametrize(('code', 'stage'), [
+    ('LVMS_FAILED', 'lvms_open'),
+    ('LVMS_FAILED', 'report_1_fill'),
+    ('LVMS_TIMEOUT', 'defined_reports'),
+    ('LVMS_FORM', 'report_1_fill'),
+])
+def test_repeated_transient_lvms_failure_waits_retries_then_splits(tmp_path, code, stage):
+    events = []
+
+    def runner(config, jobs_path, keys, **kwargs):
+        report, = load_report_jobs(jobs_path)
+        events.append(('request', report.interval))
+        if report.interval == job().interval:
+            kwargs['error_reporter'](RunFailure(code, stage, retryable=True))
+            return 2
+        write_report(kwargs['repository_root'], report)
+        return 0
+
+    active = fetcher(tmp_path, runner)
+    active._sleep = lambda seconds: events.append(('wait', seconds))
+
+    source, = active._run_jobs((job(),), 'hemato')
+
+    assert events[0] == ('request', job().interval)
+    retry_index = events.index(('request', job().interval), 1)
+    assert sum(seconds for kind, seconds in events[1:retry_index] if kind == 'wait') == 5.0
+    assert [value for kind, value in events if kind == 'request'] == [
+        job().interval, job().interval,
+        ReportInterval(date(2026, 10, 1), date(2026, 10, 2)),
+        ReportInterval(date(2026, 10, 3), date(2026, 10, 4))]
+    with source.open(encoding='cp1252', newline='') as stream:
+        assert list(csv.reader(stream, delimiter=';')) == [
+            ['Kode', 'Verdi'], ['2026-10-01', 'blå'], ['2026-10-03', 'blå']]
+
+
 def test_one_day_timeout_stops_after_bounded_attempts(tmp_path):
     calls = []
 
@@ -110,7 +145,9 @@ def test_split_report_rejects_changed_header_without_canonical_output(tmp_path):
     assert not list((tmp_path / "jobs").glob("*/rådata/ordered__2026-10-01__2026-10-04.csv"))
 
 
-@pytest.mark.parametrize("code", ["BROWSER_CLEANUP", "LVMS_LOGIN_REQUIRED", "CONFIG_INVALID", "CSV_INVALID", "DOWNLOAD_INCOMPLETE"])
+@pytest.mark.parametrize("code", ["BROWSER_CLEANUP", "LVMS_LOGIN_REQUIRED", "CONFIG_INVALID",
+    "LVMS_CONFIG_INVALID", "LVMS_FORM", "LVMS_FAILED", "LVMS_TIMEOUT", "CSV_INVALID",
+    "DOWNLOAD_INCOMPLETE", "CANCELLED"])
 def test_permanent_failure_never_retries_or_splits(tmp_path, code):
     calls = []
 
@@ -122,6 +159,20 @@ def test_permanent_failure_never_retries_or_splits(tmp_path, code):
     with pytest.raises(RunFailure, match=code):
         fetcher(tmp_path, runner)._run_jobs((job(),), "hemato")
     assert calls == [1]
+
+
+def test_retryable_storage_failure_does_not_split_report_interval(tmp_path):
+    calls = []
+
+    def runner(config, jobs_path, keys, **kwargs):
+        report, = load_report_jobs(jobs_path)
+        calls.append(report.interval)
+        kwargs['error_reporter'](RunFailure('FILE_UNAVAILABLE', 'lvms_finalize', retryable=True))
+        return 2
+
+    with pytest.raises(RunFailure, match='FILE_UNAVAILABLE'):
+        fetcher(tmp_path, runner)._run_jobs((job(),), 'hemato')
+    assert calls == [job().interval] * 3
 
 
 def test_timeout_splitting_stops_at_report_request_budget(tmp_path):
