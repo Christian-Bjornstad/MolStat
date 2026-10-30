@@ -118,12 +118,15 @@ def test_save_settings_accepts_existing_production_paths(tmp_path: Path) -> None
             "lookup_solide": str(solide),
             "config_hemato": str(default_unit_file("hemato")),
             "config_solide": str(default_unit_file("solide")),
+            "daily_time": "08:35",
         }
     )
 
     assert services.load_settings_fields()["lvms_url"] == (
         "https://lvms.example.invalid/clims/"
     )
+    reopened = DefaultServices(services.settings_path)
+    assert reopened.load_settings_fields()["daily_time"] == "08:35"
 
 
 def test_save_settings_uses_bundled_patolog_lookup(

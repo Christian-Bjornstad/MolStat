@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import pytest
 from pathlib import Path
 
 from molstat.statistics import merge_report_csvs, write_merged_csv
@@ -64,4 +65,41 @@ def test_merge_handles_ragged_lvms_row_without_index_error(tmp_path: Path) -> No
     assert header == ["Sample ID", "Analyse", "Tidspunkt godkjenning"]
     assert rows == [{"Sample ID": '=T("S1")', "Analyse": '=T("FISH-ALKBA-OU")',
                      "Tidspunkt godkjenning": ""}]
+
+
+def test_merge_preserves_multiline_comment_with_unescaped_inner_quotes(tmp_path):
+    source = tmp_path / "fish.csv"
+    source.write_text(
+        'Sample ID;Analyse;Ekstern analysekommentar;PID;Materiale;Tidspunkt analysebestilling;Tidspunkt analyseresultat\n'
+        '=T("S1");=T("FISH-ALKBA-OU");"Funn med "signal" i teksten\n'
+        'fortsettelse; med semikolon";=T("PRIVATE");PAK;01.10.2026 08:00;03.10.2026 08:00\n'
+        '=T("S2");=T("FISH-ALKBA-OU");"Vanlig ""sitert"" tekst";;BM;02.10.2026 08:00;04.10.2026 08:00\n',
+        encoding="cp1252",
+        newline="",
+    )
+
+    header, rows = merge_report_csvs([source])
+
+    assert len(rows) == 2
+    assert rows[0]["Ekstern analysekommentar"] == 'Funn med "signal" i teksten\nfortsettelse; med semikolon'
+    assert rows[0]["PID"] == '=T("PRIVATE")'
+    assert rows[0]["Tidspunkt analyseresultat"] == "03.10.2026 08:00"
+    assert rows[1]["Ekstern analysekommentar"] == 'Vanlig "sitert" tekst'
+    target = tmp_path / "merged.csv"
+    write_merged_csv(header, rows, target)
+    assert merge_report_csvs([target]) == (header, rows)
+
+
+@pytest.mark.parametrize("record", [
+    'S1;FISH-ALKBA-OU;"PRIVATE unfinished\n',
+    'S1;FISH-ALKBA-OU;"PRIVATE comment";unexpected\n',
+    'S1;FISH-ALKBA-OU\n',
+])
+def test_invalid_comment_record_is_rejected_without_exposing_source(tmp_path, record):
+    source = tmp_path / "fish.csv"
+    source.write_text('Sample ID;Analyse;Ekstern analysekommentar\n' + record,
+                      encoding="cp1252", newline="")
+    with pytest.raises(ValueError) as error:
+        merge_report_csvs([source])
+    assert "PRIVATE" not in str(error.value) and "S1" not in str(error.value)
 

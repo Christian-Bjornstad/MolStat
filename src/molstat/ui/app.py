@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 import sys
 from threading import Event
+from time import monotonic
 from typing import Any
 
-from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QDateTime, QObject, QRunnable, QThreadPool, QTimer, QTime, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDesktopServices, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -25,9 +27,12 @@ from .diagnostics import DiagnosticsPage
 from .settings import SettingsPage
 from .import_page import ImportPage
 from .theme import build_stylesheet
+from .components import set_tone
 from ..orchestrator import JobResult
 from ..failures import storage_failure
 from ..recovery import recovery_context, check_cancelled
+from ..progress import RunProgress, progress_context
+from ..schedule import daily_boundary, scheduled_trigger
 
 
 class _WorkerSignals(QObject):
@@ -36,19 +41,24 @@ class _WorkerSignals(QObject):
 
 
 class _JobWorker(QRunnable):
-    def __init__(self, orchestrator: Any, target: str, *, operation: Any = None) -> None:
+    def __init__(self, orchestrator: Any, target: str, *, operation: Any = None,
+                 scheduled_for: str | None = None) -> None:
         super().__init__()
         self.orchestrator = orchestrator
         self.target = target
         self.operation = operation
+        self.scheduled_for = scheduled_for
         self.signals = _WorkerSignals()
         self.cancel = Event()
 
     def run(self) -> None:
         try:
-            with recovery_context(observer=self.signals.progress.emit, cancel=self.cancel):
+            with recovery_context(observer=self.signals.progress.emit, cancel=self.cancel), progress_context(self.signals.progress.emit):
                 check_cancelled()
-                result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
+                if self.scheduled_for is not None:
+                    result = self.orchestrator.run_daily()
+                else:
+                    result = self.operation() if self.operation else self.orchestrator.run(self.target, "manual")
         except Exception as exc:
             if hasattr(self.orchestrator, "_report_failure"):
                 self.orchestrator._report_failure(f"{self.target}_run_failed", exc)
@@ -72,7 +82,18 @@ class MainWindow(QMainWindow):
         self.settings_store = settings_store
         self._configuration_error = configuration_error
         self._workers: set[_JobWorker] = set()
+        self._scheduled_for: str | None = None
+        self._saved_daily_time = "07:00"
+        self._schedule_now = lambda: datetime.now().astimezone()
+        self._schedule_timer = QTimer(self)
+        self._schedule_timer.setInterval(30_000)
+        self._schedule_timer.timeout.connect(self._check_daily_schedule)
         self._capability_outcomes: dict[tuple[str, str], Any] = {}
+        self._live_stages: dict[tuple[str, str], str] = {}
+        self._run_started_at = 0.0
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.setInterval(1000)
+        self._elapsed_timer.timeout.connect(self._update_run_elapsed)
         self._history_database: Path | None = None
         self.setWindowTitle("MolStat")
         self.setWindowIcon(QIcon(str(asset_path("molstat.ico"))))
@@ -137,6 +158,30 @@ class MainWindow(QMainWindow):
             "Kontroller Innstillinger og Diagnostikk." if self._configuration_error
             else "MolStat er klar."
         )
+        self._schedule_timer.start()
+        QTimer.singleShot(0, self._check_daily_schedule)
+
+    def _check_daily_schedule(self) -> None:
+        if not self._schedule_timer.isActive():
+            return
+        now = self._schedule_now()
+        if self.orchestrator is None or not self._enabled_unit_keys():
+            self.overview.schedule_status.setText("Automatikk venter på gyldig oppsett og aktive enheter.")
+            return
+        if not hasattr(self.orchestrator, "run_daily"):
+            return
+        boundary = daily_boundary(now, self._saved_daily_time)
+        if boundary is None:
+            self.overview.schedule_status.setText(f"Neste automatiske kjøring: i dag kl. {self._saved_daily_time} · PC-ens lokale tid.")
+            return
+        trigger = scheduled_trigger(boundary)
+        if self._scheduled_for == trigger:
+            return
+        if self._workers:
+            self.overview.schedule_status.setText("Dagens automatiske kjøring venter til pågående arbeid er ferdig.")
+            return
+        self.overview.schedule_status.setText("Automatisk oppdatering av aktive enheter pågår …")
+        self._start_job("all", scheduled_for=trigger)
 
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
@@ -176,10 +221,64 @@ class MainWindow(QMainWindow):
             worker.cancel.set()
         self.stop_button.setEnabled(False)
         self.statusBar().showMessage("Stopper kjøringen. Venter på trygg opprydding …")
+        self.overview.run_detail.setText('Stopper · venter på trygg opprydding …')
 
     def _retry_progress(self, event: Any) -> None:
+        if isinstance(event, RunProgress):
+            self._run_progress(event)
+            return
         self.statusBar().showMessage(str(event))
+        self.overview.run_detail.setText(str(event))
         self._refresh_diagnostics()
+
+    def _begin_run_progress(self, message: str) -> None:
+        self._live_stages.clear()
+        self._run_started_at = monotonic()
+        self.overview.run_panel.show()
+        self.overview.run_activity.show()
+        self.overview.run_progress.setRange(0, 0)
+        self.overview.run_detail.setText(message)
+        set_tone(self.overview.run_detail, 'working')
+        self.overview.run_count.setText('Forbereder kjøringen …')
+        self._update_run_elapsed()
+        self._elapsed_timer.start()
+
+    def _update_run_elapsed(self) -> None:
+        elapsed = int(monotonic() - self._run_started_at)
+        self.overview.run_elapsed.setText(f'{elapsed // 60}:{elapsed % 60:02d}')
+
+    def _run_progress(self, event: RunProgress) -> None:
+        if event.stage == 'planned':
+            self.overview.run_progress.setRange(0, max(1, event.total))
+            self.overview.run_progress.setValue(0)
+            self._update_run_count()
+            return
+        card = self.overview.unit_cards.get(event.unit_key)
+        if card is None or event.unit_key not in self._enabled_unit_keys():
+            return
+        self._live_stages[(event.unit_key, event.job_kind)] = event.stage
+        kind = 'Statistikk' if event.job_kind == 'statistics' else 'Restanse'
+        message = f'{card.unit.display_name} · {kind} · {event.message}'
+        self.overview.run_detail.setText(message)
+        self.statusBar().showMessage(message)
+        terminal = event.stage in {'finished', 'failed'}
+        state = 'Fullført' if event.stage == 'finished' else 'Feilet' if event.stage == 'failed' else 'Kjører'
+        detail = event.message
+        if terminal:
+            detail = 'Data behandlet' if event.stage == 'finished' else 'Se Diagnostikk'
+        card.set_capability_status(event.job_kind, state, detail)
+        failed = any(stage == 'failed' for (unit, _), stage in self._live_stages.items() if unit == event.unit_key)
+        card.set_status('Delvis feil' if terminal and failed and state == 'Fullført' else state,
+            f'{kind} ferdigbehandlet' if event.stage == 'finished' else detail)
+        self._update_run_count()
+
+    def _update_run_count(self) -> None:
+        completed = sum(stage in {'finished', 'failed'} for stage in self._live_stages.values())
+        total = self.overview.run_progress.maximum()
+        if total:
+            self.overview.run_progress.setValue(completed)
+            failed = sum(stage == 'failed' for stage in self._live_stages.values())
+            self.overview.run_count.setText(f'{completed} av {total} oppgaver ferdigbehandlet' + (f' · {failed} feilet' if failed else ''))
 
     def _navigate(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
@@ -195,6 +294,7 @@ class MainWindow(QMainWindow):
             event.ignore()
             self.statusBar().showMessage("En kjøring pågår. Vent til den er ferdig før appen lukkes.", 8000)
             return
+        self._schedule_timer.stop()
         super().closeEvent(event)
 
     def _open_unit_settings(self, key: str) -> None:
@@ -236,11 +336,12 @@ class MainWindow(QMainWindow):
         self.import_page.set_busy(True)
         self._refresh_run_button_states()
         self.statusBar().showMessage("Manuell import pågår …")
+        self._begin_run_progress('Manuell import · behandler uttrekk …')
         worker.signals.finished.connect(lambda result, active=worker: self._job_finished(result, active))
         worker.signals.progress.connect(self._retry_progress)
         QThreadPool.globalInstance().start(worker)
 
-    def _start_job(self, target: str) -> None:
+    def _start_job(self, target: str, *, scheduled_for: str | None = None) -> None:
         if self._workers:
             return
         if self.orchestrator is None:
@@ -255,7 +356,8 @@ class MainWindow(QMainWindow):
             )
             return
         self.statusBar().showMessage("Kjøring pågår …")
-        worker = _JobWorker(self.orchestrator, target)
+        self._begin_run_progress('Starter kjøringen …')
+        worker = _JobWorker(self.orchestrator, target, scheduled_for=scheduled_for)
         self._workers.add(worker)
         self._refresh_run_button_states()
         worker.signals.finished.connect(
@@ -266,6 +368,42 @@ class MainWindow(QMainWindow):
 
     def _job_finished(self, result: Any, worker: _JobWorker) -> None:
         self._workers.discard(worker)
+        self._elapsed_timer.stop()
+        self._update_run_elapsed()
+        self.overview.run_activity.hide()
+        if worker.scheduled_for is not None:
+            if result is None or result.status != "busy":
+                self._scheduled_for = worker.scheduled_for
+            message = (
+                "Automatisk forsøk for dette tidspunktet er allerede registrert. Se Diagnostikk."
+                if result is None else {
+                    "succeeded": f"Automatisk oppdatering fullført. Neste kjøring i morgen kl. {self._saved_daily_time}.",
+                    "busy": "Automatikk venter på en annen kjøring. Prøver igjen om 30 sekunder.",
+                }.get(result.status, "Automatisk oppdatering feilet eller ble avbrutt. Se Diagnostikk. Velg et nytt tidspunkt i Automatikk eller kjør manuelt for å prøve igjen.")
+            )
+            self.overview.schedule_status.setText(message)
+            if result is None:
+                self.overview.run_panel.hide()
+                self._refresh_run_button_states()
+                self.statusBar().showMessage(message, 5000)
+                return
+        cancelled = getattr(result, 'error_code', None) == 'CANCELLED'
+        if self.overview.run_progress.maximum() == 0:
+            self.overview.run_progress.setRange(0, 1)
+            self.overview.run_progress.setValue(1 if result.status == 'succeeded' else 0)
+        label, tone = ('Avbrutt', 'warning') if cancelled else {
+            'succeeded': ('Fullført', 'success'), 'partial': ('Delvis fullført · se Diagnostikk', 'warning'),
+            'busy': ('Opptatt · en annen kjøring pågår', 'warning'),
+        }.get(result.status, ('Feilet · se Diagnostikk', 'danger'))
+        self.overview.run_detail.setText(label)
+        set_tone(self.overview.run_detail, tone)
+        if not self._live_stages:
+            self.overview.run_count.setText(self._completion_detail(result.summary) if result.status == 'succeeded' else 'Ingen oppgaver ble bekreftet fullført')
+        for (unit, kind), stage in self._live_stages.items():
+            if stage not in {'finished', 'failed'}:
+                card = self.overview.unit_cards[unit]
+                card.set_status('Avbrutt' if cancelled else 'Feilet', 'Kjøringen ble stoppet' if cancelled else 'Se Diagnostikk')
+                card.set_capability_status(kind, 'Avbrutt' if cancelled else 'Feilet', 'Kjøringen er avsluttet')
         self._refresh_run_button_states()
         if self.settings_store and hasattr(self.settings_store, "overview_status_fields"):
             for key, value in self.settings_store.overview_status_fields().items():
@@ -473,6 +611,9 @@ class MainWindow(QMainWindow):
         ):
             return
         values = self.settings_store.load_settings_fields()
+        self._saved_daily_time = values.get("daily_time", "07:00")
+        self.settings_page.daily_time.setTime(QTime.fromString(self._saved_daily_time, "HH:mm"))
+        self.overview.schedule_status.setText(f"Automatisk hver dag kl. {self._saved_daily_time} mens MolStat er åpent · PC-ens lokale tid.")
         self.settings_page.sensitive_root.setText(values.get("sensitive_root", ""))
         self.settings_page.sharepoint_root.setText(values.get("sharepoint_root", ""))
         self.settings_page.lvms_url.setText(values.get("lvms_url", ""))
@@ -480,8 +621,6 @@ class MainWindow(QMainWindow):
             field.setText(values.get(f"config_{key}", ""))
         for key, field in self.settings_page.backlog_fields.items():
             field.setText(values.get(f"backlog_{key}", ""))
-        for key, field in self.settings_page.schedule_fields.items():
-            field.setValue(int(values.get(key, field.value())))
         for key, field in self.settings_page.enabled_fields.items():
             field.setChecked(values.get(f"enabled_{key}", "true") == "true")
         self._saved_enabled_units = {
@@ -501,6 +640,7 @@ class MainWindow(QMainWindow):
             return
         values = {
             "sensitive_root": self.settings_page.sensitive_root.text().strip(),
+            "daily_time": self.settings_page.daily_time.time().toString("HH:mm"),
             "sharepoint_root": self.settings_page.sharepoint_root.text().strip(),
             "lvms_url": self.settings_page.lvms_url.text().strip(),
         }
@@ -512,7 +652,6 @@ class MainWindow(QMainWindow):
         )
         values.update({f"config_{key}": field.text().strip() for key, field in self.settings_page.config_fields.items()})
         values.update({f"backlog_{key}": field.text().strip() for key, field in self.settings_page.backlog_fields.items()})
-        values.update({key: str(field.value()) for key, field in self.settings_page.schedule_fields.items()})
         try:
             self.settings_store.save_settings_fields(values)
         except (ValueError, OSError) as exc:

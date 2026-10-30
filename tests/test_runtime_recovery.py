@@ -89,13 +89,18 @@ def test_status_display_survives_storage_disappearing_between_exists_and_stat(tm
     services._settings_exist = True
     (tmp_path / 'Prøvesøk.xlsx').write_bytes(b'synthetic')
     original_stat = Path.stat
-    calls = []
+    original_is_file = Path.is_file
+    # Model the race directly: is_file succeeded, then metadata became unreadable.
+    # pathlib existence checks do not necessarily delegate to stat on Python 3.14.
+    def is_file_before_failure(path, *args, **kwargs):
+        if path.name == 'Prøvesøk.xlsx':
+            return True
+        return original_is_file(path, *args, **kwargs)
     def failing_stat(path, *args, **kwargs):
         if path.name == 'Prøvesøk.xlsx':
-            calls.append(True)
-            if len(calls) > 1:
-                raise PermissionError(errno.EACCES, 'PRIVATE-PATH')
+            raise PermissionError(errno.EACCES, 'PRIVATE-PATH')
         return original_stat(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'is_file', is_file_before_failure)
     monkeypatch.setattr(Path, 'stat', failing_stat)
     result = services.overview_status_fields()
     assert result['excel'][0] == 'Ikke tilgjengelig'
@@ -198,7 +203,7 @@ def test_scheduled_entrypoint_explains_os_error_without_traceback_or_private_pay
     monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'local'))
     services = DefaultServices(tmp_path / 'settings.json')
     services._settings_exist = True
-    monkeypatch.setattr(services, '_database', lambda: (_ for _ in ()).throw(PermissionError(errno.EACCES, 'PRIVATE-PATH')))
+    monkeypatch.setattr(services, '_build_system', lambda **kwargs: (_ for _ in ()).throw(PermissionError(errno.EACCES, 'PRIVATE-PATH')))
     assert services.auto() == 2
     output = capsys.readouterr().out
     assert json.loads(output)['error_code'] == 'FILE_ACCESS'

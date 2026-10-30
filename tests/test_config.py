@@ -107,6 +107,23 @@ def test_transfer_file_round_trips_utf8_norwegian_paths(tmp_path: Path) -> None:
     assert "æøå" in transfer.read_text(encoding="utf-8")
 
 
+def test_daily_time_survives_save_and_transfer_and_defaults_for_old_settings(tmp_path):
+    settings = MolStatSettings(sensitive_root=tmp_path / "sensitive", daily_time="08:35")
+    local, transfer = tmp_path / "settings.json", tmp_path / "transfer.json"
+    settings.save(local)
+    settings.export_to(transfer)
+    assert MolStatSettings.load(local).daily_time == "08:35"
+    assert MolStatSettings.import_from(transfer).daily_time == "08:35"
+    payload = json.loads(local.read_text(encoding="utf-8"))
+    del payload["schedules"]["daily_time"]
+    local.write_text(json.dumps(payload), encoding="utf-8")
+    assert MolStatSettings.load(local).daily_time == "07:00"
+    payload["schedules"]["daily_time"] = "25:00"
+    local.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError):
+        MolStatSettings.load(local)
+
+
 @pytest.mark.parametrize(
     "payload",
     (

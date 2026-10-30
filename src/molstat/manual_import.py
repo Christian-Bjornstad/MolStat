@@ -13,6 +13,7 @@ from tempfile import TemporaryDirectory
 
 from .storage_layout import StorageLayout
 from ._statistics.processing import clean_text, parse_tidspunkt
+from ._statistics.lvms_csv import read_lvms_rows
 from .system import CapabilityRun, MolStatSystem
 from .unit_settings import UnitFile
 from .lvms.report import ReportRequest
@@ -50,11 +51,6 @@ def validate_manual_import(plan: ManualImportPlan, definition: UnitFile) -> None
         plan.date_from != date(2024, 1, 1) or plan.date_to != date.today()
     ):
         raise ManualImportError("Restanse krever hele uttrekket fra 01.01.2024 til i dag.")
-    if definition.unit.profile == "lege" and (
-        plan.date_from.day != 1
-        or (plan.date_from.year, plan.date_from.month) != (plan.date_to.year, plan.date_to.month)
-    ):
-        raise ManualImportError("Patologer krever perioden fra første dag i én måned.")
     required = set(manual_import_roles(definition, plan.job_kind))
     if set(plan.files) != required:
         raise ManualImportError("Velg én CSV-fil for hver rapportrolle i skjemaet.")
@@ -106,7 +102,7 @@ def _validate_statistics_csv(path: Path, profile: str, role: str, request: Repor
         raise ManualImportError("Patolog krever kun workflow-rapporten PAT-TID-STØP-SNITT-OU.")
 
     with path.open(encoding="cp1252", newline="") as stream:
-        reader = csv.reader(stream, delimiter=";", strict=True)
+        reader = read_lvms_rows(stream)
         header = [name.strip().replace(" ", ".") for name in next(reader, [])]
         required = {"Sample.ID", "Analyse", "Tidspunkt.analysebestilling"}
         if role in {"resultater", "ekstraksjon"}:
@@ -127,10 +123,12 @@ def _validate_statistics_csv(path: Path, profile: str, role: str, request: Repor
                         raise ManualImportError(f"{role}: ugyldig datoformat. Bruk originalt LVMS-uttrekk.")
             if parse_tidspunkt(row["Tidspunkt.analysebestilling"]) is None:
                 raise ManualImportError(f"{role}: analysebestilling mangler et gyldig tidspunkt.")
-            # The normal LVMS statistics query filters the request creation
-            # timestamp. Older ordered/resulted events can belong to a request
-            # created inside this interval, so only check the source filter.
-            if "Tidspunkt.opprettet" in row:
+            # FISH's "analyse opprettet" / "analysebestilling" form filter
+            # is the analysis order, not the sample creation timestamp. Older
+            # samples and missing sample-creation dates are valid FISH orders.
+            if profile == "fish":
+                _require_date_in_period(parse_tidspunkt(row["Tidspunkt.analysebestilling"]), request, role)
+            elif "Tidspunkt.opprettet" in row:
                 _require_date_in_period(parse_tidspunkt(row["Tidspunkt.opprettet"]), request, role)
 
 
@@ -182,6 +180,10 @@ def process_manual_import(
     system: MolStatSystem, plan: ManualImportPlan, definition: UnitFile,
 ) -> tuple[CapabilityRun, ...]:
     """Must be called within the normal writer lease (via DefaultServices)."""
+    from .progress import emit_progress, plan_progress
+    plan_progress(1)
+    emit_progress(plan.unit_key, plan.job_kind, 'started')
+    emit_progress(plan.unit_key, plan.job_kind, 'processing')
     validate_manual_import(plan, definition)
     error = getattr(system, "capability_errors", {}).get((plan.unit_key, plan.job_kind))
     if error is not None:
@@ -237,4 +239,5 @@ def process_manual_import(
             summary = selected.run_backlog_unit(plan.unit_key)
         # Propagate the shared Excel export result to the service status view.
         system.excel_status = selected.excel_status
+        emit_progress(plan.unit_key, plan.job_kind, 'finished')
         return (CapabilityRun(plan.unit_key, plan.job_kind, summary),)

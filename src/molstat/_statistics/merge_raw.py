@@ -2,9 +2,9 @@
 
 The manifest archives one file per run, so a full history for a report
 lives as ``STEM__from__to.csv`` files. This module concatenates every
-file for a report and drops duplicate rows on the documented key
-(Sample ID + Analyse + all Tidspunkt columns), which makes the 3-day
-overlap in incremental fetches harmless.
+file for a report and drops exact duplicate rows across all columns.
+Unchanged rows from overlapping fetches are counted once; changed
+versions from different intervals are not treated as identical.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from __future__ import annotations
 import csv
 import hashlib
 from pathlib import Path
+
+from .lvms_csv import read_lvms_rows
 
 RAW_ENCODING = "cp1252"
 DELIMITER = ";"
@@ -40,7 +42,7 @@ def merge_report_csvs(
     final_header: list[str] = []
     for path in paths:
         with open(path, encoding=RAW_ENCODING, newline="") as handle:
-            reader = csv.reader(handle, delimiter=DELIMITER)
+            reader = read_lvms_rows(handle)
             try:
                 header = next(reader)
             except StopIteration:

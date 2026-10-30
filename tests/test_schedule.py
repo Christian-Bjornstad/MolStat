@@ -1,69 +1,33 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from molstat.schedule import due_jobs
+from molstat.schedule import daily_boundary
 
 
-@pytest.mark.parametrize("hour", range(6, 19))
-def test_backlog_is_due_each_inclusive_operating_hour(hour: int) -> None:
-    now = datetime(2026, 9, 2, hour, 17)
-
-    assert "backlog" in due_jobs(
-        now, {"backlog": None, "statistics": datetime(2026, 9, 2, 5, 0)}
-    )
-
-
-@pytest.mark.parametrize("hour", (0, 5, 19, 23))
-def test_backlog_is_not_due_outside_operating_hours(hour: int) -> None:
-    assert "backlog" not in due_jobs(
-        datetime(2026, 9, 2, hour, 0),
-        {"backlog": None, "statistics": None},
-    )
+@pytest.mark.parametrize("offset", (1, 2))
+def test_daily_schedule_starts_at_seven_in_local_winter_and_summer_time(offset):
+    local = timezone(timedelta(hours=offset))
+    assert daily_boundary(datetime(2026, 10, 28, 6, 59, 59, tzinfo=local)) is None
+    start = datetime(2026, 10, 28, 7, tzinfo=local)
+    assert daily_boundary(start) == start
+    assert daily_boundary(start.replace(hour=23, minute=59)) == start
 
 
-def test_statistics_is_due_once_during_five_oclock_hour() -> None:
-    now = datetime(2026, 9, 2, 5, 42)
-
-    assert due_jobs(now, {"statistics": None, "backlog": None}) == (
-        "statistics",
-    )
-    assert due_jobs(
-        now,
-        {
-            "statistics": datetime(2026, 9, 2, 5, 1),
-            "backlog": None,
-        },
-    ) == ()
+def test_schedule_rejects_clock_without_timezone():
+    with pytest.raises(ValueError):
+        daily_boundary(datetime(2026, 10, 28, 7))
 
 
-def test_backlog_is_due_only_once_per_hour() -> None:
-    now = datetime(2026, 9, 2, 8, 50)
-
-    assert due_jobs(
-        now,
-        {
-            "statistics": datetime(2026, 9, 2, 5, 0),
-            "backlog": datetime(2026, 9, 2, 8, 1),
-        },
-    ) == ()
+def test_daily_schedule_accepts_configured_hour_and_minute():
+    now = datetime(2026, 10, 28, 8, 34, 59, tzinfo=timezone.utc)
+    assert daily_boundary(now, "08:35") is None
+    start = now.replace(minute=35, second=0)
+    assert daily_boundary(start, "08:35") == start
+    assert daily_boundary(now.replace(hour=23, minute=59), "23:59") is not None
 
 
-def test_due_jobs_uses_configured_hours() -> None:
-    assert due_jobs(
-        datetime(2026, 9, 2, 4, 30),
-        {"statistics": None, "backlog": None},
-        statistics_hour=4,
-        backlog_first_hour=7,
-        backlog_last_hour=19,
-    ) == ("statistics",)
-    assert due_jobs(
-        datetime(2026, 9, 2, 19, 30),
-        {
-            "statistics": datetime(2026, 9, 2, 4, 1),
-            "backlog": None,
-        },
-        statistics_hour=4,
-        backlog_first_hour=7,
-        backlog_last_hour=19,
-    ) == ("backlog",)
+@pytest.mark.parametrize("value", ["24:00", "07:60", "7:00", "07:00:00", "text", 700, None])
+def test_daily_schedule_rejects_invalid_times(value):
+    with pytest.raises(ValueError):
+        daily_boundary(datetime(2026, 10, 28, 8, tzinfo=timezone.utc), value)

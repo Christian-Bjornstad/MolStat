@@ -587,6 +587,22 @@ class MolStatDatabase:
             ).fetchall()
         return tuple((str(row[0]), str(row[1])) for row in rows)
 
+    def has_scheduled_attempt(self, trigger: str) -> bool:
+        """Called under the writer lease before reserving a selected time.
+
+        Finished failures count too, so stopping a run never creates a retry loop.
+        Unfinished crash records can be retried after their lease expires.
+        The trigger identifies the local date and selected time, so an earlier
+        run today never blocks a newly selected time.
+        """
+        with self.read_connection() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM job_run WHERE kind = 'all' AND trigger = ? "
+                "AND finished_at IS NOT NULL LIMIT 1",
+                (trigger,),
+            ).fetchone()
+        return row is not None
+
     def last_successes(self) -> dict[str, datetime | None]:
         result: dict[str, datetime | None] = {
             "statistics": None,

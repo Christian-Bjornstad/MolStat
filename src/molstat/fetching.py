@@ -22,6 +22,7 @@ from .statistics import Unit, load_units
 from .failures import RunFailure, storage_failure
 from ._writer_lease import checkpoint_writer_lease
 from .recovery import check_cancelled, emit_retry, wait_before_retry, retry_operation, uncancellable_cleanup
+from .progress import emit_progress
 
 
 _WINDOW = re.compile(
@@ -91,20 +92,25 @@ class UnifiedLvmsFetcher:
         for unit in selected:
             if unit.profile == "lege" and any(r.job_key == "workflow" for r in unit.reports):
                 usernames = ()
+                start, _ = plan_window(self.sensitive_root, kind="statistics", unit=unit.key,
+                    report_name=unit.report_by_key("workflow").report_id,
+                    baseline=self.history_from, today=today)
                 self._backfill_flow_months(unit, today)
-                planned = [(unit.report_by_key("workflow"), today.replace(day=1), today)]
+                planned = [(unit.report_by_key("workflow"), max(start, today.replace(day=1)), today)]
             elif unit.profile == "lege":
                 raise ValueError("Patolog krever et oppdatert workflow-oppsett i JSON.")
             else:
                 usernames = ()
-                created_from, created_to = plan_window(
-                    self.sensitive_root,
-                    kind="statistics",
-                    unit=unit.key,
-                    baseline=date(2024, 1, 1),
-                    today=today,
-                )
-                planned = [(report, created_from, created_to) for report in unit.reports]
+                planned = []
+                for report in unit.reports:
+                    start, end = plan_window(
+                        self.sensitive_root, kind="statistics", unit=unit.key,
+                        report_name=report.report_id, baseline=self.history_from, today=today,
+                    )
+                    if end > _two_months_after(start):
+                        self._backfill_statistics_months(unit, report, start, end)
+                        start = max(start, end.replace(day=1))
+                    planned.append((report, start, end))
             jobs = tuple(
                 _statistics_job(unit, report, start, end, usernames=usernames)
                 for report, start, end in planned
@@ -129,27 +135,23 @@ class UnifiedLvmsFetcher:
         return result
 
     def _backfill_flow_months(self, unit: Unit, today: date) -> None:
-        from ._statistics import patolog_flow as flow
-
-        folder = StorageLayout(self.sensitive_root).raw_root / "statistics" / unit.key
-        existing = flow.latest_months(folder)
         report = unit.report_by_key("workflow")
-        month = self.history_from.replace(day=1)
+        start, _ = plan_window(self.sensitive_root, kind="statistics", unit=unit.key,
+            report_name=report.report_id, baseline=self.history_from, today=today)
+        self._backfill_statistics_months(unit, report, start, today)
+
+    def _backfill_statistics_months(self, unit: Unit, report, start: date, today: date) -> None:
         archive = RawArchive(self.sensitive_root)
-        while month < today.replace(day=1):
-            end = _month_end(month)
-            previous = existing.get(month)
-            if previous is None or flow.needs_refresh(previous[0], month, previous[1], today):
-                job = _statistics_job(unit, report, month, end)
-                source = self._run_jobs((job,), unit.key)[0]
-                try:
-                    flow.validate_month(source, month, end, laboratory=job.laboratory, processes=job.process_codes)
-                except ValueError as exc:
-                    raise RunFailure("CSV_INVALID", f"patolog/workflow/{month.isoformat()}") from exc
-                archive.store(source, ReportRequest(kind="statistics", unit=unit.key,
-                    report_name=report.report_id, date_from=month, date_to=end))
-                remove_archived_download(source, self.sensitive_root)
-            month = end + timedelta(days=1)
+        # Chunk only the missing interval, checkpointing each confirmed file so
+        # interrupted initial loads resume without requesting all history again.
+        while start < today.replace(day=1):
+            end = _month_end(start)
+            job = _statistics_job(unit, report, start, end)
+            source = self._run_jobs((job,), unit.key)[0]
+            archive.store(source, ReportRequest(kind="statistics", unit=unit.key,
+                report_name=report.report_id, date_from=start, date_to=end))
+            remove_archived_download(source, self.sensitive_root)
+            start = end + timedelta(days=1)
 
     def fetch_backlog(self, unit_key: str = "hemato", report_path: Path | None = None) -> tuple[ReportRequest, Path]:
         today = self._today()
@@ -172,6 +174,7 @@ class UnifiedLvmsFetcher:
             interval=ReportInterval(created_from, created_to),
             output_stem=definition.output_stem,
         )
+        emit_progress(unit_key, 'backlog', 'fetching', f'{created_from:%d.%m.%Y}–{created_to:%d.%m.%Y}')
         source = self._run_jobs((job,), "backlog")[0]
         return (
             ReportRequest(
@@ -194,6 +197,9 @@ class UnifiedLvmsFetcher:
         sources = []
         for job in jobs:
             check_cancelled()
+            if run_label != 'backlog':
+                emit_progress(run_label, 'statistics', 'fetching',
+                    f'{job.interval.created_from:%d.%m.%Y}–{job.interval.created_to:%d.%m.%Y}')
             parts = self._fetch_report_parts(job, run_root, budget=[0])
             check_cancelled()
             destination = output / batch_filename(job)
@@ -252,8 +258,8 @@ class UnifiedLvmsFetcher:
             error.attempt, error.run_id = attempt, run_root.name
             if not error.retryable:
                 raise error
-            report_timeout = error.code == "LVMS_TIMEOUT" and error.stage.endswith(("_export", "_download"))
-            can_split = (report_timeout and job.interval.created_from < job.interval.created_to
+            transient_lvms = error.code in {"LVMS_TIMEOUT", "LVMS_FAILED", "LVMS_FORM"}
+            can_split = (transient_lvms and job.interval.created_from < job.interval.created_to
                          and depth < MAX_SPLIT_DEPTH)
             if can_split and attempt == 2:
                 check_cancelled()
@@ -290,6 +296,12 @@ def _statistics_job(unit: Unit, report, created_from: date, created_to: date, *,
 def _month_end(month: date) -> date:
     next_month = (month.replace(day=28) + timedelta(days=4)).replace(day=1)
     return next_month - timedelta(days=1)
+
+
+def _two_months_after(start: date) -> date:
+    year, month = divmod(start.year * 12 + start.month - 1 + 2, 12)
+    target = date(year, month + 1, 1)
+    return target.replace(day=min(start.day, _month_end(target).day))
 
 
 def combine_report_parts(parts: Sequence[Path], destination: Path) -> None:
@@ -444,14 +456,19 @@ def plan_window(
     unit: str,
     baseline: date,
     today: date,
+    report_name: str | None = None,
 ) -> tuple[date, date]:
     archive = StorageLayout(sensitive_root).raw_root / kind / unit
     completed: list[date] = []
     if archive.is_dir():
         for path in archive.glob("*.csv"):
+            if report_name is not None and path.name.partition("__")[0] != report_name:
+                continue
             match = _WINDOW.search(path.name)
             if match is not None:
-                completed.append(date.fromisoformat(match.group(2)))
+                start, end = date.fromisoformat(match.group(1)), date.fromisoformat(match.group(2))
+                if start <= end <= today:
+                    completed.append(end)
     if not completed:
         return baseline, today
     return max(baseline, max(completed) - timedelta(days=2)), today

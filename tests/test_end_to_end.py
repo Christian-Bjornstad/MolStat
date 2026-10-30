@@ -1,5 +1,6 @@
 from unit_fixtures import analysis_codes
 import csv
+import pytest
 from typing import Mapping
 from datetime import date, datetime
 from pathlib import Path
@@ -42,46 +43,107 @@ def test_statistics_only_system_returns_safe_empty_public_board(tmp_path):
     assert not database.path.exists()
 
 
-def test_pathologist_facts_stay_in_sensitive_powerbi_folder(tmp_path: Path) -> None:
+def test_daily_pathology_refresh_publishes_complete_history_and_reports_real_stages(tmp_path):
+    from molstat._statistics import patolog_flow as flow
+    from molstat.progress import progress_context
+    from molstat.modules import UnitRegistry
+    sensitive = tmp_path / 'sensitive'
+    database = MolStatDatabase(sensitive / 'database/molstat.sqlite3')
+    database.migrate()
+    archive = RawArchive(sensitive)
+    public = tmp_path / 'sharepoint'
+    capability = DEFAULT_UNITS.require('lege').capability('statistics')
+    publisher = SharePointPublisher(PublicationPolicy(capability.allowed_columns, default_forbidden_patterns()))
+    fields = flow.DATE_FIELDS + ['Prøvenummer', 'Lab', 'Prosess', 'Prioritet', 'BeholderId',
+                                'BlokkId', 'GlassId', 'Glasstype', 'Signert av', 'Godkjent type']
+    def snapshot(name, arrivals):
+        path = tmp_path / name
+        with path.open('w', encoding='cp1252', newline='') as stream:
+            writer = csv.DictWriter(stream, fields, delimiter=';')
+            writer.writeheader()
+            for sample, arrival, approval in arrivals:
+                row = dict.fromkeys(fields, '')
+                row.update(Prøvenummer=sample, Lab='TEST', Prosess='HEMATO', Ankomsttid=arrival)
+                row['Godkjent dato'] = approval
+                writer.writerow(row)
+        return path
+    old = snapshot('old.csv', [('KEEP','01.10.2026 08:00',''),('UPDATED','19.10.2026 08:00','')])
+    archive.store(old, ReportRequest('statistics','lege',flow.STEM,date(2026,10,1),date(2026,10,20)))
+    new = snapshot('new.csv', [('UPDATED','19.10.2026 08:00','21.10.2026 08:00'),('NEW','21.10.2026 09:00','')])
+    request = ReportRequest('statistics','lege',flow.STEM,date(2026,10,18),date(2026,10,21))
+    system = MolStatSystem(database=database, archive=archive,
+        statistics_processors={'lege': StatisticsProcessor(analysis_codes=set(), profile='lege', now=lambda: datetime(2026,10,21,12))},
+        backlog_processor=None, publisher={'lege': publisher}, sharepoint_root=public, work_root=sensitive / 'data/processed',
+        statistics_fetch=lambda keys: {'lege': ((request,new),)}, backlog_fetch=lambda: None,
+        units=UnitRegistry((DEFAULT_UNITS.require('lege'),)))
+    events = []
+    with progress_context(events.append):
+        outcome, = system.run_unit('lege')
+    assert outcome.error is None
+    with (public / 'lege/Prøver.csv').open(encoding='utf-8-sig',newline='') as stream:
+        rows = list(csv.DictReader(stream, delimiter=';'))
+    assert {r['Prøvenummer']: r['Godkjent'] for r in rows} == {'KEEP':'0','UPDATED':'1','NEW':'0'}
+    assert {p.stem for p in (public / 'lege').glob('*.csv')} == set(flow.TABLE_FIELDS)
+    assert [e.stage for e in events] == ['planned','started','fetching','processing','publishing','excel','finished']
+
+
+@pytest.mark.parametrize("fail_publication", [False, True])
+def test_pathologist_publishes_seven_tables_and_keeps_local_copies(tmp_path, monkeypatch, fail_publication):
+    import json
+    from molstat._statistics import patolog_flow as flow
+    from molstat.delivery import retry_pending
+
     sensitive = tmp_path / "sensitive"
     public = tmp_path / "sharepoint"
-    database = MolStatDatabase(sensitive / "data" / "molstat.sqlite3")
+    database = MolStatDatabase(sensitive / "database/molstat.sqlite3")
     database.migrate()
     download = tmp_path / "download.csv"
-    download.write_text("private source", encoding="utf-8")
-
-    class Processor:
-        def process(self, unit, raw_files, output_dir):
-            assert unit == "lege" and len(raw_files) == 1
-            output_dir.mkdir(parents=True)
-            aggregate = output_dir / "prosess.csv"
-            _write(aggregate, ["Maaned", "Profil", "Lab", "Prosesskode", "Prosessgruppe",
-                               "AntallProver", "AntallBlokker", "AntallGlass", "UttrekkTom"],
-                   [["2026-09-01", "HISTO", "OU", "HEMATO", "Hemato Flow", "1", "2", "3", "2026-09-24"]])
-            fact = output_dir / "FactPatologRolle.csv"
-            _write(fact, ["SampleID", "Brukernavn"], [["PRIVATE-1", "ESP"]])
-            return StatisticsResult(aggregate, aggregate, {"prosess": 1},
-                                    publication_files={"prosess.csv": aggregate},
-                                    private_files={"FactPatologRolle.csv": fact})
-
+    row = dict.fromkeys(flow.DATE_FIELDS + ["Prøvenummer", "Lab", "Prosess", "Prioritet", "BeholderId",
+        "BlokkId", "GlassId", "Glasstype", "Signert av", "Godkjent type", "PID"], "")
+    row.update(Prøvenummer="SYNTHETIC-1", Lab="TEST", Prosess="HEMATO", Prioritet="Low",
+        Ankomsttid="01.09.2026 08:00", GlassId="GLASS-1", Glasstype="VANLIG", PID="SECRET-PATIENT")
+    row["Signert av"] = "Lege A"
+    row["Godkjent type"] = "Hovedansvarlig"
+    with download.open("w", encoding="cp1252", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(row), delimiter=";")
+        writer.writeheader()
+        writer.writerow(row)
     capability = DEFAULT_UNITS.require("lege").capability("statistics")
     publisher = SharePointPublisher(PublicationPolicy(capability.allowed_columns, default_forbidden_patterns()))
-    request = ReportRequest("statistics", "lege", "PAT-PROSESS-CURRENT-OU",
-                            date(2026, 9, 1), date(2026, 9, 24))
+    request = ReportRequest("statistics", "lege", flow.STEM, date(2026, 9, 1), date(2026, 9, 30))
     system = MolStatSystem(
         database=database, archive=RawArchive(sensitive),
-        statistics_processors={"lege": Processor()}, backlog_processor=None,
+        statistics_processors={"lege": StatisticsProcessor(analysis_codes=set(), profile="lege",
+            now=lambda: datetime(2026, 10, 20))}, backlog_processor=None,
         publisher={"lege": publisher}, sharepoint_root=public,
         work_root=sensitive / "processed",
-        statistics_fetch=lambda _keys: {"lege": ((request, download),)},
-        backlog_fetch=lambda: None,
+        statistics_fetch=lambda _keys: {"lege": ((request, download),)}, backlog_fetch=lambda: None,
     )
+    original_publish = publisher.publish
+    if fail_publication:
+        def locked(*args):
+            raise PermissionError("synthetic publication lock")
+        monkeypatch.setattr(publisher, "publish", locked)
+        with pytest.raises(PermissionError):
+            system.run_statistics_unit("lege")
+        monkeypatch.setattr(publisher, "publish", original_publish)
+        assert retry_pending(publisher, sensitive / "processed/lege/statistics", public / "lege") == 1
+    else:
+        system.run_statistics_unit("lege")
 
-    system.run_statistics_unit("lege")
-
-    assert (public / "lege" / "prosess.csv").is_file()
-    assert not (public / "lege" / "FactPatologRolle.csv").exists()
-    assert "PRIVATE-1" in (sensitive / "processed" / "lege" / "powerbi" / "FactPatologRolle.csv").read_text(encoding="utf-8-sig")
+    expected = {"Prøver.csv", "Glass.csv", "Signeringer.csv", "Grupper.csv", "Periode.csv", "Leger.csv", "Prioriteter.csv"}
+    assert set(capability.allowed_columns) == expected
+    assert {p.name for p in (public / "lege").iterdir()} == expected
+    for name in expected:
+        target = public / "lege" / name
+        assert target.read_bytes() == (sensitive / "processed/lege/powerbi" / name).read_bytes()
+        assert "SECRET-PATIENT" not in target.read_text("utf-8-sig")
+    manifest, = (sensitive / "processed/lege/statistics").glob("*/delivery.json")
+    payload = json.loads(manifest.read_text("utf-8"))
+    assert payload["status"] == "published" and set(payload["files"]) == expected
+    assert retry_pending(publisher, manifest.parent.parent, public / "lege") == 0
+    assert (manifest.parent / "source_audit.json").is_file()
+    assert not (public / "lege/source_audit.json").exists()
 
 
 class SyntheticStatisticsProcessor:

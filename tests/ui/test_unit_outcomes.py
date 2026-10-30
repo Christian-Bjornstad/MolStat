@@ -125,3 +125,38 @@ def test_publication_retry_keeps_failed_source_import_visible(qtbot):
     qtbot.waitUntil(lambda: not window._workers)
     assert "Feilet" in window.overview.unit_cards["hemato"].status_label.text()
     assert window.overview.cards["sharepoint"].state_label.text() == "Publisert"
+
+
+def test_live_progress_reports_finished_unit_while_next_unit_is_running(qtbot):
+    from molstat.progress import emit_progress, plan_progress
+    next_started, finish = Event(), Event()
+    class Running:
+        def run(self, target, trigger):
+            plan_progress(2)
+            emit_progress('hemato', 'statistics', 'started')
+            emit_progress('hemato', 'statistics', 'processing')
+            emit_progress('hemato', 'statistics', 'finished')
+            emit_progress('solide', 'statistics', 'started')
+            emit_progress('solide', 'statistics', 'processing')
+            next_started.set()
+            finish.wait(3)
+            emit_progress('solide', 'statistics', 'finished')
+            return JobResult(target, 'succeeded', {'capabilities': 2}, capability_results=(
+                CapabilityResult('hemato', 'statistics', 'succeeded', {'rows': 3}),
+                CapabilityResult('solide', 'statistics', 'succeeded', {'rows': 4}),
+            ))
+    window = MainWindow(Running(), Store())
+    qtbot.addWidget(window)
+    window._start_job('all')
+    try:
+        qtbot.waitUntil(lambda: next_started.is_set() and 'Behandler' in window.overview.unit_cards['solide'].status_label.text())
+        assert 'Fullført' in window.overview.unit_cards['hemato'].status_label.text()
+        assert window.overview.run_progress.maximum() == 2
+        assert window.overview.run_progress.value() == 1
+        assert 'Solide' in window.overview.run_detail.text()
+        assert window.overview.run_all.isEnabled() is False
+    finally:
+        finish.set()
+        qtbot.waitUntil(lambda: not window._workers)
+    assert window.overview.run_progress.value() == 2
+    assert 'Fullført' in window.overview.run_detail.text()

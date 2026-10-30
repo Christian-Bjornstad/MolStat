@@ -55,7 +55,9 @@ def _system(tmp_path, key="hemato", workflow=False):
     return system, definition
 
 
-def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path):
+@pytest.mark.parametrize('start,end', [(date(2026,10,1),date(2026,10,7)), (date(2026,10,18),date(2026,10,21)),
+                                      (date(2026,9,29),date(2026,10,2))])
+def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path, start, end):
     from molstat._statistics import patolog_flow as flow
     from molstat.manual_import import manual_import_roles
     system, definition = _system(tmp_path, "lege", workflow=True)
@@ -63,17 +65,24 @@ def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path)
     assert manual_import_roles(definition, "statistics") == ("workflow",)
     row = dict.fromkeys(flow.DATE_FIELDS + ["Prøvenummer", "Lab", "Prosess", "Prioritet", "BeholderId", "BlokkId", "GlassId", "Glasstype", "Signert av", "Godkjent type"], "")
     row.update(Prøvenummer="PRIVATE-FLOW-1", Lab="OU-PAT-HIST-RA", Prosess="HEMATO", Ankomsttid="01.10.2026 08:00")
+    row['Ankomsttid'] = start.strftime('%d.%m.%Y 08:00')
     source = tmp_path / "workflow.csv"
     with source.open("w", encoding="cp1252", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(row), delimiter=";")
         writer.writeheader(); writer.writerow(row)
     original = source.read_bytes()
-    result = process_manual_import(system, ManualImportPlan("lege", "statistics", date(2026, 10, 1), date(2026, 10, 7), {"workflow": source}), definition)
+    result = process_manual_import(system, ManualImportPlan("lege", "statistics", start, end, {"workflow": source}), definition)
     assert result[0].error is None
     assert source.read_bytes() == original
     assert len(list((tmp_path / "sensitive/data/raw/statistics/lege").glob("*.csv"))) == 1
     assert "PRIVATE-FLOW-1" in (tmp_path / "sensitive/processed/lege/powerbi/Prøver.csv").read_text(encoding="utf-8-sig")
-    assert "PRIVATE-FLOW-1" not in (tmp_path / "public/lege/prosess.csv").read_text(encoding="utf-8-sig")
+    expected = {name + ".csv" for name in ("Prøver", "Glass", "Signeringer", "Grupper", "Periode", "Leger", "Prioriteter")}
+    public = tmp_path / "public/lege"
+    assert {path.name for path in public.iterdir()} == expected
+    for name in expected:
+        assert (public / name).read_bytes() == (tmp_path / "sensitive/processed/lege/powerbi" / name).read_bytes()
+    assert "PRIVATE-FLOW-1" in (public / "Prøver.csv").read_text(encoding="utf-8-sig")
+    assert not (public / "source_audit.json").exists()
 
 
 def _files(tmp_path, encoding="cp1252"):
@@ -179,6 +188,62 @@ def test_manual_specialized_units_process_and_update_registry(tmp_path, key):
     with system.database._connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM sample").fetchone()[0] == 1
     assert (tmp_path / "sensitive/Prøvesøk.xlsx").is_file()
+
+
+def test_manual_fish_accepts_multiline_lvms_comment_and_preserves_all_result_dates(tmp_path):
+    system, definition = _system(tmp_path, "fish")
+    code = "FISH-ALKBA-OU"
+    system.statistics_processors["fish"] = StatisticsProcessor(
+        analysis_codes=analysis_codes("fish"), profile="fish", database=system.database,
+        report_ids={role: value["report_id"] for role, value in definition.payload["statistics"].items()},
+    )
+    files = {role: path for role, path in _files(tmp_path).items() if role in ("antall", "resultater")}
+    for path in files.values():
+        path.write_text(path.read_text("cp1252").replace("CALR-OU", code), encoding="cp1252")
+    files["resultater"].write_text(
+        'Sample ID;Analyse;Ekstern analysekommentar;Tidspunkt opprettet;Tidspunkt analysebestilling;Tidspunkt analyseresultat;Materiale\n'
+        f'PRIVATE-42;{code};"PRIVATE "signal" text\ncontinuation";01.10.2026 08:00;01.10.2026 08:00;03.10.2026 08:00;PAK\n',
+        encoding="cp1252", newline="",
+    )
+    original = files["resultater"].read_bytes()
+
+    result = process_manual_import(system, ManualImportPlan("fish", "statistics", date(2026, 10, 1),
+                                   date(2026, 10, 7), files), definition)
+
+    assert result[0].summary["rows"] == 2
+    assert files["resultater"].read_bytes() == original
+    output = (tmp_path / "public/fish/resultater.csv").read_text("utf-8-sig")
+    rows = list(csv.DictReader(output.splitlines(), delimiter=";"))
+    assert len(rows) == 1 and rows[0]["Svartid dager"] == "2.0000000000"
+    assert "PRIVATE" not in output
+
+
+@pytest.mark.parametrize("role", ["antall", "resultater"])
+@pytest.mark.parametrize("created", ["", "01.01.2020 08:00"])
+def test_fish_manual_period_uses_analysis_order_not_sample_creation(tmp_path, role, created):
+    from molstat.manual_import import _validate_statistics_csv
+    from molstat.lvms.report import ReportRequest
+    source = tmp_path / "fish.csv"
+    source.write_text(
+        'Sample ID;Analyse;Tidspunkt opprettet;Tidspunkt analysebestilling;Tidspunkt analyseresultat\n'
+        f'SYNTHETIC;FISH-ALKBA-OU;{created};01.10.2026 08:00;03.10.2026 08:00\n', encoding="cp1252")
+    before = source.read_bytes()
+    request = ReportRequest("statistics", "fish", "REPORT", date(2026, 10, 1), date(2026, 10, 7))
+    _validate_statistics_csv(source, "fish", role, request)
+    assert source.read_bytes() == before
+
+
+@pytest.mark.parametrize("role", ["antall", "resultater"])
+def test_fish_manual_rejects_order_outside_period_even_if_sample_created_inside(tmp_path, role):
+    from molstat.manual_import import _validate_statistics_csv
+    from molstat.lvms.report import ReportRequest
+    source = tmp_path / "fish.csv"
+    source.write_text(
+        'Sample ID;Analyse;Tidspunkt opprettet;Tidspunkt analysebestilling;Tidspunkt analyseresultat\n'
+        'SYNTHETIC;FISH-ALKBA-OU;01.10.2026 08:00;30.09.2026 08:00;03.10.2026 08:00\n', encoding="cp1252")
+    request = ReportRequest("statistics", "fish", "REPORT", date(2026, 10, 1), date(2026, 10, 7))
+    with pytest.raises(ManualImportError, match="periode"):
+        _validate_statistics_csv(source, "fish", role, request)
 
 
 def test_manual_backlog_preserves_original_and_uses_normal_snapshot(tmp_path):

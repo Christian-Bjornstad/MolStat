@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from .schedule import parse_daily_time
 
 
 SETTINGS_SCHEMA_VERSION = 3
@@ -18,6 +19,8 @@ DEFAULT_ENABLED_UNIT_KEYS = ("hemato", "solide")
 class MolStatSettings:
     sensitive_root: Path
     sharepoint_root: Path | None = None
+    daily_time: str = "07:00"
+    # Retained for importing older settings; daily_time controls the daily run.
     statistics_hour: int = 5
     backlog_first_hour: int = 6
     backlog_last_hour: int = 18
@@ -29,6 +32,10 @@ class MolStatSettings:
 
     def validate(self) -> tuple[str, ...]:
         errors: list[str] = []
+        try:
+            parse_daily_time(self.daily_time)
+        except ValueError as error:
+            errors.append(str(error))
         if self.sharepoint_root is not None and _same_path(
             self.sensitive_root, self.sharepoint_root
         ):
@@ -69,6 +76,7 @@ class MolStatSettings:
             ),
             "lvms_url": self.lvms_url,
             "schedules": {
+                "daily_time": self.daily_time,
                 "statistics_hour": self.statistics_hour,
                 "backlog_first_hour": self.backlog_first_hour,
                 "backlog_last_hour": self.backlog_last_hour,
@@ -162,7 +170,7 @@ class MolStatSettings:
         schedules = payload.get("schedules")
         if not isinstance(schedules, Mapping):
             raise ValueError("Innstillingsfilen mangler gyldige klokkeslett.")
-        _reject_unknown_fields(schedules, {"statistics_hour", "backlog_first_hour", "backlog_last_hour"}, "schedules")
+        _reject_unknown_fields(schedules, {"daily_time", "statistics_hour", "backlog_first_hour", "backlog_last_hour"}, "schedules")
         units = payload.get("units")
         if not isinstance(units, Mapping):
             raise ValueError("Innstillingsfilen mangler gyldige enheter.")
@@ -210,6 +218,7 @@ class MolStatSettings:
                 else None
             ),
             statistics_hour=_required_hour(schedules, "statistics_hour"),
+            daily_time=schedules.get("daily_time", "07:00"),
             backlog_first_hour=_required_hour(schedules, "backlog_first_hour"),
             backlog_last_hour=_required_hour(schedules, "backlog_last_hour"),
             lvms_config_path=Path(lvms_config) if lvms_config else None,

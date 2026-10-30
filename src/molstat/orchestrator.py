@@ -16,6 +16,7 @@ from .modules import DEFAULT_UNITS, JobKind
 from .unit_settings import UnitConfigError
 from .manual_import import ManualImportError
 from ._writer_lease import WriterLeaseLost
+from .schedule import daily_boundary, scheduled_trigger
 
 
 JobStatus = Literal["succeeded", "partial", "failed", "busy"]
@@ -54,6 +55,7 @@ class MolStatOrchestrator:
         ],
         *,
         owner: str,
+        daily_time: str = "07:00",
         lease_ttl: timedelta = timedelta(minutes=30),
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         failure_reporter: Callable[[str, BaseException], None] | None = None,
@@ -62,6 +64,7 @@ class MolStatOrchestrator:
         self.database = database
         self.runners = runners
         self.owner = owner
+        self.daily_time = daily_time
         self.lease_ttl = lease_ttl
         self._now = now
         self._failure_reporter = failure_reporter
@@ -69,14 +72,25 @@ class MolStatOrchestrator:
 
     def run(self, kind: str, trigger: str) -> JobResult:
         with recovery_context(observer=self._retry_reporter):
-            return self._run(kind, trigger)
+            result = self._run(kind, trigger)
+            assert result is not None
+            return result
 
-    def _run(self, kind: str, trigger: str) -> JobResult:
+    def run_daily(self, *, now: datetime | None = None) -> JobResult | None:
+        boundary = daily_boundary(now if now is not None else self._now().astimezone(), self.daily_time)
+        if boundary is None:
+            return None
+        with recovery_context(observer=self._retry_reporter):
+            return self._run("all", scheduled_trigger(boundary), scheduled=True)
+
+    def _run(self, kind: str, trigger: str, *, scheduled: bool = False) -> JobResult | None:
         if kind not in self.runners:
             raise ValueError(f"Ingen kjører er konfigurert for {kind}.")
         failed_result: JobResult | None = None
         try:
             with self.database.writer_lease(self.owner, self.lease_ttl, renew=True):
+                if scheduled and self.database.has_scheduled_attempt(trigger):
+                    return None
                 run_id = self._start_run(kind, trigger)
                 try:
                     check_cancelled()

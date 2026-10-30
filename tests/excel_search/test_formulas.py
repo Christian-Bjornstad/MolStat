@@ -81,7 +81,8 @@ def test_prefix_matching_ignores_whitespace_only_searches(tmp_path):
     with zipfile.ZipFile(path) as archive:
         root = ElementTree.fromstring(archive.read("xl/worksheets/sheet2.xml"))
     formula = root.find(".//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}f").text
-    assert 'TRIM(\'Prøvesøk\'!$A$5:$A$54)<>""' in formula
+    assert "_xlpm.queries,TRIM('Prøvesøk'!$A$5:$A$54)" in formula
+    assert '_xlpm.queries<>""' in formula
 
 
 def test_spilled_results_columns_use_date_formats(tmp_path):
@@ -100,3 +101,44 @@ def test_spilled_results_columns_use_date_formats(tmp_path):
         definition = next(item for item in sheet.findall(f"{namespace}cols/{namespace}col")
                           if int(item.get("min")) <= column <= int(item.get("max")))
         assert formats[int(definition.get("style", "0"))].get("numFmtId") in date_ids
+
+
+def test_search_helpers_normalize_queries_once_and_keep_matching_expression(tmp_path):
+    """Normalization is shared without changing either branch or row references."""
+    from dataclasses import replace
+
+    snapshot = read_excel_snapshot(populated_database(tmp_path / "data.sqlite3"),
+                                   generated_at=datetime(2026, 9, 10))
+    snapshot = replace(snapshot, samples=(snapshot.samples[0], replace(
+        snapshot.samples[0], molstat_key="MS-SECOND", sample_number="000002")))
+    path = tmp_path / "search.xlsx"
+    generate_search_workbook(snapshot, path)
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    with zipfile.ZipFile(path) as archive:
+        sheet = ElementTree.fromstring(archive.read("xl/worksheets/sheet2.xml"))
+    inputs = "'Prøvesøk'!$A$5:$A$54"
+    binding = f"_xlfn.LET(_xlpm.queries,TRIM({inputs}),_xlpm.upper,UPPER(_xlpm.queries),"
+    for row in (2, 3):
+        formula = sheet.find(f".//{namespace}c[@r='H{row}']/{namespace}f").text
+        assert formula.count(f"TRIM({inputs})") == 1
+        assert binding in formula
+        # Inline LET's two bindings. The resulting exact/prefix expression
+        # must remain the same as before optimization, including prefix lengths
+        # before uppercasing and the whitespace-only query guard.
+        expanded = formula.replace(binding, "", 1)[:-1]
+        expanded = expanded.replace("_xlpm.upper", f"UPPER(TRIM({inputs}))")
+        expanded = expanded.replace("_xlpm.queries", f"TRIM({inputs})")
+        exact = (
+            f"(SUMPRODUCT(--(UPPER(TRIM({inputs}))=UPPER(A{row})))+"
+            f"SUMPRODUCT(--(UPPER(TRIM({inputs}))=UPPER(B{row})))>0)"
+        )
+        prefix = (
+            f'(SUMPRODUCT(--(TRIM({inputs})<>""),'
+            f'--(LEFT(UPPER(A{row}),LEN(TRIM({inputs})))=UPPER(TRIM({inputs}))))'
+            f'+SUMPRODUCT(--(TRIM({inputs})<>""),'
+            f'--(LEFT(UPPER(B{row}),LEN(TRIM({inputs})))=UPPER(TRIM({inputs}))))>0)'
+        )
+        assert expanded == (
+            f'IF(COUNTA({inputs})=0,FALSE,IF('
+            f'\'Prøvesøk\'!$B$56="Eksakt",{exact},{prefix}))'
+        )

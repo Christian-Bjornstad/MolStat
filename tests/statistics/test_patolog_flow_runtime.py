@@ -35,7 +35,7 @@ def test_workflow_job_requires_scoped_lab_and_processes():
         validate_report_job(raw | {"process_codes": []})
 
 
-def test_monthly_flow_fetch_and_refresh_open_history(tmp_path):
+def test_monthly_flow_backfill_then_only_recent_days_even_with_open_history(tmp_path):
     import json
     definition = load_unit_file(default_unit_file("lege"))
     unit = definition.unit
@@ -57,7 +57,68 @@ def test_monthly_flow_fetch_and_refresh_open_history(tmp_path):
     assert all(j.laboratory == "OU-PAT-HIST-RA" and j.process_codes for j in calls)
     calls.clear()
     fetcher._backfill_flow_months(unit, date(2026, 10, 18))
-    assert len(calls) == 2  # Both months still have open samples.
+    assert [(j.interval.created_from, j.interval.created_to) for j in calls] == [
+        (date(2026, 9, 28), date(2026, 9, 30))]
+
+
+def test_populated_pathology_fetches_only_recent_days(tmp_path):
+    from molstat.storage_layout import StorageLayout
+    folder = StorageLayout(tmp_path).raw_root / 'statistics/lege'
+    export(folder / f'{flow.STEM}__2026-10-01__2026-10-20.csv',
+           arrival='01.10.2026 08:00')
+    jobs = []
+    def runner(config, jobs_path, keys, **kwargs):
+        job, = load_report_jobs(jobs_path)
+        jobs.append(job)
+        export(kwargs['repository_root'] / 'rådata' / batch_filename(job),
+               arrival=job.interval.created_from.strftime('%d.%m.%Y 08:00'))
+        return 0
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(load_unit_file(default_unit_file('lege')).unit,),
+        run_batch=runner, today=lambda: date(2026, 10, 21))
+    result = fetcher.fetch_statistics(('lege',))['lege']
+    assert len(jobs) == len(result) == 1
+    assert (jobs[0].interval.created_from, jobs[0].interval.created_to) == (date(2026, 10, 18), date(2026, 10, 21))
+
+
+def test_daily_pathology_snapshot_replaces_whole_arrival_window_and_keeps_history(tmp_path):
+    import os
+    from datetime import datetime
+    old = tmp_path / f'{flow.STEM}__2026-09-01__2026-09-30.csv'
+    export(old, arrival='01.09.2026 08:00', sample='KEEP')
+    recent = tmp_path / f'{flow.STEM}__2026-10-01__2026-10-20.csv'
+    export(recent, arrival='19.10.2026 08:00', sample='REPLACED')
+    updated = tmp_path / f'{flow.STEM}__2026-10-18__2026-10-21.csv'
+    export(updated, arrival='19.10.2026 08:00', approved='21.10.2026 08:00', sample='REPLACED')
+    for i, path in enumerate((old, recent, updated)):
+        os.utime(path, (1000 + i, 1000 + i))
+    data = flow.read_archive(tmp_path, as_of=datetime(2026, 10, 21, 12))
+    assert data['audit']['samples'] == 2
+    assert {r['Prøvenummer']: r['Godkjent'] for r in data['Prøver']} == {'KEEP': 0, 'REPLACED': 1}
+    # A confirmed empty refresh removes rows formerly present inside that window.
+    updated.write_text(updated.read_text('cp1252').splitlines()[0] + '\n', encoding='cp1252')
+    assert flow.read_archive(tmp_path, as_of=datetime(2026, 10, 21, 12))['audit']['samples'] == 1
+
+
+def test_pathology_overlap_at_month_boundary_never_restarts_history(tmp_path):
+    from molstat.storage_layout import StorageLayout
+    folder = StorageLayout(tmp_path).raw_root / 'statistics/lege'
+    export(folder / f'{flow.STEM}__2026-10-01__2026-10-31.csv', arrival='01.10.2026 08:00')
+    jobs = []
+    def runner(config, jobs_path, keys, **kwargs):
+        job, = load_report_jobs(jobs_path)
+        jobs.append(job)
+        export(kwargs['repository_root'] / 'rådata' / batch_filename(job),
+               arrival=job.interval.created_from.strftime('%d.%m.%Y 08:00'),
+               sample=job.interval.created_from.isoformat())
+        return 0
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(load_unit_file(default_unit_file('lege')).unit,),
+        run_batch=runner, today=lambda: date(2026, 11, 2))
+    result = fetcher.fetch_statistics(('lege',))['lege']
+    assert [(j.interval.created_from, j.interval.created_to) for j in jobs] == [
+        (date(2026, 10, 29), date(2026, 10, 31)), (date(2026, 11, 1), date(2026, 11, 2))]
+    assert result[0][0].date_from == date(2026, 11, 1)
 
 
 def test_archive_uses_latest_complete_month_snapshot_without_double_count(tmp_path):
@@ -86,7 +147,7 @@ def test_empty_glass_and_signers_write_refreshable_headers(tmp_path):
     for name in ("Glass", "Signeringer", "Leger"):
         with (tmp_path / "out" / (name + ".csv")).open(encoding="utf-8-sig") as stream:
             reader = csv.DictReader(stream, delimiter=";")
-            assert reader.fieldnames == flow.EMPTY_FIELDS[name]
+            assert reader.fieldnames == flow.TABLE_FIELDS[name]
             assert list(reader) == []
 
 
@@ -121,7 +182,7 @@ def test_closed_month_is_cached_but_periodically_refreshed(tmp_path):
     assert flow.needs_refresh(path, date(2026, 9, 1), date(2026, 9, 30), date.today() + timedelta(days=31))
 
 
-def test_processor_produces_all_seven_private_powerbi_tables(tmp_path):
+def test_processor_produces_all_seven_sharepoint_and_local_powerbi_tables(tmp_path):
     from datetime import datetime
     from molstat.statistics import StatisticsProcessor
     sources = []
@@ -135,7 +196,9 @@ def test_processor_produces_all_seven_private_powerbi_tables(tmp_path):
         "lege", [source], tmp_path / "out")
     assert set(result.private_files) == {name + ".csv" for name in ("Prøver", "Glass", "Signeringer", "Grupper", "Periode", "Leger", "Prioriteter")}
     assert result.row_counts["forlop_prover"] == 1
-    assert set(result.publication_files) == {"prosess.csv"}
+    assert result.publication_files == result.private_files
+    assert all(path.parent == tmp_path / "out" for path in result.publication_files.values())
+    assert not (tmp_path / "out" / "prosess.csv").exists()
 
 
 def test_existing_config_switches_to_only_workflow(tmp_path):

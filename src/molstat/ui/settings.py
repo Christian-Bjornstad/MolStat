@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSize, QUrl
+from PyQt6.QtCore import Qt, QSize, QUrl, QTime
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout,
     QLabel, QLayout, QLineEdit, QListWidget, QListWidgetItem, QScrollArea,
-    QSpinBox, QStackedWidget, QTabWidget, QVBoxLayout, QWidget,
+    QStackedWidget, QTabWidget, QTimeEdit, QVBoxLayout, QWidget,
 )
 
 from ..modules import DEFAULT_UNITS, UnitDefinition, UnitRegistry
@@ -307,28 +307,22 @@ class SettingsPage(QWidget):
     def _schedule_tab(self) -> QWidget:
         content, layout = _tab_content()
         layout.addWidget(section_title("Automatisk kjøring"))
-        layout.addWidget(help_text("Tidsplanen gjelder de lagrede, aktive enhetene. Klokkeslett bruker PC-ens lokale tid."))
+        layout.addWidget(help_text("Velg når MolStat skal oppdatere alle lagrede, aktive enheter hver dag mens programmet er åpent. Klokkeslett bruker PC-ens lokale tid."))
         schedule = QGroupBox("Tidsplan")
         form = QFormLayout(schedule)
         form.setSpacing(12)
-        self.schedule_fields: dict[str, QSpinBox] = {}
-        for key, label, default in (
-            ("statistics_hour", "Statistikk – daglig kl.", 5),
-            ("backlog_first_hour", "Restanse – første time", 6),
-            ("backlog_last_hour", "Restanse – siste time", 18),
-        ):
-            field = QSpinBox()
-            field.setObjectName(key.replace("_", "-"))
-            field.setRange(0, 23)
-            field.setValue(default)
-            field.setAccessibleName(label)
-            field.setSuffix(":00")
-            field.setMinimumHeight(44)
-            self.schedule_fields[key] = field
-            form.addRow(label, field)
-        form.addRow(help_text("Restanse kjøres hver time mellom første og siste time."))
+        self.daily_time = QTimeEdit(QTime(7, 0))
+        self.daily_time.setDisplayFormat("HH:mm")
+        self.daily_time.setObjectName("daily-run-time")
+        self.daily_time.setAccessibleName("Klokkeslett for daglig automatisk oppdatering")
+        self.daily_time.setMinimumHeight(44)
+        self.daily_time.setMaximumWidth(180)
+        form.addRow("Daglig kl.", self.daily_time)
+        form.addRow(help_text("Trykk «Valider og lagre» for å ta i bruk tidspunktet. Standard er 07:00. Et nytt tidspunkt starter en ny kjøring selv om programmet allerede har kjørt tidligere samme dag."))
+        form.addRow(help_text("Statistikk og restanse kjøres samlet, med behandling, publisering og oppdatering av Excel-søk."))
         layout.addWidget(schedule)
-        layout.addWidget(help_text("Lagre tidsplanen, og installer Windows-oppgavene på nytt for å aktivere endringene."))
+        layout.addWidget(help_text("La MolStat være åpent, gjerne minimert. PC-en må være våken og ha tilgang til LVMS, datarot og SharePoint. En forsinket kjøring tas igjen når programmet er tilgjengelig etter valgt tidspunkt."))
+        layout.addWidget(help_text("Tidsstyringen krever ingen Windows-oppgave eller ekstra program. Gamle tidsplaner brukes ikke lenger. Ved feil: se Diagnostikk, velg et nytt tidspunkt eller bruk «Kjør aktive enheter»."))
         layout.addStretch(1)
         return _tab_scroll(content, "schedule-settings-scroll")
 
