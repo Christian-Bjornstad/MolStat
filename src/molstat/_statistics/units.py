@@ -8,6 +8,7 @@ editing the selected unit JSON. The app does not generate unit files.
 from __future__ import annotations
 
 import json
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,15 @@ class UnitReport:
     analysis_codes: tuple[str, ...] | None = None
     laboratory: str = ""
     process_codes: tuple[str, ...] = ()
+
+    @property
+    def archive_scope(self) -> str:
+        # Legacy single-lab archives retain their coverage. Multiple labs need
+        # confirmed coverage for this filter, including labs with zero rows.
+        if "," not in self.laboratory:
+            return ""
+        parameters = (self.fetch_report_id, sorted(self.laboratory.split(",")), sorted(self.process_codes))
+        return hashlib.sha256(json.dumps(parameters, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

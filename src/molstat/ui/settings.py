@@ -319,7 +319,7 @@ class SettingsPage(QWidget):
         self.daily_time.setMaximumWidth(180)
         form.addRow("Daglig kl.", self.daily_time)
         form.addRow(help_text("Trykk «Valider og lagre» for å ta i bruk tidspunktet. Standard er 07:00. Et nytt tidspunkt starter en ny kjøring selv om programmet allerede har kjørt tidligere samme dag."))
-        form.addRow(help_text("Statistikk og restanse kjøres samlet, med behandling, publisering og oppdatering av Excel-søk."))
+        form.addRow(help_text("Statistikk og restanse kjøres samlet, med behandling og publisering. Excel-søk oppdateres for Hemato og Solide."))
         layout.addWidget(schedule)
         layout.addWidget(help_text("La MolStat være åpent, gjerne minimert. PC-en må være våken og ha tilgang til LVMS, datarot og SharePoint. En forsinket kjøring tas igjen når programmet er tilgjengelig etter valgt tidspunkt."))
         layout.addWidget(help_text("Tidsstyringen krever ingen Windows-oppgave eller ekstra program. Gamle tidsplaner brukes ikke lenger. Ved feil: se Diagnostikk, velg et nytt tidspunkt eller bruk «Kjør aktive enheter»."))

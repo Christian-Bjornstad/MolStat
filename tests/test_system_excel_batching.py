@@ -72,6 +72,34 @@ def test_direct_capability_still_refreshes_immediately():
     assert system.refreshes == ["refreshed"]
 
 
+@pytest.mark.parametrize("key", ["lege", "fish", "pre", "flow"])
+@pytest.mark.parametrize("batched", [False, True])
+def test_units_without_excel_search_never_schedule_or_emit_excel(key, batched):
+    system = batch_system()
+    system.units = DEFAULT_UNITS
+    events = []
+    with progress_context(events.append):
+        if batched:
+            results = system.run_job("statistics", (key, "flow" if key != "flow" else "pre"))
+        else:
+            results = system.run_unit(key)
+    assert all(item.error is None for item in results)
+    assert all(item.summary["excel_published"] is False for item in results)
+    assert system.refreshes == []
+    assert not any(event.stage == "excel" for event in events)
+
+
+def test_mixed_batch_only_marks_hemato_and_solide_as_excel_published():
+    system = batch_system()
+    system.units = DEFAULT_UNITS
+    events = []
+    with progress_context(events.append):
+        results = system.run_job("statistics", ("hemato", "solide", "lege", "fish", "pre", "flow"))
+    assert system.refreshes == ["refreshed"]
+    assert {item.unit_key for item in results if item.summary["excel_published"]} == {"hemato", "solide"}
+    assert {event.unit_key for event in events if event.stage == "excel"} <= {"hemato", "solide"}
+
+
 def test_cancellation_does_not_start_final_workbook_and_resets_batch_state():
     from molstat.failures import RunFailure
 

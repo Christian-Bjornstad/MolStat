@@ -84,7 +84,8 @@ def test_daily_pathology_refresh_publishes_complete_history_and_reports_real_sta
         rows = list(csv.DictReader(stream, delimiter=';'))
     assert {r['Prøvenummer']: r['Godkjent'] for r in rows} == {'KEEP':'0','UPDATED':'1','NEW':'0'}
     assert {p.stem for p in (public / 'lege').glob('*.csv')} == set(flow.TABLE_FIELDS)
-    assert [e.stage for e in events] == ['planned','started','fetching','processing','publishing','excel','finished']
+    assert [e.stage for e in events] == ['planned','started','fetching','processing','publishing','finished']
+    assert outcome.summary['excel_published'] is False
 
 
 @pytest.mark.parametrize("fail_publication", [False, True])

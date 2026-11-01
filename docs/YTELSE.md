@@ -18,7 +18,7 @@ Registerimporten lagrer nå et versjonert sett med arkivfilenes navn og innholds
 
 Power BI-filene bygges fremdeles fra komplett arkivhistorikk. Excel-søket inneholder fremdeles hele registeret og alle analyser. Ingen perioder, kolonner eller valideringer er fjernet for å få bedre tid. Uendrede, gamle råarkiver får ikke kunstig ny registerobservasjon ved hver kjøring.
 
-En samlet kjøring av aktive enheter, én enhet med både statistikk og restanse, eller flere enheters statistikk/restanse, bygger Excel én gang etter siste deljobb. Ferdige importer fra en delvis mislykket kjøring blir med. En enkelt kapabilitet eller manuell import oppdaterer fortsatt Excel direkte. Avbrudd og mistet skrivelås starter ikke et nytt, langt Excel-steg. Låste Excel-filer bruker eksisterende kandidater, validering og gjenforsøk.
+En samlet kjøring av aktive enheter, én enhet med både statistikk og restanse, eller flere enheters statistikk/restanse, bygger Excel én gang etter siste deljobb. Fra 30. oktober 2026 utløser bare Hemato og Solide Excel-oppdatering, også ved enkeltkjøring og manuell import. Patolog, FISH, Preanalyse og Flow gjør det ikke. Ferdige importer fra en delvis mislykket kjøring blir med. Avbrudd og mistet skrivelås starter ikke et nytt, langt Excel-steg. Låste Excel-filer bruker eksisterende kandidater, validering og gjenforsøk.
 
 ## Før/etter-målinger
 

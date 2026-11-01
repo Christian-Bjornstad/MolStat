@@ -162,7 +162,10 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
     if len(set(processes)) != len(processes):
         raise ReportJobError("workflow process codes contain duplicates")
     if workflow:
-        if not re.fullmatch(r"[A-Z0-9-]{1,80}", laboratory) or not processes or codes:
+        laboratories = laboratory.split(",")
+        if (not 1 <= len(laboratories) <= 100
+                or any(not re.fullmatch(r"[A-Z0-9-]{1,80}", lab) for lab in laboratories)
+                or len(set(laboratories)) != len(laboratories) or not processes or codes):
             raise ReportJobError("workflow requires a laboratory and process codes, without analysis codes")
         if raw.get("report_type") != "PRODSTAT" or raw.get("category") != "PATOLOGI":
             raise ReportJobError("workflow report type or category is invalid")

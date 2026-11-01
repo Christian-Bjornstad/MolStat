@@ -207,6 +207,8 @@ class MolStatSystem:
         }
 
     def _refresh_capability_excel(self, unit_key: str, kind: JobKind) -> bool:
+        if unit_key not in {"hemato", "solide"}:
+            return False
         pending = getattr(self, "_pending_excel", None)
         if pending is not None:
             pending.append((unit_key, kind))
@@ -306,7 +308,7 @@ class MolStatSystem:
         emit_progress(unit, kind, 'finished')
         return tuple(
             replace(result, summary={**result.summary, "excel_published": published})
-            if "excel_published" in result.summary else result
+            if (result.unit_key, result.job_kind) in pending and "excel_published" in result.summary else result
             for result in results
         )
 

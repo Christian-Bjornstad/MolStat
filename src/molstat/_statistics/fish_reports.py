@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from .selection import AnalysisSelection, codes_for_report
 
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from molstat._statistics.processing import read_lvms_csv
@@ -86,3 +87,39 @@ def process(ordered: Path, answered: Path, output: Path, analysis_codes: Analysi
 def empty_template(output: Path) -> None:
     write_csv(output / "antall.csv", ANTALL_FIELDS, [])
     write_csv(output / "resultater.csv", RESULT_FIELDS, [])
+
+
+def merge_archives(paths: list[Path]) -> tuple[list[str], list[dict[str, str]]]:
+    """Newest FISH snapshot owns its analysis-order interval, including deletions."""
+    from .merge_raw import merge_report_csvs
+    from .processing import clean_text
+
+    pattern = re.compile(r"__(\d{4}-\d{2}-\d{2})__(\d{4}-\d{2}-\d{2})(?:__r\d+)?\.csv$")
+    covered: list[tuple[date, date]] = []
+    header: list[str] = []
+    merged: list[dict[str, str]] = []
+    for path in sorted(paths, key=lambda p: (p.stat().st_mtime_ns, p.name), reverse=True):
+        match = pattern.search(path.name)
+        if match is None:
+            raise ValueError("FISH-arkivet mangler en gyldig uttrekksperiode.")
+        start, end = date.fromisoformat(match[1]), date.fromisoformat(match[2])
+        if any(a <= start and end <= b for a, b in covered):
+            continue
+        fields, rows = merge_report_csvs([path])
+        header.extend(field for field in fields if field not in header)
+        order_column = next((field for field in fields
+            if field.strip().replace(" ", ".") == "Tidspunkt.analysebestilling"), None)
+        for row in rows:
+            ordered = parse_time(clean_text(row.get(order_column)))
+            if ordered is None or not start <= ordered.date() <= end:
+                raise ValueError("FISH-arkivet inneholder analysebestilling utenfor uttrekksperioden.")
+            if not any(a <= ordered.date() <= b for a, b in covered):
+                merged.append(row)
+        intervals: list[tuple[date, date]] = []
+        for a, b in sorted([*covered, (start, end)]):
+            if intervals and (a - intervals[-1][1]).days <= 1:
+                intervals[-1] = intervals[-1][0], max(intervals[-1][1], b)
+            else:
+                intervals.append((a, b))
+        covered = intervals
+    return header, merged

@@ -18,6 +18,7 @@ class ReportRequest:
     report_name: str
     date_from: date
     date_to: date
+    archive_scope: str = ""
 
     def __post_init__(self) -> None:
         if self.kind not in ("statistics", "backlog"):

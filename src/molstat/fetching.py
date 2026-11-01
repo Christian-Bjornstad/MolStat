@@ -14,7 +14,7 @@ import time
 from uuid import uuid4
 
 from .storage_layout import StorageLayout
-from .archive import RawArchive, remove_archived_download
+from .archive import RawArchive, read_archive_scope, remove_archived_download
 from .lvms.batch_runner import run_report_batch
 from .lvms.report import ReportRequest
 from .lvms.report_job import ReportInterval, ReportJob, batch_filename
@@ -94,6 +94,7 @@ class UnifiedLvmsFetcher:
                 usernames = ()
                 start, _ = plan_window(self.sensitive_root, kind="statistics", unit=unit.key,
                     report_name=unit.report_by_key("workflow").report_id,
+                    archive_scope=unit.report_by_key("workflow").archive_scope,
                     baseline=self.history_from, today=today)
                 self._backfill_flow_months(unit, today)
                 planned = [(unit.report_by_key("workflow"), max(start, today.replace(day=1)), today)]
@@ -106,6 +107,7 @@ class UnifiedLvmsFetcher:
                     start, end = plan_window(
                         self.sensitive_root, kind="statistics", unit=unit.key,
                         report_name=report.report_id, baseline=self.history_from, today=today,
+                        monthly_overlap=unit.profile == "fish",
                     )
                     if end > _two_months_after(start):
                         self._backfill_statistics_months(unit, report, start, end)
@@ -127,6 +129,7 @@ class UnifiedLvmsFetcher:
                         report_name=report.report_id,
                         date_from=job.interval.created_from,
                         date_to=job.interval.created_to,
+                        archive_scope=report.archive_scope,
                     ),
                     source,
                 )
@@ -137,7 +140,8 @@ class UnifiedLvmsFetcher:
     def _backfill_flow_months(self, unit: Unit, today: date) -> None:
         report = unit.report_by_key("workflow")
         start, _ = plan_window(self.sensitive_root, kind="statistics", unit=unit.key,
-            report_name=report.report_id, baseline=self.history_from, today=today)
+            report_name=report.report_id, baseline=self.history_from, today=today,
+            archive_scope=report.archive_scope)
         self._backfill_statistics_months(unit, report, start, today)
 
     def _backfill_statistics_months(self, unit: Unit, report, start: date, today: date) -> None:
@@ -149,7 +153,8 @@ class UnifiedLvmsFetcher:
             job = _statistics_job(unit, report, start, end)
             source = self._run_jobs((job,), unit.key)[0]
             archive.store(source, ReportRequest(kind="statistics", unit=unit.key,
-                report_name=report.report_id, date_from=start, date_to=end))
+                report_name=report.report_id, date_from=start, date_to=end,
+                archive_scope=report.archive_scope))
             remove_archived_download(source, self.sensitive_root)
             start = end + timedelta(days=1)
 
@@ -302,6 +307,11 @@ def _two_months_after(start: date) -> date:
     year, month = divmod(start.year * 12 + start.month - 1 + 2, 12)
     target = date(year, month + 1, 1)
     return target.replace(day=min(start.day, _month_end(target).day))
+
+
+def _one_month_before(value: date) -> date:
+    previous_month = value.replace(day=1) - timedelta(days=1)
+    return previous_month.replace(day=min(value.day, previous_month.day))
 
 
 def combine_report_parts(parts: Sequence[Path], destination: Path) -> None:
@@ -457,18 +467,36 @@ def plan_window(
     baseline: date,
     today: date,
     report_name: str | None = None,
+    monthly_overlap: bool = False,
+    archive_scope: str = "",
 ) -> tuple[date, date]:
     archive = StorageLayout(sensitive_root).raw_root / kind / unit
     completed: list[date] = []
+    intervals: list[tuple[date, date]] = []
     if archive.is_dir():
         for path in archive.glob("*.csv"):
             if report_name is not None and path.name.partition("__")[0] != report_name:
+                continue
+            if archive_scope and read_archive_scope(path) != archive_scope:
                 continue
             match = _WINDOW.search(path.name)
             if match is not None:
                 start, end = date.fromisoformat(match.group(1)), date.fromisoformat(match.group(2))
                 if start <= end <= today:
                     completed.append(end)
+                    intervals.append((start, end))
     if not completed:
         return baseline, today
-    return max(baseline, max(completed) - timedelta(days=2)), today
+    latest = max(completed)
+    if archive_scope:
+        # A recent manual import cannot stand in for missing older months.
+        # Only a contiguous confirmed history advances the scoped checkpoint.
+        latest = baseline - timedelta(days=1)
+        for start, end in sorted(intervals):
+            if (start - latest).days > 1:
+                break
+            latest = max(latest, end)
+        if latest < baseline:
+            return baseline, today
+    start = _one_month_before(latest) if monthly_overlap else latest - timedelta(days=2)
+    return max(baseline, start), today

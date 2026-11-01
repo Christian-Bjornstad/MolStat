@@ -202,12 +202,13 @@ def test_split_utf8_report_keeps_one_bom_and_preserves_duplicate_glass_rows(tmp_
 
 
 @pytest.mark.parametrize("wrong_child_date", [False, True])
-def test_split_pathology_returns_one_complete_month_file(tmp_path, wrong_child_date):
+@pytest.mark.parametrize("laboratory", ["OU-PAT-HIST-RA", "OU-PAT-HIST-RA,OU-PAT-HIST-RH,OU-PAT-HIST-UL"])
+def test_split_pathology_returns_one_complete_month_file(tmp_path, wrong_child_date, laboratory):
     from molstat._statistics import patolog_flow as flow
     fields = flow.DATE_FIELDS + ["Prøvenummer", "Lab", "Prosess", "Prioritet", "BeholderId",
                                 "BlokkId", "GlassId", "Glasstype", "Signert av", "Godkjent type"]
     report = replace(job(), job_key="workflow", report_id="PAT-TID-STØP-SNITT-OU", analysis_codes=(),
-                     output_stem=flow.STEM, laboratory="OU-PAT-HIST-RA", process_codes=("HEMATO",))
+                     output_stem=flow.STEM, laboratory=laboratory, process_codes=("HEMATO",))
     intervals = []
     def runner(config, jobs_path, keys, **kwargs):
         current, = load_report_jobs(jobs_path)
@@ -218,7 +219,7 @@ def test_split_pathology_returns_one_complete_month_file(tmp_path, wrong_child_d
         source = kwargs["repository_root"] / "rådata" / batch_filename(current)
         source.parent.mkdir()
         row = dict.fromkeys(fields, "")
-        row.update({"Prøvenummer": f"SYNTHETIC-{current.interval.created_from.day}", "Lab": "OU-PAT-HIST-RA",
+        row.update({"Prøvenummer": f"SYNTHETIC-{current.interval.created_from.day}", "Lab": laboratory.split(',')[-1],
                     "Prosess": "HEMATO", "Ankomsttid": current.interval.created_from.strftime("%d.%m.%Y") + " 08:00"})
         if wrong_child_date and current.interval.created_from.day == 1:
             row["Ankomsttid"] = "04.10.2026 08:00"

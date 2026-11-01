@@ -57,14 +57,15 @@ def _system(tmp_path, key="hemato", workflow=False):
 
 @pytest.mark.parametrize('start,end', [(date(2026,10,1),date(2026,10,7)), (date(2026,10,18),date(2026,10,21)),
                                       (date(2026,9,29),date(2026,10,2))])
-def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path, start, end):
+@pytest.mark.parametrize('laboratory', ['OU-PAT-HIST-RA', 'OU-PAT-HIST-RH', 'OU-PAT-HIST-UL'])
+def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path, start, end, laboratory):
     from molstat._statistics import patolog_flow as flow
     from molstat.manual_import import manual_import_roles
     system, definition = _system(tmp_path, "lege", workflow=True)
     system.statistics_processors["lege"] = StatisticsProcessor(analysis_codes=analysis_codes("lege"), profile="lege")
     assert manual_import_roles(definition, "statistics") == ("workflow",)
     row = dict.fromkeys(flow.DATE_FIELDS + ["Prøvenummer", "Lab", "Prosess", "Prioritet", "BeholderId", "BlokkId", "GlassId", "Glasstype", "Signert av", "Godkjent type"], "")
-    row.update(Prøvenummer="PRIVATE-FLOW-1", Lab="OU-PAT-HIST-RA", Prosess="HEMATO", Ankomsttid="01.10.2026 08:00")
+    row.update(Prøvenummer="PRIVATE-FLOW-1", Lab=laboratory, Prosess="HEMATO", Ankomsttid="01.10.2026 08:00")
     row['Ankomsttid'] = start.strftime('%d.%m.%Y 08:00')
     source = tmp_path / "workflow.csv"
     with source.open("w", encoding="cp1252", newline="") as stream:
@@ -83,6 +84,8 @@ def test_single_workflow_file_imports_without_legacy_reports_or_roster(tmp_path,
         assert (public / name).read_bytes() == (tmp_path / "sensitive/processed/lege/powerbi" / name).read_bytes()
     assert "PRIVATE-FLOW-1" in (public / "Prøver.csv").read_text(encoding="utf-8-sig")
     assert not (public / "source_audit.json").exists()
+    assert not (tmp_path / "sensitive/Prøvesøk.xlsx").exists()
+    assert result[0].summary['excel_published'] is False
 
 
 def _files(tmp_path, encoding="cp1252"):
@@ -187,7 +190,8 @@ def test_manual_specialized_units_process_and_update_registry(tmp_path, key):
     assert (tmp_path / f"public/{key}/resultater.csv").is_file()
     with system.database._connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM sample").fetchone()[0] == 1
-    assert (tmp_path / "sensitive/Prøvesøk.xlsx").is_file()
+    assert not (tmp_path / "sensitive/Prøvesøk.xlsx").exists()
+    assert result[0].summary["excel_published"] is False
 
 
 def test_manual_fish_accepts_multiline_lvms_comment_and_preserves_all_result_dates(tmp_path):

@@ -169,11 +169,14 @@ def _copy_statistics_history(system: MolStatSystem, staging: Path,
 def _request(plan: ManualImportPlan, definition: UnitFile, role: str) -> ReportRequest:
     start, end = plan.date_from, plan.date_to
     report_role = role
+    archive_scope = ""
     if plan.job_kind == "backlog":
         report_id = definition.payload["backlog"]["report"]["output_stem"]
     else:
         report_id = definition.payload["statistics"][report_role]["report_id"]
-    return ReportRequest(plan.job_kind, plan.unit_key, report_id, start, end)
+        report = next(report for report in definition.unit.reports if report.report_id == report_id)
+        archive_scope = report.archive_scope
+    return ReportRequest(plan.job_kind, plan.unit_key, report_id, start, end, archive_scope=archive_scope)
 
 
 def process_manual_import(

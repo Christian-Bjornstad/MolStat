@@ -260,7 +260,8 @@ def validate_month(path, start, end, *, laboratory=None, processes=()):
     rows = read_source(path)
     if any(not (arrival := moment(row.get("Ankomsttid"))) or not start <= arrival.date() <= end for row in rows):
         raise ValueError("Uttrekket inneholder ankomst utenfor forespurt periode")
-    if laboratory and any(clean(r.get("Lab")) != laboratory for r in rows):
+    laboratories = set(laboratory.split(",")) if laboratory else set()
+    if laboratories and any(clean(r.get("Lab")) not in laboratories for r in rows):
         raise ValueError("Uttrekket inneholder feil laboratorium")
     if processes and any(clean(r.get("Prosess")) not in processes for r in rows):
         raise ValueError("Uttrekket inneholder prosess utenfor filteret")

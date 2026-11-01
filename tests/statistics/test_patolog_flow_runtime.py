@@ -54,7 +54,7 @@ def test_monthly_flow_backfill_then_only_recent_days_even_with_open_history(tmp_
     fetcher._backfill_flow_months(unit, date(2026, 10, 18))
     assert [(j.interval.created_from, j.interval.created_to) for j in calls] == [
         (date(2026, 8, 1), date(2026, 8, 31)), (date(2026, 9, 1), date(2026, 9, 30))]
-    assert all(j.laboratory == "OU-PAT-HIST-RA" and j.process_codes for j in calls)
+    assert all(j.laboratory == report.laboratory and j.process_codes for j in calls)
     calls.clear()
     fetcher._backfill_flow_months(unit, date(2026, 10, 18))
     assert [(j.interval.created_from, j.interval.created_to) for j in calls] == [
@@ -62,10 +62,14 @@ def test_monthly_flow_backfill_then_only_recent_days_even_with_open_history(tmp_
 
 
 def test_populated_pathology_fetches_only_recent_days(tmp_path):
+    import json
     from molstat.storage_layout import StorageLayout
     folder = StorageLayout(tmp_path).raw_root / 'statistics/lege'
     export(folder / f'{flow.STEM}__2026-10-01__2026-10-20.csv',
            arrival='01.10.2026 08:00')
+    unit = load_unit_file(default_unit_file('lege')).unit
+    (folder / f'{flow.STEM}__2026-10-01__2026-10-20.scope.json').write_text(
+        json.dumps({'archive_scope': unit.reports[0].archive_scope}), encoding='utf-8')
     jobs = []
     def runner(config, jobs_path, keys, **kwargs):
         job, = load_report_jobs(jobs_path)
@@ -75,7 +79,7 @@ def test_populated_pathology_fetches_only_recent_days(tmp_path):
         return 0
     fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
         work_root=tmp_path / 'work', units=(load_unit_file(default_unit_file('lege')).unit,),
-        run_batch=runner, today=lambda: date(2026, 10, 21))
+        run_batch=runner, today=lambda: date(2026, 10, 21), history_from=date(2026, 10, 1))
     result = fetcher.fetch_statistics(('lege',))['lege']
     assert len(jobs) == len(result) == 1
     assert (jobs[0].interval.created_from, jobs[0].interval.created_to) == (date(2026, 10, 18), date(2026, 10, 21))
@@ -101,9 +105,13 @@ def test_daily_pathology_snapshot_replaces_whole_arrival_window_and_keeps_histor
 
 
 def test_pathology_overlap_at_month_boundary_never_restarts_history(tmp_path):
+    import json
     from molstat.storage_layout import StorageLayout
     folder = StorageLayout(tmp_path).raw_root / 'statistics/lege'
     export(folder / f'{flow.STEM}__2026-10-01__2026-10-31.csv', arrival='01.10.2026 08:00')
+    unit = load_unit_file(default_unit_file('lege')).unit
+    (folder / f'{flow.STEM}__2026-10-01__2026-10-31.scope.json').write_text(
+        json.dumps({'archive_scope': unit.reports[0].archive_scope}), encoding='utf-8')
     jobs = []
     def runner(config, jobs_path, keys, **kwargs):
         job, = load_report_jobs(jobs_path)
@@ -114,7 +122,7 @@ def test_pathology_overlap_at_month_boundary_never_restarts_history(tmp_path):
         return 0
     fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
         work_root=tmp_path / 'work', units=(load_unit_file(default_unit_file('lege')).unit,),
-        run_batch=runner, today=lambda: date(2026, 11, 2))
+        run_batch=runner, today=lambda: date(2026, 11, 2), history_from=date(2026, 10, 1))
     result = fetcher.fetch_statistics(('lege',))['lege']
     assert [(j.interval.created_from, j.interval.created_to) for j in jobs] == [
         (date(2026, 10, 29), date(2026, 10, 31)), (date(2026, 11, 1), date(2026, 11, 2))]

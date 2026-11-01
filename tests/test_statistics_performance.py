@@ -81,6 +81,54 @@ def test_new_registry_bootstraps_complete_archive_even_with_only_daily_inputs(tm
     assert result.row_counts == {'antall': 2, 'resultater': 2}
 
 
+def test_fish_monthly_overlap_replaces_changed_results_and_preserves_repeat_orders(tmp_path):
+    from molstat.unit_settings import load_unit_file
+    from unit_fixtures import default_unit_file
+    unit = load_unit_file(default_unit_file('fish')).unit
+    archive = tmp_path / 'archive'
+    archive.mkdir()
+    database = MolStatDatabase(tmp_path / 'registry.sqlite3')
+    database.migrate()
+    run = StatisticsProcessor(analysis_codes={'FISH-ALKBA-OU'}, profile='fish', database=database,
+        report_ids={role: report.report_id for role, report in zip(('antall', 'resultater'), unit.reports)})
+
+    def sources(start, end, values, revision=''):
+        paths = []
+        for role, report in zip(('antall', 'resultater'), unit.reports):
+            path = archive / f'{report.report_id}__{start}__{end}{revision}.csv'
+            with path.open('w', encoding='cp1252', newline='') as stream:
+                writer = csv.writer(stream, delimiter=';')
+                writer.writerow(HEADER)
+                for sample, workitem, ordered, resulted in values:
+                    writer.writerow([sample, workitem, 'FISH-ALKBA-OU', 'PAK',
+                        '01.08.2026 08:00', ordered, resulted if role == 'resultater' else '', ''])
+            paths.append(path)
+        return paths
+
+    old = sources('2026-09-01', '2026-09-30', [
+        ('KEEP', 'KEEP-1', '10.09.2026 08:00', '11.09.2026 08:00'),
+        ('UPDATED', 'UPDATED-1', '25.09.2026 08:00', '26.09.2026 08:00')])
+    run.process('fish', old, tmp_path / 'initial')
+    values = [('UPDATED', 'UPDATED-1', '25.09.2026 08:00', '01.10.2026 08:00'),
+              ('UPDATED', 'UPDATED-2', '26.09.2026 08:00', '02.10.2026 08:00'),
+              ('NEW', 'NEW-1', '30.09.2026 08:00', '03.10.2026 08:00')]
+    daily = sources('2026-09-20', '2026-10-21', values)
+    result = run.process('fish', daily, tmp_path / 'daily')
+    assert result.row_counts == {'antall': 4, 'resultater': 4}
+    with result.resultater.open(encoding='utf-8-sig', newline='') as stream:
+        assert {row['Tidspunkt.analyseresultat'] for row in csv.DictReader(stream, delimiter=';')} == {
+            '2026/09/11 08:00:00', '2026/10/01 08:00:00', '2026/10/02 08:00:00', '2026/10/03 08:00:00'}
+    with database.read_connection() as connection:
+        assert connection.execute('SELECT COUNT(*) FROM sample').fetchone()[0] == 3
+        assert connection.execute('SELECT COUNT(*) FROM analysis_occurrence').fetchone()[0] == 4
+    repeated = sources('2026-09-20', '2026-10-21', values, '__r2')
+    again = run.process('fish', repeated, tmp_path / 'repeated')
+    assert result.resultater.read_bytes() == again.resultater.read_bytes()
+    empty = sources('2026-09-20', '2026-10-21', [], '__r3')
+    corrected = run.process('fish', empty, tmp_path / 'corrected')
+    assert corrected.row_counts == {'antall': 1, 'resultater': 1}
+
+
 def test_historical_correction_updates_exports_and_imports_only_changed_archives(tmp_path):
     run, database = processor(tmp_path)
     archive = tmp_path / 'archive'

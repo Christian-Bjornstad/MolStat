@@ -82,16 +82,17 @@ ROLE_PAYLOADS = {
 }
 
 
-def test_workflow_form_uses_arrival_dates_lab_processes_and_full_last_day():
+@pytest.mark.parametrize("laboratory", ["OU-PAT-HIST-RA", "OU-PAT-HIST-RA,OU-PAT-HIST-RH,OU-PAT-HIST-UL"])
+def test_workflow_form_uses_arrival_dates_lab_processes_and_full_last_day(laboratory):
     workflow = validate_report_job({"job_key": "workflow", "report_type": "PRODSTAT", "category": "PATOLOGI",
         "report_id": "PAT-TID-STØP-SNITT-OU", "analysis_codes": [], "created_from": "01.09.2026",
         "created_to": "30.09.2026", "output_stem": "PAT-TID-STOP-SNITT-OU",
-        "laboratory": "OU-PAT-HIST-RA", "process_codes": ["HEMATO", "HEMATO BENMARG"]})
+        "laboratory": laboratory, "process_codes": ["HEMATO", "HEMATO BENMARG"]})
     state = FormState()
     form = BatchReportForm(state.page, state.actions, EXPECTED_ORIGIN, sleep=lambda _: None)
     form.populate(defined_reports_page(), workflow)
     values = {call[2]: call[3] for call in state.calls if call[0] == "replace"}
-    assert values["flow-lab"] == "OU-PAT-HIST-RA"
+    assert values["flow-lab"] == laboratory
     assert values["flow-process"] == "HEMATO,HEMATO BENMARG"
     assert values["created-to"] == "30.09.2026 23:59:59"
 

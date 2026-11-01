@@ -9,7 +9,7 @@
       "fetch_report_id": "PAT-TID-STØP-SNITT-OU",
       "report_id": "PAT-TID-STOP-SNITT-OU",
       "analysis_codes": [],
-      "laboratory": "OU-PAT-HIST-RA",
+      "laboratory": "OU-PAT-HIST-RA,OU-PAT-HIST-RH,OU-PAT-HIST-UL",
       "process_codes": [
         "BEN-BLØTVEV",
         "GI",

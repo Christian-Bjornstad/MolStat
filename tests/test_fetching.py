@@ -263,7 +263,8 @@ def test_every_statistics_profile_only_backfills_missing_report_history(tmp_path
     assert len(fetched) == len(unit.reports)
     for report in unit.reports:
         jobs = [job for job in runner.jobs if job.output_stem == report.report_id]
-        assert jobs[0].interval.created_from == (date(2026, 10, 18) if populated else date(2024, 1, 1))
+        recent_start = date(2026, 9, 20) if key == 'fish' else date(2026, 10, 18)
+        assert jobs[0].interval.created_from == (recent_start if populated else date(2024, 1, 1))
         assert jobs[-1].interval.created_to == date(2026, 10, 21)
         assert len(jobs) == (1 if populated else 34)
 
@@ -289,13 +290,17 @@ def test_long_missing_statistics_interval_fetches_and_checkpoints_each_calendar_
     archive = tmp_path / 'data/raw/statistics' / key
     archive.mkdir(parents=True)
     for report in unit.reports:
-        (archive / f'{report.report_id}__2024-01-01__2026-06-17.csv').write_text('existing')
+        source = archive / f'{report.report_id}__2024-01-01__2026-06-17.csv'
+        source.write_text('existing')
+        if report.archive_scope:
+            source.with_suffix('.scope.json').write_text(json.dumps({'archive_scope': report.archive_scope}), encoding='utf-8')
     fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
         work_root=tmp_path / 'work', units=(unit,), run_batch=runner, today=lambda: date(2026, 10, 21))
 
     fetched = fetcher.fetch_statistics((key,))[key]
 
-    expected = [(date(2026, 6, 15), date(2026, 6, 30)),
+    expected = [(date(2026, 5, 17), date(2026, 5, 31))] if key == 'fish' else []
+    expected += [(date(2026, 6, 1) if key == 'fish' else date(2026, 6, 15), date(2026, 6, 30)),
                 (date(2026, 7, 1), date(2026, 7, 31)),
                 (date(2026, 8, 1), date(2026, 8, 31)),
                 (date(2026, 9, 1), date(2026, 9, 30)),
@@ -308,6 +313,27 @@ def test_long_missing_statistics_interval_fetches_and_checkpoints_each_calendar_
     assert len(fetched) == len(unit.reports)
     assert all((request.date_from, request.date_to) == expected[-1] and source.is_file()
                for request, source in fetched)
+
+
+@pytest.mark.parametrize('today,expected', [
+    (date(2026, 3, 31), date(2026, 2, 28)),
+    (date(2024, 3, 31), date(2024, 2, 29)),
+    (date(2026, 1, 31), date(2025, 12, 31)),
+])
+def test_fish_always_refetches_a_calendar_month_for_each_report(tmp_path, today, expected):
+    from molstat.unit_settings import load_unit_file
+    from unit_fixtures import default_unit_file
+    unit = load_unit_file(default_unit_file('fish')).unit
+    folder = tmp_path / 'data/raw/statistics/fish'
+    folder.mkdir(parents=True)
+    for report in unit.reports:
+        (folder / f'{report.report_id}__2024-01-01__{today.isoformat()}.csv').write_text('existing')
+    runner = FakeBatchRunner()
+    fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / 'lvms.json', sensitive_root=tmp_path,
+        work_root=tmp_path / 'work', units=(unit,), run_batch=runner, today=lambda: today)
+    fetched = fetcher.fetch_statistics(('fish',))['fish']
+    assert len(runner.jobs) == len(unit.reports)
+    assert all((request.date_from, request.date_to) == (expected, today) for request, _ in fetched)
 
 
 @pytest.mark.parametrize(('start', 'today', 'expected'), [

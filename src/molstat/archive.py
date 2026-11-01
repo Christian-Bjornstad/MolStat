@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 import hashlib
+import json
 import logging
 import os
 from pathlib import Path
@@ -60,7 +61,19 @@ class RawArchive:
             os.utime(destination, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
         except OSError:
             logging.getLogger(__name__).warning('RAW_ARCHIVE_METADATA: timestamp metadata unavailable.')
+        if request.archive_scope:
+            from .unit_settings import write_json
+            retry_operation(lambda: write_json(destination.with_suffix('.scope.json'),
+                {'archive_scope': request.archive_scope}), stage='raw_archive_scope')
         return ArchivedRawFile(path=destination, sha256=digest)
+
+
+def read_archive_scope(path: Path) -> str:
+    try:
+        payload = json.loads(path.with_suffix('.scope.json').read_text(encoding='utf-8'))
+    except (FileNotFoundError, ValueError):
+        return ''
+    return payload.get('archive_scope', '') if isinstance(payload, dict) else ''
 
 
 def _stage_source(source: Path, directory: Path, stem: str) -> tuple[Path, str]:

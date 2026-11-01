@@ -127,7 +127,7 @@ class StatisticsProcessor:
                 if len(matches) != 1:
                     raise ValueError(f"Forventet nøyaktig én rapport for {role}.")
                 source_inputs[role] = matches[0]
-                inputs[role] = _merge_archives(matches[0], merged_dir)
+                inputs[role] = _merge_archives(matches[0], merged_dir, profile=self.profile)
             if self.profile == "flow":
                 counts = flow_reports.process(
                     inputs["antall"], inputs["resultater"], output_dir, self.selection
@@ -272,9 +272,12 @@ def _report_archives(current: Path) -> tuple[Path, ...]:
     return paths
 
 
-def _merge_archives(current: Path, output_dir: Path) -> Path:
+def _merge_archives(current: Path, output_dir: Path, *, profile: str = "hemato") -> Path:
     archives = _report_archives(current)
-    header, rows = merge_report_csvs(list(archives))
+    merge = merge_report_csvs
+    if profile == "fish":
+        from ._statistics.fish_reports import merge_archives as merge
+    header, rows = merge(list(archives))
     report_id = current.name.partition("__")[0]
     destination = output_dir / f"{report_id}.csv"
     write_merged_csv(header, rows, destination)
