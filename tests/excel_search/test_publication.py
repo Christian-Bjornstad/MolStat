@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import zipfile
 
 import pytest
 
@@ -65,3 +66,22 @@ def test_locked_target_keeps_previous_workbook_and_returns_retry_status(
     assert result.status == "locked"
     assert destination.read_bytes() == b"previous"
     assert list(tmp_path.glob(".Prøvesøk.*.pending.xlsx")) == []
+
+
+@pytest.mark.parametrize('damage', ['xml', 'numeric_cache', 'protection'])
+def test_validation_rejects_excel_repair_conditions_and_missing_guards(tmp_path, damage):
+    source, broken = tmp_path / 'valid.xlsx', tmp_path / 'broken.xlsx'
+    generate_search_workbook(_snapshot(tmp_path), source)
+    with zipfile.ZipFile(source) as reader, zipfile.ZipFile(broken, 'w') as writer:
+        for member in reader.infolist():
+            data = reader.read(member)
+            if member.filename == 'xl/worksheets/sheet1.xml':
+                if damage == 'xml':
+                    data = data.replace(b'</worksheet>', b'')
+                elif damage == 'numeric_cache':
+                    data = data.replace(b'<v>0</v>', b'<v>False</v>', 1)
+                else:
+                    data = data.replace(b'<sheetProtection ', b'<disabledProtection ')
+            writer.writestr(member, data)
+    with pytest.raises(WorkbookValidationError):
+        validate_search_workbook(broken)

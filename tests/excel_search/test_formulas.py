@@ -73,6 +73,21 @@ def test_search_formulas_use_xlsx_spilled_range_serialization(tmp_path):
     assert 'IF(\'Analyser\'!$A$2:$H$3="","",\'Analyser\'!$A$2:$H$3)' in formulas
 
 
+def test_array_search_helpers_are_outside_tables_and_keep_array_semantics(tmp_path):
+    snapshot = read_excel_snapshot(populated_database(tmp_path / 'data.sqlite3'),
+                                   generated_at=datetime(2026, 11, 1))
+    path = tmp_path / 'search.xlsx'
+    generate_search_workbook(snapshot, path)
+    ns = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+    with zipfile.ZipFile(path) as archive:
+        sheet = ElementTree.fromstring(archive.read('xl/worksheets/sheet2.xml'))
+        table = ElementTree.fromstring(archive.read('xl/tables/table1.xml'))
+    helper = sheet.find(f".//{ns}c[@r='H2']")
+    assert helper.find(f'{ns}f').get('t') == 'array'
+    assert helper.get('cm') == '1'
+    assert table.get('ref') == 'A1:G2'
+
+
 def test_prefix_matching_ignores_whitespace_only_searches(tmp_path):
     snapshot = read_excel_snapshot(populated_database(tmp_path / "data.sqlite3"),
                                    generated_at=datetime(2026, 9, 10))

@@ -9,8 +9,10 @@ import hashlib
 import os
 import logging
 from pathlib import Path
+import shutil
 import zipfile
 from uuid import uuid4
+from xml.etree import ElementTree
 
 import xlsxwriter
 
@@ -231,6 +233,7 @@ def _workbook_formats(workbook: xlsxwriter.Workbook) -> dict[str, object]:
                 "font_name": "Arial", "font_size": 11, "num_format": "@",
                 "quote_prefix": True, "bg_color": "#FFF2CC",
                 "border": 1, "border_color": "#D6B656",
+                "locked": False,
             }
         ),
         "note": workbook.add_format(
@@ -254,6 +257,7 @@ def generate_search_workbook(
     workbook = xlsxwriter.Workbook(path)
     try:
         workbook.set_calc_mode("auto")
+        workbook.read_only_recommended()
         formats = _workbook_formats(workbook)
         search = workbook.add_worksheet("Prøvesøk")
         samples = workbook.add_worksheet("Prøver")
@@ -267,6 +271,9 @@ def generate_search_workbook(
         about = workbook.add_worksheet("Om")
         for sheet in (search, samples, *analysis_sheets.values(), about):
             sheet.hide_gridlines(2)
+            # Prevent accidental edits while keeping results selectable/copyable.
+            # Sheet protection is an editing guard, not access control.
+            sheet.protect("MolStat", {"autofilter": True})
 
         search.write("A2", "Prøvesøk", formats["title"])
         search.write(
@@ -385,20 +392,22 @@ def generate_search_workbook(
             # LET shares the query normalization within each sample formula.
             # Explicit future-function prefixes also keep XlsxWriter from
             # scanning every large row formula for functions to expand.
-            samples.write_formula(
-                row_index,
-                7,
+            # Array evaluation prevents Excel inserting @ into TRIM(inputs),
+            # which otherwise breaks multi-row searches. Keep this scalar
+            # helper outside the table: tables cannot host dynamic arrays.
+            samples.write_dynamic_array_formula(
+                row_index, 7, row_index, 7,
                 f'=_xlfn.LET(_xlpm.queries,TRIM({inputs}),'
                 f'_xlpm.upper,UPPER(_xlpm.queries),'
                 f'IF(COUNTA({inputs})=0,FALSE,IF('
                 f"'Prøvesøk'!$B$56=\"Eksakt\",{exact},{prefix})))",
                 formats["body"],
-                False,
+                0,
             )
         sample_last_row = max(1, len(snapshot.samples))
         samples.add_table(
-            0, 0, sample_last_row, len(sample_headers) - 1,
-            {"name": "tblProver", "style": "Table Style Medium 2", "columns": [{"header": name} for name in sample_headers]},
+            0, 0, sample_last_row, len(sample_headers) - 2,
+            {"name": "tblProver", "style": "Table Style Medium 2", "columns": [{"header": name} for name in sample_headers[:-1]]},
         )
         samples.freeze_panes(1, 2)
         samples.set_column("A:B", 26)
@@ -446,14 +455,38 @@ def generate_search_workbook(
         about.write("A8", "Bruk", formats["body"])
         about.write(
             "B8",
-            "Lim inn ett eller flere prøvenumre eller MolStat-ID-er i de gule radene på Prøvesøk. Arbeidsboken er en lesekopi og skriver ikke til databasen.",
+            "Lim inn prøvenumre eller MolStat-ID-er som verdier i de gule radene på Prøvesøk. "
+            "Formler og data er beskyttet mot utilsiktede endringer. Åpne helst skrivebeskyttet, "
+            "og lagre en egen kopi ved behov. Arbeidsboken skriver ikke til databasen.",
             formats["body"],
         )
+        about.write("A10", "Beskyttelse", formats["body"])
+        about.write("B10", "Arkbeskyttelse: MolStat. Brukes bare ved bevisst vedlikehold.", formats["note"])
         about.set_column("A:A", 18)
         about.set_column("B:B", 82)
         about.set_row(7, 32)
     finally:
         workbook.close()
+    _protect_workbook_structure(path)
+
+
+def _protect_workbook_structure(path: Path) -> None:
+    """Add the OOXML structure guard which XlsxWriter does not expose."""
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.protected")
+    try:
+        with zipfile.ZipFile(path) as source, zipfile.ZipFile(temporary, "w") as target:
+            for member in source.infolist():
+                if member.filename == "xl/workbook.xml":
+                    xml = source.read(member).decode("utf-8")
+                    xml = xml.replace("<bookViews>",
+                        '<workbookProtection lockStructure="1"/><bookViews>', 1)
+                    target.writestr(member, xml.encode("utf-8"))
+                else:
+                    with source.open(member) as reader, target.open(member, "w") as writer:
+                        shutil.copyfileobj(reader, writer, length=1024 * 1024)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def validate_search_workbook(path: Path) -> None:
@@ -476,7 +509,8 @@ def validate_search_workbook(path: Path) -> None:
                 if name.startswith("xl/tables/table")
             )
             corrupt_member = archive.testzip()
-    except (KeyError, UnicodeDecodeError, zipfile.BadZipFile) as exc:
+            _validate_xml_parts(archive)
+    except (KeyError, UnicodeDecodeError, zipfile.BadZipFile, ElementTree.ParseError, ValueError) as exc:
         raise WorkbookValidationError("Arbeidsboken kunne ikke valideres.") from exc
     if corrupt_member is not None or bad_members:
         raise WorkbookValidationError("Arbeidsboken inneholder ugyldige deler.")
@@ -485,6 +519,40 @@ def validate_search_workbook(path: Path) -> None:
             raise WorkbookValidationError("Arbeidsboken mangler et påkrevd ark.")
     if 'name="tblProver"' not in table_xml or "tblAnalyser" not in table_xml:
         raise WorkbookValidationError("Arbeidsboken mangler påkrevde datatabeller.")
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    protection = ElementTree.fromstring(workbook_xml).find(f"{namespace}workbookProtection")
+    if protection is None or protection.get("lockStructure") != "1":
+        raise WorkbookValidationError("Arbeidsboken mangler strukturbeskyttelse.")
+
+
+def _validate_xml_parts(archive: zipfile.ZipFile) -> None:
+    """Stream XML checks so large worksheets do not need a second in-memory copy."""
+    namespace = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+    for name in archive.namelist():
+        if not name.endswith(".xml"):
+            continue
+        protected = not name.startswith("xl/worksheets/sheet")
+        cell_type = None
+        parents = []
+        with archive.open(name) as stream:
+            for event, element in ElementTree.iterparse(stream, events=("start", "end")):
+                if event == "start":
+                    parents.append(element)
+                    if element.tag == f"{namespace}c":
+                        cell_type = element.get("t", "n")
+                    continue
+                if element.tag == f"{namespace}sheetProtection":
+                    protected = element.get("sheet") == "1"
+                if element.tag == f"{namespace}v" and cell_type in {"n", "b", "s"} and element.text:
+                    # Bare Python booleans in numeric caches make Excel repair
+                    # the file. Dynamic formula caches must use numeric 0/1.
+                    float(element.text)
+                parents.pop()
+                if parents:
+                    parents[-1].remove(element)
+                element.clear()
+        if not protected:
+            raise WorkbookValidationError("Arbeidsboken mangler arkbeskyttelse.")
 
 
 def publish_search_workbook(
