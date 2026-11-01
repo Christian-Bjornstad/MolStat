@@ -200,8 +200,6 @@ def validate_report_job(raw: Mapping[str, object]) -> ReportJob:
     created_to = _date(raw, "created_to")
     if created_from > created_to:
         raise ReportJobError("report interval is invalid")
-    if workflow and created_from.replace(day=1) != created_to.replace(day=1):
-        raise ReportJobError("workflow interval must stay inside one calendar month")
     return ReportJob(
         job_key=job_key,
         report_type=_text(raw, "report_type"),

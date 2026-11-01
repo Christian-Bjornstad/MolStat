@@ -7,7 +7,7 @@ from molstat.fetching import UnifiedLvmsFetcher, plan_window
 from molstat.lvms.report_job import batch_filename, load_report_jobs
 
 
-def test_fetcher_keeps_safe_batch_failure_and_retries_only_before_submission(tmp_path):
+def test_fetcher_falls_back_to_years_after_long_request_fails(tmp_path):
     from molstat.failures import RunFailure
     calls = []
     successful = FakeBatchRunner()
@@ -24,10 +24,11 @@ def test_fetcher_keeps_safe_batch_failure_and_retries_only_before_submission(tmp
         work_root=tmp_path / "work", units_path=_units(tmp_path / "units.json"),
         backlog_report_path=_backlog_report(tmp_path / "backlog.json"),
         run_batch=runner, sleep=lambda seconds: None,
+        today=lambda: date(2026, 10, 21),
     )
     assert fetcher.fetch_backlog()[1].is_file()
-    assert len(calls) == 2
-    assert calls[0] != calls[1]
+    assert len(calls) == 4
+    assert len(set(calls)) == 4
 
 
 def test_fetcher_does_not_resubmit_after_download_timeout(tmp_path):
@@ -141,7 +142,7 @@ def test_fetcher_runs_statistics_and_backlog_through_one_runtime(
     backlog_request, backlog_source = fetcher.fetch_backlog()
 
     assert len(statistics["hemato"]) == 1
-    assert statistics["hemato"][0][0].date_from == date(2026, 9, 1)
+    assert statistics["hemato"][0][0].date_from == date(2024, 1, 1)
     assert runner.jobs[0].interval.created_from == date(2024, 1, 1)
     assert statistics["hemato"][0][1].is_file()
     assert backlog_request.date_from == date(2024, 1, 1)
@@ -242,7 +243,7 @@ def test_statistics_window_is_planned_separately_for_each_report(tmp_path):
         (date(2026, 10, 18), date(2026, 10, 21))]
     assert missing[0].interval.created_from == date(2024, 1, 1)
     assert missing[-1].interval.created_to == date(2026, 10, 21)
-    assert len(missing) == 34
+    assert len(missing) == 1
 
 
 @pytest.mark.parametrize('key', ['hemato', 'solide', 'flow', 'fish', 'pre'])
@@ -266,11 +267,12 @@ def test_every_statistics_profile_only_backfills_missing_report_history(tmp_path
         recent_start = date(2026, 9, 20) if key == 'fish' else date(2026, 10, 18)
         assert jobs[0].interval.created_from == (recent_start if populated else date(2024, 1, 1))
         assert jobs[-1].interval.created_to == date(2026, 10, 21)
-        assert len(jobs) == (1 if populated else 34)
+        assert len(jobs) == 1
 
 
 @pytest.mark.parametrize('key', ['hemato', 'solide', 'flow', 'fish', 'pre', 'lege'])
-def test_long_missing_statistics_interval_fetches_and_checkpoints_each_calendar_month(tmp_path, key):
+def test_failed_long_statistics_interval_falls_back_and_checkpoints_each_calendar_month(tmp_path, key):
+    from molstat.failures import RunFailure
     from molstat._statistics import patolog_flow as flow
     from molstat.unit_settings import load_unit_file
     from unit_fixtures import default_unit_file
@@ -280,6 +282,9 @@ def test_long_missing_statistics_interval_fetches_and_checkpoints_each_calendar_
     def runner(config, jobs_path, keys, **kwargs):
         report, = load_report_jobs(jobs_path)
         calls.append(report)
+        if report.interval.created_from.month != report.interval.created_to.month:
+            kwargs['error_reporter'](RunFailure('LVMS_TIMEOUT', 'report', retryable=True))
+            return 2
         destination = kwargs['repository_root'] / 'rådata' / batch_filename(report)
         destination.parent.mkdir(parents=True)
         fields = flow.DATE_FIELDS + ['Prøvenummer', 'Lab', 'Prosess', 'Prioritet',
@@ -307,12 +312,13 @@ def test_long_missing_statistics_interval_fetches_and_checkpoints_each_calendar_
                 (date(2026, 10, 1), date(2026, 10, 21))]
     for report in unit.reports:
         assert [(job.interval.created_from, job.interval.created_to) for job in calls
-                if job.output_stem == report.report_id] == expected
-        for start, end in expected[:-1]:
+                if job.output_stem == report.report_id] == [(expected[0][0], expected[-1][1]), *expected]
+        for start, end in expected:
             assert (archive / f'{report.report_id}__{start.isoformat()}__{end.isoformat()}.csv').is_file()
     assert len(fetched) == len(unit.reports)
-    assert all((request.date_from, request.date_to) == expected[-1] and source.is_file()
+    assert all((request.date_from, request.date_to) == (expected[0][0], expected[-1][1]) and source.is_file()
                for request, source in fetched)
+    assert not list((tmp_path / 'work').glob('*/attempt-*/rådata/*.csv'))
 
 
 @pytest.mark.parametrize('today,expected', [
@@ -338,19 +344,11 @@ def test_fish_always_refetches_a_calendar_month_for_each_report(tmp_path, today,
 
 @pytest.mark.parametrize(('start', 'today', 'expected'), [
     (date(2026, 7, 31), date(2026, 9, 30), [(date(2026, 7, 31), date(2026, 9, 30))]),
-    (date(2026, 7, 31), date(2026, 10, 1), [
-        (date(2026, 7, 31), date(2026, 7, 31)),
-        (date(2026, 8, 1), date(2026, 8, 31)),
-        (date(2026, 9, 1), date(2026, 9, 30)),
-        (date(2026, 10, 1), date(2026, 10, 1))]),
+    (date(2026, 7, 31), date(2026, 10, 1), [(date(2026, 7, 31), date(2026, 10, 1))]),
     (date(2026, 12, 31), date(2027, 2, 28), [(date(2026, 12, 31), date(2027, 2, 28))]),
-    (date(2026, 12, 31), date(2027, 3, 1), [
-        (date(2026, 12, 31), date(2026, 12, 31)),
-        (date(2027, 1, 1), date(2027, 1, 31)),
-        (date(2027, 2, 1), date(2027, 2, 28)),
-        (date(2027, 3, 1), date(2027, 3, 1))]),
+    (date(2026, 12, 31), date(2027, 3, 1), [(date(2026, 12, 31), date(2027, 3, 1))]),
 ])
-def test_statistics_month_splitting_uses_calendar_threshold(tmp_path, start, today, expected):
+def test_statistics_always_attempts_whole_missing_interval_first(tmp_path, start, today, expected):
     from molstat._statistics.units import load_units
     unit = load_units(_units(tmp_path / 'units.json'))[0]
     runner = FakeBatchRunner()
@@ -374,6 +372,9 @@ def test_interrupted_monthly_statistics_resumes_from_confirmed_archive_overlap(t
     def runner(config, jobs_path, keys, **kwargs):
         report, = load_report_jobs(jobs_path)
         calls.append((report.interval.created_from, report.interval.created_to))
+        if report.interval.created_from.month != report.interval.created_to.month:
+            kwargs['error_reporter'](RunFailure('LVMS_TIMEOUT', 'report', retryable=True))
+            return 2
         if interrupted and report.interval.created_from.month == 7:
             kwargs['error_reporter'](RunFailure('CANCELLED', 'batch'))
             return 130
@@ -384,14 +385,16 @@ def test_interrupted_monthly_statistics_resumes_from_confirmed_archive_overlap(t
         today=lambda: date(2026, 10, 21), history_from=date(2026, 6, 15))
     with pytest.raises(RunFailure, match='CANCELLED'):
         fetcher.fetch_statistics()
-    assert calls == [(date(2026, 6, 15), date(2026, 6, 30)),
+    assert calls == [(date(2026, 6, 15), date(2026, 10, 21)),
+                     (date(2026, 6, 15), date(2026, 6, 30)),
                      (date(2026, 7, 1), date(2026, 7, 31))]
     interrupted = False
     calls.clear()
 
     fetcher.fetch_statistics()
 
-    assert calls == [(date(2026, 6, 28), date(2026, 6, 30)),
+    assert calls == [(date(2026, 6, 28), date(2026, 10, 21)),
+                     (date(2026, 6, 28), date(2026, 6, 30)),
                      (date(2026, 7, 1), date(2026, 7, 31)),
                      (date(2026, 8, 1), date(2026, 8, 31)),
                      (date(2026, 9, 1), date(2026, 9, 30)),

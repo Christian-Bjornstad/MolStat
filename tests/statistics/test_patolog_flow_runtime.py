@@ -35,7 +35,7 @@ def test_workflow_job_requires_scoped_lab_and_processes():
         validate_report_job(raw | {"process_codes": []})
 
 
-def test_monthly_flow_backfill_then_only_recent_days_even_with_open_history(tmp_path):
+def test_pathology_tries_full_history_then_only_recent_days_even_with_open_history(tmp_path):
     import json
     definition = load_unit_file(default_unit_file("lege"))
     unit = definition.unit
@@ -49,16 +49,19 @@ def test_monthly_flow_backfill_then_only_recent_days_even_with_open_history(tmp_
                sample=job.interval.created_from.isoformat())
         return 0
     fetcher = UnifiedLvmsFetcher(lvms_config_path=tmp_path / "lvms.json", sensitive_root=tmp_path,
-        work_root=tmp_path / "work", units_path=tmp_path / "units.json", backlog_report_path=tmp_path / "backlog.json",
+        work_root=tmp_path / "work", units=(unit,),
         run_batch=runner, today=lambda: date(2026, 10, 18), history_from=date(2026, 8, 1))
-    fetcher._backfill_flow_months(unit, date(2026, 10, 18))
+    from molstat.archive import RawArchive
+    fetched = fetcher.fetch_statistics(('lege',))['lege']
+    for request, source in fetched:
+        RawArchive(tmp_path).store(source, request)
     assert [(j.interval.created_from, j.interval.created_to) for j in calls] == [
-        (date(2026, 8, 1), date(2026, 8, 31)), (date(2026, 9, 1), date(2026, 9, 30))]
+        (date(2026, 8, 1), date(2026, 10, 18))]
     assert all(j.laboratory == report.laboratory and j.process_codes for j in calls)
     calls.clear()
-    fetcher._backfill_flow_months(unit, date(2026, 10, 18))
+    fetcher.fetch_statistics(('lege',))
     assert [(j.interval.created_from, j.interval.created_to) for j in calls] == [
-        (date(2026, 9, 28), date(2026, 9, 30))]
+        (date(2026, 10, 16), date(2026, 10, 18))]
 
 
 def test_populated_pathology_fetches_only_recent_days(tmp_path):
@@ -125,8 +128,8 @@ def test_pathology_overlap_at_month_boundary_never_restarts_history(tmp_path):
         run_batch=runner, today=lambda: date(2026, 11, 2), history_from=date(2026, 10, 1))
     result = fetcher.fetch_statistics(('lege',))['lege']
     assert [(j.interval.created_from, j.interval.created_to) for j in jobs] == [
-        (date(2026, 10, 29), date(2026, 10, 31)), (date(2026, 11, 1), date(2026, 11, 2))]
-    assert result[0][0].date_from == date(2026, 11, 1)
+        (date(2026, 10, 29), date(2026, 11, 2))]
+    assert result[0][0].date_from == date(2026, 10, 29)
 
 
 def test_archive_uses_latest_complete_month_snapshot_without_double_count(tmp_path):

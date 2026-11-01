@@ -1,6 +1,6 @@
 import csv
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from threading import Event
 import errno
@@ -185,6 +185,54 @@ def test_timeout_splitting_stops_at_report_request_budget(tmp_path):
     with pytest.raises(RunFailure, match="LVMS_TIMEOUT"):
         fetcher(tmp_path, runner)._run_jobs((job(start=date(2024, 1, 1), end=date(2026, 10, 20)),), "hemato")
     assert len(calls) <= 24
+
+
+def test_large_report_falls_back_to_years_then_only_failed_years_to_months(tmp_path):
+    calls = []
+
+    def runner(config, jobs_path, keys, **kwargs):
+        report, = load_report_jobs(jobs_path)
+        start, end = report.interval.created_from, report.interval.created_to
+        calls.append((start, end))
+        if start.year != end.year or (start.year == 2025 and start.month != end.month):
+            kwargs['error_reporter'](RunFailure('LVMS_TIMEOUT', 'report', retryable=True))
+            return 2
+        write_report(kwargs['repository_root'], report)
+        return 0
+
+    report = job(start=date(2024, 2, 10), end=date(2026, 3, 9))
+    source, = fetcher(tmp_path, runner)._run_jobs((report,), 'hemato')
+
+    assert calls == [
+        (date(2024, 2, 10), date(2026, 3, 9)),
+        (date(2024, 2, 10), date(2024, 12, 31)),
+        (date(2025, 1, 1), date(2025, 12, 31)),
+        *[(date(2025, month, 1), date(2025, month + 1, 1) - timedelta(days=1))
+          for month in range(1, 12)],
+        (date(2025, 12, 1), date(2025, 12, 31)),
+        (date(2026, 1, 1), date(2026, 3, 9)),
+    ]
+    with source.open(encoding='cp1252', newline='') as stream:
+        assert len(list(csv.DictReader(stream, delimiter=';'))) == 14
+
+
+def test_all_monthly_fallbacks_fit_request_budget_for_three_year_history(tmp_path):
+    calls = []
+
+    def runner(config, jobs_path, keys, **kwargs):
+        report, = load_report_jobs(jobs_path)
+        start, end = report.interval.created_from, report.interval.created_to
+        calls.append((start, end))
+        if (start.year, start.month) != (end.year, end.month):
+            kwargs['error_reporter'](RunFailure('LVMS_FAILED', 'report', retryable=True))
+            return 2
+        write_report(kwargs['repository_root'], report)
+        return 0
+
+    report = job(start=date(2024, 1, 1), end=date(2026, 10, 21))
+    source, = fetcher(tmp_path, runner)._run_jobs((report,), 'hemato')
+    assert source.is_file()
+    assert len(calls) == 38
 
 
 def test_split_utf8_report_keeps_one_bom_and_preserves_duplicate_glass_rows(tmp_path):

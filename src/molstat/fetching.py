@@ -30,7 +30,7 @@ _WINDOW = re.compile(
 )
 BACKLOG_FROM = date(2024, 1, 1)
 REPORT_TIMEOUT_SECONDS = 300
-MAX_REPORT_REQUESTS = 24
+MAX_CONSECUTIVE_REPORT_FAILURES = 24
 MAX_SPLIT_DEPTH = 8
 
 
@@ -90,37 +90,29 @@ class UnifiedLvmsFetcher:
                 )
             selected = tuple(by_key[key] for key in unit_keys)
         for unit in selected:
-            if unit.profile == "lege" and any(r.job_key == "workflow" for r in unit.reports):
-                usernames = ()
-                start, _ = plan_window(self.sensitive_root, kind="statistics", unit=unit.key,
-                    report_name=unit.report_by_key("workflow").report_id,
-                    archive_scope=unit.report_by_key("workflow").archive_scope,
-                    baseline=self.history_from, today=today)
-                self._backfill_flow_months(unit, today)
-                planned = [(unit.report_by_key("workflow"), max(start, today.replace(day=1)), today)]
-            elif unit.profile == "lege":
+            if unit.profile == "lege" and not any(r.job_key == "workflow" for r in unit.reports):
                 raise ValueError("Patolog krever et oppdatert workflow-oppsett i JSON.")
-            else:
-                usernames = ()
-                planned = []
-                for report in unit.reports:
-                    start, end = plan_window(
-                        self.sensitive_root, kind="statistics", unit=unit.key,
-                        report_name=report.report_id, baseline=self.history_from, today=today,
-                        monthly_overlap=unit.profile == "fish",
-                    )
-                    if end > _two_months_after(start):
-                        self._backfill_statistics_months(unit, report, start, end)
-                        start = max(start, end.replace(day=1))
-                    planned.append((report, start, end))
+            planned = []
+            for report in unit.reports:
+                start, end = plan_window(
+                    self.sensitive_root, kind="statistics", unit=unit.key,
+                    report_name=report.report_id, baseline=self.history_from, today=today,
+                    monthly_overlap=unit.profile == "fish", archive_scope=report.archive_scope,
+                )
+                planned.append((report, start, end))
             jobs = tuple(
-                _statistics_job(unit, report, start, end, usernames=usernames)
+                _statistics_job(unit, report, start, end)
                 for report, start, end in planned
             )
-            if unit.profile == "lege":
-                sources = tuple(self._run_jobs((job,), unit.key)[0] for job in jobs)
-            else:
-                sources = self._run_jobs(jobs, unit.key)
+            scopes = {report.report_id: report.archive_scope for report, _, _ in planned}
+
+            def checkpoint(job: ReportJob, source: Path) -> None:
+                RawArchive(self.sensitive_root).store(source, ReportRequest(
+                    kind="statistics", unit=unit.key, report_name=job.output_stem,
+                    date_from=job.interval.created_from, date_to=job.interval.created_to,
+                    archive_scope=scopes[job.output_stem]))
+
+            sources = self._run_jobs(jobs, unit.key, on_confirmed=checkpoint)
             result[unit.key] = tuple(
                 (
                     ReportRequest(
@@ -136,27 +128,6 @@ class UnifiedLvmsFetcher:
                 for (report, _, _), job, source in zip(planned, jobs, sources, strict=True)
             )
         return result
-
-    def _backfill_flow_months(self, unit: Unit, today: date) -> None:
-        report = unit.report_by_key("workflow")
-        start, _ = plan_window(self.sensitive_root, kind="statistics", unit=unit.key,
-            report_name=report.report_id, baseline=self.history_from, today=today,
-            archive_scope=report.archive_scope)
-        self._backfill_statistics_months(unit, report, start, today)
-
-    def _backfill_statistics_months(self, unit: Unit, report, start: date, today: date) -> None:
-        archive = RawArchive(self.sensitive_root)
-        # Chunk only the missing interval, checkpointing each confirmed file so
-        # interrupted initial loads resume without requesting all history again.
-        while start < today.replace(day=1):
-            end = _month_end(start)
-            job = _statistics_job(unit, report, start, end)
-            source = self._run_jobs((job,), unit.key)[0]
-            archive.store(source, ReportRequest(kind="statistics", unit=unit.key,
-                report_name=report.report_id, date_from=start, date_to=end,
-                archive_scope=report.archive_scope))
-            remove_archived_download(source, self.sensitive_root)
-            start = end + timedelta(days=1)
 
     def fetch_backlog(self, unit_key: str = "hemato", report_path: Path | None = None) -> tuple[ReportRequest, Path]:
         today = self._today()
@@ -192,7 +163,8 @@ class UnifiedLvmsFetcher:
             source,
         )
 
-    def _run_jobs(self, jobs: tuple[ReportJob, ...], run_label: str) -> tuple[Path, ...]:
+    def _run_jobs(self, jobs: tuple[ReportJob, ...], run_label: str, *,
+                  on_confirmed: Callable[[ReportJob, Path], None] | None = None) -> tuple[Path, ...]:
         check_cancelled()
         checkpoint_writer_lease()
         run_root = self.work_root / f"{run_label}-{uuid4().hex}"
@@ -205,29 +177,34 @@ class UnifiedLvmsFetcher:
             if run_label != 'backlog':
                 emit_progress(run_label, 'statistics', 'fetching',
                     f'{job.interval.created_from:%d.%m.%Y}–{job.interval.created_to:%d.%m.%Y}')
-            parts = self._fetch_report_parts(job, run_root, budget=[0])
+            parts = self._fetch_report_parts(job, run_root, budget=[0], on_confirmed=on_confirmed)
             check_cancelled()
             destination = output / batch_filename(job)
             if len(parts) == 1:
                 _install_confirmed_report(parts[0], destination)
             else:
                 combine_report_parts(parts, destination)
-            sources.append(destination)
-        for job, source in zip(jobs, sources, strict=True):
             if job.laboratory:
                 from ._statistics.patolog_flow import validate_month
                 try:
-                    validate_month(source, job.interval.created_from, job.interval.created_to,
+                    validate_month(destination, job.interval.created_from, job.interval.created_to,
                                    laboratory=job.laboratory, processes=job.process_codes)
                 except ValueError as exc:
                     raise RunFailure("CSV_INVALID", "patolog/workflow/download") from exc
+            if len(parts) > 1 and on_confirmed is not None:
+                # Every part has a durable archive checkpoint and the merged
+                # output is complete. Keep parts on combine/validation failure.
+                for part in parts:
+                    remove_archived_download(part, self.sensitive_root)
+            sources.append(destination)
         return tuple(sources)
 
     def _fetch_report_parts(self, job: ReportJob, run_root: Path, *, budget: list[int],
-                            depth: int = 0) -> tuple[Path, ...]:
+                            depth: int = 0,
+                            on_confirmed: Callable[[ReportJob, Path], None] | None = None) -> tuple[Path, ...]:
         for attempt in range(1, 4):
             check_cancelled()
-            if budget[0] >= MAX_REPORT_REQUESTS:
+            if budget[0] >= MAX_CONSECUTIVE_REPORT_FAILURES:
                 raise RunFailure("LVMS_TIMEOUT", "report_attempt_limit", run_id=run_root.name)
             budget[0] += 1
             checkpoint_writer_lease()
@@ -257,6 +234,11 @@ class UnifiedLvmsFetcher:
                             stage="patolog_report_validate")
                     except ValueError as exc:
                         raise RunFailure("CSV_INVALID", "patolog/workflow/download") from exc
+                budget[0] = 0
+                if depth and on_confirmed is not None:
+                    # Preserve successful fallback windows before requesting the
+                    # next one, so an interruption can resume from this checkpoint.
+                    on_confirmed(job, source)
                 return (source,)
             error = failures[-1] if failures else RunFailure(
                 "CANCELLED" if exit_code == 130 else "LVMS_FAILED", "batch")
@@ -266,14 +248,19 @@ class UnifiedLvmsFetcher:
             transient_lvms = error.code in {"LVMS_TIMEOUT", "LVMS_FAILED", "LVMS_FORM"}
             can_split = (transient_lvms and job.interval.created_from < job.interval.created_to
                          and depth < MAX_SPLIT_DEPTH)
-            if can_split and attempt == 2:
+            calendar_parts = _calendar_parts(job.interval)
+            if can_split and (calendar_parts or attempt == 2):
                 check_cancelled()
                 emit_retry("lvms_report_split", error, attempt, 3, 0)
-                midpoint = job.interval.created_from + (job.interval.created_to - job.interval.created_from) // 2
-                left = replace(job, interval=ReportInterval(job.interval.created_from, midpoint))
-                right = replace(job, interval=ReportInterval(midpoint + timedelta(days=1), job.interval.created_to))
-                return (*self._fetch_report_parts(left, run_root, budget=budget, depth=depth + 1),
-                        *self._fetch_report_parts(right, run_root, budget=budget, depth=depth + 1))
+                if not calendar_parts:
+                    midpoint = job.interval.created_from + (job.interval.created_to - job.interval.created_from) // 2
+                    calendar_parts = (ReportInterval(job.interval.created_from, midpoint),
+                                      ReportInterval(midpoint + timedelta(days=1), job.interval.created_to))
+                parts = []
+                for interval in calendar_parts:
+                    parts.extend(self._fetch_report_parts(replace(job, interval=interval), run_root,
+                        budget=budget, depth=depth + 1, on_confirmed=on_confirmed))
+                return tuple(parts)
             if attempt == 3:
                 raise error
             delay = (5.0, 15.0)[attempt - 1]
@@ -303,10 +290,18 @@ def _month_end(month: date) -> date:
     return next_month - timedelta(days=1)
 
 
-def _two_months_after(start: date) -> date:
-    year, month = divmod(start.year * 12 + start.month - 1 + 2, 12)
-    target = date(year, month + 1, 1)
-    return target.replace(day=min(start.day, _month_end(target).day))
+def _calendar_parts(interval: ReportInterval) -> tuple[ReportInterval, ...]:
+    """Split a failed long request at year boundaries, then at month boundaries."""
+    start, end = interval.created_from, interval.created_to
+    by_year = start.year != end.year
+    if not by_year and start.month == end.month:
+        return ()
+    parts = []
+    while start <= end:
+        stop = min(end, date(start.year, 12, 31) if by_year else _month_end(start))
+        parts.append(ReportInterval(start, stop))
+        start = stop + timedelta(days=1)
+    return tuple(parts)
 
 
 def _one_month_before(value: date) -> date:

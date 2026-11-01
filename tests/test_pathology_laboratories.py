@@ -82,6 +82,9 @@ def test_extended_filter_rebuilds_legacy_history_and_resumes_after_interruption(
     def runner(config, jobs_path, keys, **kwargs):
         job, = load_report_jobs(jobs_path)
         calls.append(job)
+        if job.interval.created_from.month != job.interval.created_to.month:
+            kwargs['error_reporter'](RunFailure('LVMS_TIMEOUT', 'report', retryable=True))
+            return 2
         if interrupt[0] and job.interval.created_from.month == 9:
             raise InterruptedError("synthetic interruption")
         export(kwargs["repository_root"] / "rådata" / batch_filename(job), job.interval.created_from)
@@ -98,6 +101,7 @@ def test_extended_filter_rebuilds_legacy_history_and_resumes_after_interruption(
     fetched = fetcher.fetch_statistics(("lege",))["lege"]
     assert calls[0].interval.created_from == date(2026, 8, 29)
     assert [(j.interval.created_from, j.interval.created_to) for j in calls] == [
+        (date(2026, 8, 29), date(2026, 10, 21)),
         (date(2026, 8, 29), date(2026, 8, 31)),
         (date(2026, 9, 1), date(2026, 9, 30)),
         (date(2026, 10, 1), date(2026, 10, 21))]
