@@ -192,6 +192,8 @@ def test_denied_readonly_repair_retains_safe_error_and_cause(tmp_path, monkeypat
     denied = PermissionError(errno.EACCES, "PRIVATE-PATH-PAYLOAD")
     denied.winerror = 5
     monkeypatch.setattr(Path, "stat", file_stat)
+    # Windows 3.14 implements lstat separately from the overridable stat method.
+    monkeypatch.setattr(Path, "lstat", file_stat)
     monkeypatch.setattr(Path, "chmod", lambda *args: (_ for _ in ()).throw(denied))
 
     with pytest.raises(access.DatabaseAccessError) as failure:
